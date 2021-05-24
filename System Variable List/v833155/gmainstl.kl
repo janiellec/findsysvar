@@ -1,0 +1,219 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1999
+--             Fanuc Robotics Corporation
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:  gminstal - RS4 Specific Program
+--    
+--    Description:
+--    
+--    Runs during software installation
+--
+--    Language: KAREL
+--    
+--    Source File:  gmainstl
+--    
+--    Author: 
+--            Fanuc Robotics Corporation
+--            3900 W. Hamlin Rd.
+--            Rochester Hills, Michigan    48309
+--    
+--    Modification history:
+--	2018/01/26 marchaka Load gmawcust (awshcust)
+--      2018/11/30 marchaka Add initialization of GM ArcTool wizard variables. 
+--                          SpotTool+ uses a similar function.  Remove routine calls for
+--                          arctl_ld and lsrprc_ld as they are included in init_arc_wiz routine
+--                          which is included in initatwizvar.
+--      2019/08/02 marchaka Remove telnet.  FSAC set to read only.
+--      2019/08/22 marchaka Add some file_apbck settings during software installation
+--      2019/10/17 marchaka Temporarily remove fsac settings per GM's request.  Need other settings before this can be applied.
+--      2020/09/21 marchaka Call routine to load FMD files from custom folder on full load media.
+--
+--
+------------------------------------------------------------------
+PROGRAM gmainstl
+------------------------------------------------------------------
+
+%COMMENT = 'GMRS4 Arc Site Setup'
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+
+%ENVIRONMENT IOSETUP  --set_port_cmt
+%ENVIRONMENT proddef  --$application[8]
+%ENVIRONMENT fdev     --delete file
+
+%INCLUDE klevkmsk
+%INCLUDE kltpctrl
+%INCLUDE kliotyps
+
+%INCLUDE KLIOSOP  
+
+CONST
+  Revision = '2020-09-21'
+  ER_WARN = 0
+
+VAR
+  gm_status,
+  prog_index:  INTEGER
+  arc_optn IN SHADOW FROM GMVARS: BOOLEAN --arctool loaded on the robot
+  lsrproc_optn IN SHADOW FROM GMATVAR: BOOLEAN  -- Laser process tool option loaded on robot
+  CurAppLoc : STRING[32] -- used for setting fileappbck variable
+
+
+%INCLUDE klrdutil
+
+ROUTINE init_setup  FROM gmsetvar
+ROUTINe set_std_var FROM gmsetvar --initial GM Karel variables
+ROUTINE setpmcintio FROM gmpmc
+ROUTINE arctl_ld    FROM gmwizarc --check to see if ArcTool or LR ArcTool is loaded
+ROUTINE initatwizvar FROM gmwizarc --initialize wizard variables
+ROUTINE fmd_load FROM gmcellpg
+
+%INCLUDE gmrdutil  --GM utility program
+----------------------------------------------------------------------------------------
+BEGIN
+
+  arctl_ld --check if ArcTool is loaded, need to do this before init_setup
+
+  init_setup
+
+  initatwizvar --initialize wizard variables
+
+  set_std_var  --set necessary Karel variables
+
+  --Set default arrays that are not *system* and cannot be set in fd
+  Set_I_PVar('*NUMREG*','$MAXREGNUM',999)  --set registers to 999
+  Set_I_PVar('*STRREG*','$MAXSREGNUM',99) --set string registers to 99
+  Set_I_PVar('*POSREG*','$MAXPREGNUM',200) --set position registers to 200
+  Set_I_sVar('$scr.$maxnumufram',20)  --set user frames to 20
+  Set_I_sVar('$scr.$maxnumutool',20)  --set tool frames to 20
+
+  --Add some file_apbck settings during install
+  -- Setup so the atshcust is saved on Backup
+  IF ChkIfBckedup('atshcust') THEN -- check if already in setup
+    POST_ERR(38000, 'ATSHCUST is already setup in FILE APP BACKUP', gm_status, 0)
+  ELSE -- Not already in file_appbck
+    CurAppLoc = SetBackUpLoc -- Call routine to return available variable location
+    IF CurAppLoc <> 'NONE' THEN
+      Set_S_sVar(CurAppLoc + '.$file_name','atshcust.vr')
+      Set_S_sVar(CurAppLoc + '.$prog_name','atshcust')
+      Set_I_sVar(CurAppLoc + '.$func_code',0)
+      Set_I_sVar(CurAppLoc + '.$modifier',0)
+      Set_S_sVar(CurAppLoc + '.$comment','Arc Customization GRS4')
+    ELSE
+      POST_ERR(38000, 'No FILE BACKUP Opening for ATSHCUST to be set to', gm_status, 0)
+    ENDIF
+  ENDIF
+
+  -- Setup so Custom data file gets saved on backup
+  IF ChkIfBckedup('gmcusto') THEN -- check if already in setup
+    POST_ERR(38000, 'gmcusto is already setup in FILE APP BACKUP', gm_status, 0)
+  ELSE -- Not already in file_appbck
+    CurAppLoc = SetBackUpLoc -- Call routine to return available variable location
+    IF CurAppLoc <> 'NONE' THEN
+      Set_S_sVar(CurAppLoc + '.$file_name','gmcusto.vr')
+      Set_S_sVar(CurAppLoc + '.$prog_name','gmcusto')
+      Set_I_sVar(CurAppLoc + '.$func_code',0)
+      Set_I_sVar(CurAppLoc + '.$modifier',0)
+      Set_S_sVar(CurAppLoc + '.$comment','Custom File')
+    ELSE
+      POST_ERR(38000, 'No FILE BACKUP Opening for gmcusto to be set to', gm_status, 0)
+    ENDIF
+  ENDIF
+
+  -- Setup so all wizard configuration data files get saved on backup
+  IF ChkIfBckedup('gmcfg*') THEN -- check if already in setup
+    POST_ERR(38000, 'gmcfg* is already setup in FILE APP BACKUP', gm_status, 0)
+  ELSE -- Not already in file_appbck
+    CurAppLoc = SetBackUpLoc -- Call routine to return available variable location
+    IF CurAppLoc <> 'NONE' THEN
+      Set_S_sVar(CurAppLoc + '.$file_name','gmcfg*.vr')
+      Set_S_sVar(CurAppLoc + '.$prog_name','gmcfg*')
+      Set_I_sVar(CurAppLoc + '.$func_code',0)
+      Set_I_sVar(CurAppLoc + '.$modifier',0)
+      Set_S_sVar(CurAppLoc + '.$comment','Wizard Configs')
+    ELSE
+      POST_ERR(38000, 'No FILE BACKUP Opening for gmcfg* to be set to', gm_status, 0)
+    ENDIF
+  ENDIF
+
+  --Set custom menu setting for pounce data
+  Set_S_sVar('$CUSTOMMENU[22].$TITLE', 'Pounce Data')
+  Set_S_sVar('$CUSTOMMENU[22].$PROG_NAME', 'GMPNCDTA')
+  Set_I_sVar('$CUSTOMMENU[22].$OPTION', 31)
+      
+  -- Set the port comment for SOP LED#1 and #2
+  -- but only for fra params loaded.
+  IF feature('R650') THEN
+     SET_PORT_CMT(IO_SOPOUT, SOPO_USER1, 'Proc cmplete', gm_status)
+     SET_PORT_CMT(IO_SOPOUT, SOPO_USER2, 'At home', gm_status)
+  ENDIF
+
+  setpmcintio --Map PMC internal IO assignments
+
+  CALL_PROG('GMSAFEIO',prog_index) --Setup GM safety settings
+
+  IF (lsrproc_optn = TRUE) THEN --laser setup menu is used at controlled start
+				--setup laser variables to configure gmwizarc on the menu
+    Set_S_sVar('$awlaser_cfg.$fname','gmwizarc')
+    Set_B_sVar('$awlaser_cfg.$fexec',FALSE)
+  ELSE --setup ArcTool variable for menu
+    Set_S_PVar('awsetup','cust_file','gmwizarc')
+    Set_B_PVar('awsetup','cust_exec', FALSE)
+  ENDIF --laser process option
+
+  --Load FMD files  --ArcTool requires unprotecting FRS during the install, SpotTool+ does not
+  SPRUNCMD('frclrpr', gm_status)  --unprotects FRS
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to run FLRCLRPR', gm_status, 0)
+  ENDIF
+  fmd_load
+  SPRUNCMD('frsetpr', gm_status)  --protects FRS
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to run FRSETPR', gm_status, 0)
+  ENDIF
+
+  --Fanuc Server Access Control set to read only
+  --Temporarily remove from p08 per GM"s request, need other settings before these can be applied
+  --Set_I_sVar('$fsac_enable', 1)
+  --Set_I_sVar('$fsac_def_lv', 0)
+
+  SPRUNCfile('FRS:\telnet.ld4', 'FR2:\telnet.ld4')
+  SPRUNCMD('frclrpr', gm_status)  --unprotects FRS
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to run FLRCLRPR', gm_status, 0)
+  ENDIF
+  DELETE_FILE('FRS:\telnet.ld4',false, gm_status)
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to delete TELNET', gm_status, 0)
+  ENDIF
+  SPRUNCMD('frsetpr', gm_status)  --protects FRS
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to run FRSETPR', gm_status, 0)
+  ENDIF
+
+  --Load gmawcust
+  CLEAR('atshcust', gm_status)
+  LOAD('FRS:\gmawcust.pc',0,gm_status)
+
+  $application[8] = 'GM Global 4 Rev00'
+
+END gmainstl
+
+
+
+
+
+

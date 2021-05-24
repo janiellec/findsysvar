@@ -1,0 +1,403 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMwizTLC
+--
+--    Description:
+--
+--    SWWIZTLC configure the tool change wizard to prompt user for the questions
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: GMwizTLC.kl
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           03/21/16  KosaskiR Change I/O to reflect new G4 Standard
+--           04/05/16  KosaskiR Update to use the new GMCFGxxx variables and remove DISPLAY vars
+--                     added the Write Log to it.
+--           2016/10/12 marchaka Modified logic to handle body shop combination applications
+--           12/04/16  Kosaski changed so no USERPAGE is used and replaced with
+--                     FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+--          V4.1      2018/17/02 R.Kosaski        Removed forceing fo the user page because causing forms
+--                                                to not display
+-------------------------------------------------------------------------------------------------------------
+PROGRAM GMWIZTLC
+-------------------------------------------------------------------------------------------------------------
+-- Softpart built-ins
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%RWACCESS
+%COMMENT='GM TCWizard G4.1'
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE gmcfgbdy --Body shop application variables
+%INCLUDE KLEVCCDF -- used for the TPERROR builtin
+
+CONST
+
+Version = '2018-17-02'
+
+%INCLUDE GMCNSTNT -- all gm constants
+
+VAR
+
+  InvalidStnds IN SHADOW : BOOLEAN -- Used for if the stand configuration is valid
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StndisSetup  IN SHADOW FROM GMTLCIO : ARRAY[4] OF BOOLEAN -- indicates if the tool stand has been setup before
+
+  ans,i        : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+%INCLUDE GMCFGTLC
+%INCLUDE GMCFGCEL
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Int@str, VerifyAnswer Etc...
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+ -----------------------------------------------------------------------------
+ROUTINE Chk_TC_Init
+-- PURPOSE: to ensure all variable for this program is initialized so it can run
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(Reset_Cell) THEN
+    Reset_Cell = TRUE
+  ENDIF
+
+  IF UNINIT(Max_ToolStnd) THEN
+    Max_ToolStnd = 4
+  ENDIF
+
+  IF UNINIT(TC_Comm_Type) OR Reset_Cell THEN --set hook for multiple communications
+    TC_Comm_Type = Ethernet -- set it to 89
+  ENDIF
+
+  InvalidStnds = FALSE -- set user configuration of stands is OK
+
+IF Reset_Cell THEN -- CEll is never setup or is being reset
+  FOR i = 1 TO ARRAY_LEN(StndisSetup) DO
+    StndisSetup[i] = FALSE
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(ToolStndType) DO
+    ToolStndType[i]  = 1 -- reset default to single tool stands
+  ENDFOR --
+
+  TC_Comm_Type = Ethernet -- ethernet is default communication type
+
+  IF (mfg_area <> mfg_area_bs) THEN --reset for all shops but body shop
+    UseToolChngr = FALSE -- reset Grip Setup
+  ENDIF
+
+  IF (mfg_area = mfg_area_bs) THEN --body shop has certain conditions where this doesn't get reset
+                                    --it gets set in gmwizbsh for combos
+    SELECT num_proc OF
+      CASE(1):
+        UseToolChngr = FALSE  --reset for single applicaitons
+
+      CASE(2):
+        --for two processes, only reset for same app type
+
+        IF ((bshop_proc1 = spotappl) AND (bshop_proc2 = spotappl)) THEN
+          UseToolChngr = FALSE -- reset for spot + spot applications
+        ENDIF
+        IF ((bshop_proc1 = dispappl) AND (bshop_proc2 = dispappl)) THEN
+          UseToolChngr = FALSE -- reset for disp + disp applications
+        ENDIF
+        IF ((bshop_proc1 = sprappl) AND (bshop_proc2 = sprappl)) THEN
+          UseToolChngr = FALSE -- reset for spr + spr applicaitons
+        ENDIF
+
+      ELSE:
+        UseToolChngr = FALSE -- reset for MH app only
+    ENDSELECT
+
+  ENDIF --bodyshop
+
+  Num_ToolStnd = 0
+  WriteLog('Tool Changer setup RESET by GMWIZTLC',FALSE)
+ENDIF
+
+END Chk_TC_Init
+-----------------------------------------------------------------------------
+ROUTINE tlc_app_wiz
+-- PURPOSE: to ask user questions about tool changing setup
+--
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+--**********************************************************************
+--- Prompt User for the Tool Changer to be mapped by the robot
+--**********************************************************************
+Chk_TC_Init
+
+   WriteLog(' Tool Changer Wizard Starting',FALSE)
+
+ IF (mfg_area <> mfg_area_bs) THEN --all shops but body shop
+
+  -- Check for Tool Changer
+     REPEAT
+       CLR_STND_SCR(gm_status)
+
+       WRITE (cr,mhq5_gmdata,'?',CR,CR) --(CR,CR,'Is a Tool Changer Present?',CR)
+       WRITE ('1.',yes_gmdata,CR)       --('',CR)
+       WRITE ('2.',no_gmdata,CR,CR)     --('1. Yes',CR)
+       WRITE(gdata_ans,'(1-2):')        --('2. No',CR,CR)
+       READ (ans)                       --('Answer 1-2: ')
+     UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+
+     IF ans > 1 THEN -- Setup Tool Changer Variable for Wizard from GMWIZCFG
+       IF UseToolChngr THEN
+         POST_ERR(38000, 'Tool Changer Removed by User', 0, 0) --
+         WriteLog('  Tool Changer Removed by User',FALSE)
+         DELAY 2000
+       ENDIF
+       WriteLog('  User selected no Tool Changer',FALSE)
+       WriteLog('  Tool Changer Wizard Completed',FALSE)
+       WriteLog('',FALSE)
+       UseToolChngr = FALSE
+       Num_ToolStnd = 0
+       FOR i = 1 TO ARRAY_LEN(StndisSetup) DO
+         StndisSetup[i] = FALSE
+       ENDFOR --
+       FOR i = 1 TO ARRAY_LEN(ToolStndType) DO
+         ToolStndType[i]  = 1 -- reset default to single tool stands
+       ENDFOR --
+       RETURN -- No Changer stop Questions
+     ELSE
+       UseToolChngr = TRUE
+       WriteLog('  User selected to use Tool Changer',FALSE)
+     ENDIF
+
+ ENDIF --all shops but body shop
+
+ IF (mfg_area = mfg_area_bs) THEN -- body shop
+
+  -- Check for Tool Changer
+
+    IF (UseToolChngr = FALSE) THEN --ask tool change question
+                                   --for combo apps, UseToolChngr will get set to TRUE in gmwizbsh
+                                   --so don't need to ask question
+       REPEAT
+         CLR_STND_SCR(gm_status)
+
+         WRITE (cr,mhq5_gmdata,'?',CR,CR) --(CR,CR,'Is a Tool Changer Present?',CR)
+         WRITE ('1.',yes_gmdata,CR)       --('',CR)
+         WRITE ('2.',no_gmdata,CR,CR)     --('1. Yes',CR)
+         WRITE(gdata_ans,'(1-2):')        --('2. No',CR,CR)
+         READ (ans)                       --('Answer 1-2: ')
+       UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+
+       IF ans > 1 THEN -- Setup Tool Changer Variable for Wizard from GMWIZCFG
+         IF UseToolChngr THEN
+           POST_ERR(38000, 'Tool Changer Removed by User', 0, 0) --
+           WriteLog('  Tool Changer Removed by User',FALSE)
+           DELAY 2000
+         ENDIF
+         WriteLog('  User selected no Tool Changer',FALSE)
+         WriteLog('  Tool Changer Wizard Completed',FALSE)
+         WriteLog('',FALSE)
+         UseToolChngr = FALSE
+         Num_ToolStnd = 0
+         FOR i = 1 TO ARRAY_LEN(StndisSetup) DO
+           StndisSetup[i] = FALSE
+         ENDFOR --
+         FOR i = 1 TO ARRAY_LEN(ToolStndType) DO
+           ToolStndType[i]  = 1 -- reset default to single tool stands
+         ENDFOR --
+         RETURN -- No Changer stop Questions
+       ELSE
+         UseToolChngr = TRUE
+         WriteLog('  User selected to use Tool Changer',FALSE)
+       ENDIF
+
+    ELSE  --tool changer used
+      WriteLog('  User selected to use Tool Changer',FALSE)
+
+    ENDIF --ask tool change question
+
+ ENDIF --bodyshop
+
+--**********************************************************************
+--- Prompt User for the Number of Tool Stands to be mapped by the robot
+--**********************************************************************
+InvalidStnds = FALSE
+
+REPEAT -- repeat until user setup and configured correct type of stands
+
+  InvalidStnds = FALSE
+    Max_ToolStnd = 4
+
+ -- Check for Tool Stand Quantity if singles can have 4, otherwise 2 duals
+   REPEAT
+     CLR_STND_SCR(gm_status)
+     WRITE (cr,mfq16_gmdata,CR,CR) --(CR,CR,'Select Number of Tool Stands',CR)
+     WRITE(gdata_ans,'(1-',Max_ToolStnd,'):')        --('2. No',CR,CR)
+     READ (ans)                       --('Answer 1-2: ')
+   UNTIL (Verify_Answr(Ans,1,Max_ToolStnd))-- Verify Answer
+
+   Num_ToolStnd = Ans
+    WriteLog('User selected '+int2str(Num_ToolStnd)+' Tool Stands',FALSE)
+
+  -- need to check what tool stands are what
+
+--**********************************************************************
+--- Prompt User for the Tool Stands to be mapped by the robot
+--**********************************************************************
+FOR i = 1 TO Num_ToolStnd DO
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    -- ** Question #1 - Select Number of Nests **
+    WRITE(cr,mfq11_gmdata,' Stand#',i,'?',cr,cr)
+    WRITE('1. Single Nest',cr)    -- 2 Nests
+    WRITE('2. ',mfq12_gmdata,cr,cr) -- mfq13_gmdata4 Nests
+    WRITE(gdata_ans,'(1-2):')
+    read(ans)
+  UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+
+    ToolStndType[i] = Ans -- save teh tool stand type 1 single 2 = dual
+    SELECT (i) OF -- check if user selected more stands than availalbe
+      CASE (1,2):  --
+
+      CASE (3):  -- Iff both duals out of nest can only have 4 total nests
+        IF ((ToolStndType[1]=2) AND (ToolStndType[2]=2)) THEN
+          WriteLog('ONLY 4 Total NESTS Available with '+int2str(Num_ToolStnd)+' Stands',FALSE)
+            REPEAT
+              CLR_STND_SCR(gm_status)
+              WRITE(cr,'Stand#1 and Stand#2 BOTH',cr)
+              WRITE('are dual stands. Maximum # nests',cr)    -- 2 Nests
+              WRITE('is 4 total. You cannot have ',Num_ToolStnd,cr) -- mfq13_gmdata4 Nests
+              WRITE('Stands, and Stand# 1&2 be DUALS.',cr) -- mfq13_gmdata4 Nests
+              WRITE('Enter 1 to Select Stands Again',cr,cr) -- mfq13_gmdata4 Nests
+              WRITE(gdata_ans,'(1):')
+              read(ans)
+            UNTIL (Verify_Answr(Ans,1,1))-- Verify Answer
+          InvalidStnds = TRUE-- cant have stands the users chose
+          i = Num_ToolStnd -- set so it stops as soon as this error occurs
+        ENDIF
+        -- if either of first 2 is dual, then third cannot be dual(only 4 Avaialble)
+        IF (((ToolStndType[1]=2) OR (ToolStndType[2]=2)) AND (ToolStndType[3]=2)) THEN -- if the first Stand is DUAL and 3 stands Force
+           WriteLog('ONLY 4 Total NESTS Available with '+int2str(Num_ToolStnd)+' Stands',FALSE)
+            REPEAT
+              CLR_STND_SCR(gm_status)
+              WRITE(cr,'Stand#1 has',ToolStndType[1],' Nest.',cr)
+              WRITE('Stand#2 has',ToolStndType[2],' Nest.',cr)
+              WRITE('The Maximum # nests is 4 total.',cr)    -- 2 Nests
+              WRITE('You cannot have',Num_ToolStnd,cr) -- mfq13_gmdata4 Nests
+              WRITE('Stands, and Stand# 3 be a DUAL.',cr) -- mfq13_gmdata4 Nests
+              WRITE('Enter 1 to Select Stands Again',cr,cr) -- mfq13_gmdata4 Nests
+              WRITE(gdata_ans,'(1):')
+              read(ans)
+            UNTIL (Verify_Answr(Ans,1,1))-- Verify Answer
+          InvalidStnds = TRUE-- cant have stands the users chose
+          i = Num_ToolStnd -- set so it stops as soon as this error occurs
+        ENDIF
+        -- if either of first 2 is dual, then third cannot be dual(only 4 Avaialble)
+        IF (ToolStndType[2]=2) THEN -- if the first Stand is DUAL and 3 stands Force
+           WriteLog('ONLY 4 Total NESTS Available with '+int2str(Num_ToolStnd)+' Stands',FALSE)
+            REPEAT
+              CLR_STND_SCR(gm_status)
+              WRITE(cr,'With 3 Stands,ONLY Stand#1 or',cr) -- mfq13_gmdata4 Nests
+              WRITE('Stand#3 can be a DUAL Stand.',cr) -- mfq13_gmdata4 Nests
+              WRITE('Stand#1 has',ToolStndType[1],' Nest.',cr)
+              WRITE('Stand#2 has',ToolStndType[2],' Nest.',cr)
+              WRITE('Stand#3 has',ToolStndType[3],' Nest.',cr)
+              WRITE('Enter 1 to Select Stands Again',cr,cr) -- mfq13_gmdata4 Nests
+              WRITE(gdata_ans,'(1):')
+              read(ans)
+            UNTIL (Verify_Answr(Ans,1,1))-- Verify Answer
+          InvalidStnds = TRUE-- cant have stands the users chose
+          i = Num_ToolStnd -- set so it stops as soon as this error occurs
+        ENDIF
+      CASE (4):  -- cant have any DUALS if four stands
+        IF (ToolStndType[1]=2) OR (ToolStndType[2]=2) OR &
+           (ToolStndType[3]=2) OR (ToolStndType[4]=2) THEN -- if the first Stand is DUAL and 3 stands Force
+          WriteLog('ONLY 4 Total NESTS Available with '+int2str(Num_ToolStnd)+' Stands',FALSE)
+            REPEAT
+              CLR_STND_SCR(gm_status)
+              WRITE(cr,'Stand#1 has',ToolStndType[1],' Nest.',cr)
+              WRITE('Stand#2 has',ToolStndType[2],' Nest.',cr)
+              WRITE('Stand#3 has',ToolStndType[3],' Nest.',cr)
+              WRITE('Stand#4 has',ToolStndType[4],' Nest.',cr,cr)
+              WRITE('You cannot have ',Num_ToolStnd,cr)
+              WRITE('Stands, and more than 4 total Nests',cr)
+              WRITE('Enter 1 to Select Stands Again',cr,cr)
+              WRITE(gdata_ans,'(1):')
+              read(ans)
+            UNTIL (Verify_Answr(Ans,1,1))-- Verify Answer
+          InvalidStnds = TRUE-- cant have stands the users chose
+        ENDIF
+      ELSE: --
+    ENDSELECT --
+   DELAY 1000
+ENDFOR --
+
+UNTIL (InvalidStnds = FALSE) -- if user misconfigured
+
+    WriteLog('Tool Changer Wizard Complete',FALSE)
+
+  RETURN
+END tlc_app_wiz
+
+-------------------------------------------------------------------
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+BEGIN
+
+ -- 12-3-16 RK added for if ran and not on user screen, looks like code is hung
+-- RK 2-17-18  IF ($TP_INUSER=FALSE) THEN
+--    FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+--  ENDIF
+-- 12-3-16 end of RK changes
+
+  tlc_app_wiz
+
+END GMWIZTLC
+

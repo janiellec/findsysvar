@@ -1,0 +1,350 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="GENERATOR" content="Microsoft FrontPage 12.0">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>LPT1 Odometer</title>
+<style type="text/css">
+.style2 {
+				font-size: x-small;
+}
+</style>
+</head>
+
+<body>
+
+<div align="left">
+  <table border="0" cellspacing="0" width="628" height="365" cellpadding="0">
+    <tr>
+      <td width="100%">
+              						<table width="628" height="365" align="center">										
+										<tr>
+											<td height="20" align="center" valign="middle" width="100" class="style2">
+											Robot Name</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											I/P Address</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+																						Carriage Lube (KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Belt Insp (KM)</td>
+										</tr>						
+										<tr>
+										<td height="55" align="center" valign="middle" width="100">
+											<object height="45" align="top" width="145" id="FRIPLabel31" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3836">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="10">
+                                                <param name="DataType" value="102">
+                                                <param name="DataIndex" value="$HOSTNAME">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="145">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="100" align="center" valign="middle">
+											<object height="45" align="top" width="145" id="FRIPLabel30" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3836">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="10">
+                                                <param name="DataType" value="102">
+                                                <param name="DataIndex" value="$HOSTENT[17].$H_ADDR">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="145">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel15" style="width: 85px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="300">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="85">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="55" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel22" style="width: 82px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="303">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="82">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+										</tr>
+										<tr>
+											<td height="20" align="center" valign="middle" width="100" class="style2">
+											Belt LifeRem<br>
+											(KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Bearing LifeRem<br>
+											(KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Pay Carriage Lube (KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Pinion Insp<br>
+											(KM)</td>
+										</tr>
+										<tr>
+										<td height="55" align="center" valign="middle" width="100">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel12" style="width: 111px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="306">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="111">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="55" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel14" style="width: 106px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="307">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="106">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="55" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel20" style="width: 88px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="301">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="88">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="55" width="100" align="center">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel21" style="width: 83px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="304">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="83">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>																					
+										</tr>
+										<tr>
+											<td height="20" align="center" valign="middle" width="100" class="style2">
+											Drive LifeRem(KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Pinion LifeRem(KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											Rack Lube (KM)</td>
+											<td width="100" align="center" valign="middle" class="style2">
+											Carrier Insp (KM)</td>
+										</tr>
+										<tr>
+											<td height="50" align="center" valign="middle" width="100">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel26" style="width: 114px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="308">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="114">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="50" width ="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel28" style="width: 102px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="309">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="102">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td height="50" width="100" align="center" valign="middle">
+											<td height="50" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel18" style="width: 88px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="302">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="88">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="50" width="100" align="center" valign="middle">
+											<object height="40" align="top" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel24" style="width: 85px">
+												<param name="Caption" value="%3.1f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="10">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="305">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="85">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+										</tr>
+										<tr>
+											<td height="20" align="center" valign="middle" width="100" class="style2">
+											LPT1 Total (KM)</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											doLPTDataRdy</td>
+											<td height="20" width="100" align="center" valign="middle" class="style2">
+											doLPTTrqAlert</td>
+											<td width="100" align="center" valign="middle" class="style2">
+											doLPTMaintReq</td>	
+										</tr>
+										<tr>
+											<td height="50" align="center" valign="middle" width="100">
+											<object height="45" align="top" width="145" id="FRIPLabel32" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3836">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="%3.1f">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="10">
+                                                <param name="DataType" value="101">
+                                                <param name="DataIndex" value="310">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="145">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="50" width ="100" align="center" valign="middle">
+											<object height="40" align="top" width="40"classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" id="FRIPToggleLamp34" style="float: top">
+												<param name="Caption" value="">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="2">
+												<param name="DataIndex" value="355">
+												<param name="TrueColor" value="65280">
+												<param name="FalseColor" value="255">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="Border" value="4">
+												<param name="ViewType" value="1">
+												<param name="width" value="40">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="50" width="100" align="center" valign="middle">
+											<object height="40" align="top" width="40"classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" id="FRIPToggleLamp35" style="float: top">
+												<param name="Caption" value="">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="2">
+												<param name="DataIndex" value="353">
+												<param name="TrueColor" value="65280">
+												<param name="FalseColor" value="255">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="Border" value="4">
+												<param name="ViewType" value="1">
+												<param name="width" value="40">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="50" width="100" align="center" valign="middle">
+											<object height="40" align="top" width="40"classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" id="FRIPToggleLamp36">
+												<param name="Caption" value="">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="2">
+												<param name="DataIndex" value="354">
+												<param name="TrueColor" value="65280">
+												<param name="FalseColor" value="255">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="Border" value="4">
+												<param name="ViewType" value="1">
+												<param name="width" value="40">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+										</tr>
+										</table>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

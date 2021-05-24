@@ -1,0 +1,680 @@
+
+--Variables for IO, cell setup, and condition handlers for GM
+
+--For general reference sake, vars labeled with
+--P:Product:corresponds to sysvar part of standard product
+--C:Custo: variable unique to the custo
+
+TYPE
+  spotappgun FROM GMVARS = STRUCTURE          --Spot gun and controller
+    alm_do_no     :INTEGER                    --Torque Alert
+    di_majalm     :INTEGER                    --No Alarm
+    di_minalm     :INTEGER                    --No alert
+    di_rdpres     :INTEGER                    --Read Pressure
+    di_wdcomp     :INTEGER                    --Process Complete
+    di_wdenbl     :INTEGER                    --Weld Enabled
+    di_wdinpr     :INTEGER                    --In Progress
+    gi_wldprs     :INTEGER                    --Pressure
+    do_encnts     :INTEGER                    --Enable contactor saver
+    do_rqpres     :INTEGER                    --Request Pressure
+    do_rstwc      :INTEGER                    --Fault Reset
+    do_wdenbl     :INTEGER                    --Weld Mode
+    do_wdinit     :INTEGER                    --Initiate Weld
+    go_sched      :INTEGER                    --Weld Schedule
+    do_tipchgreq  :INTEGER                    --Tip Change Request
+    ispot16       :INTEGER                    --Thickness Out of Tolerance DO
+    ispot17       :INTEGER                    --spare
+    ispot18       :INTEGER                    --spare
+    ispot19       :INTEGER                    --spare
+    ispot20       :INTEGER                    --spare
+    ispot21       :INTEGER                    --spare
+    ispot22       :INTEGER                    --spare
+    ispot23       :INTEGER                    --spare
+    ispot24       :INTEGER                    --spare
+    ispot25       :INTEGER                    --spare
+    ispot26       :INTEGER                    --spare
+    ispot27       :INTEGER                    --spare
+    ispot28       :INTEGER                   --spare
+    ispot29       :INTEGER                   --spare
+    ispot30       :INTEGER                   --spare
+    ispot31       :INTEGER                   --spare
+    ispot32       :INTEGER                   --spare
+    ispot33       :INTEGER                   --spare
+    ispot34       :INTEGER                   --spare
+    ispot35       :INTEGER                   --spare
+    ispot36       :INTEGER                   --spare
+    ispot37       :INTEGER                   --spare
+    ispot38       :INTEGER                   --spare
+    ispot39       :INTEGER                    --spare
+    ispot40       :INTEGER                    --spare
+    ispot41       :INTEGER                    --spare
+    ispot42       :INTEGER                    --spare
+    ispot43       :INTEGER                    --spare
+    ispot44       :INTEGER                    --spare
+    ispot45       :INTEGER                    --spare
+    ispot46       :INTEGER                    --spare
+    ispot47       :INTEGER                    --spare
+    ispot48       :INTEGER                    --spare
+    ispot49       :INTEGER                    --spare
+    ispot50       :INTEGER                    --spare
+    ispot51       :INTEGER                    --spare
+    ispot52       :INTEGER                    --spare
+    ispot53       :INTEGER                    --spare
+    ispot54       :INTEGER                    --spare
+    ispot55       :INTEGER                    --spare
+    ispot56       :INTEGER                    --spare
+    ispot57       :INTEGER                    --spare
+    ispot60       :INTEGER                    --spare
+    bspot1       :BOOLEAN                    --spare
+    bspot2        :BOOLEAN                    --spare
+    bspot3        :BOOLEAN                    --spare
+    bspot4        :BOOLEAN                    --spare
+    bspot5        :BOOLEAN                    --spare
+    bspot6        :BOOLEAN                    --spare
+    bspot8        :BOOLEAN                    --spare
+    bspot9        :BOOLEAN                    --spare
+    bspot10       :BOOLEAN                    --spare
+    bspot11       :BOOLEAN                    --spare
+    bspot12       :BOOLEAN                    --spare
+    bspot13       :BOOLEAN                    --spare
+    bspot14       :BOOLEAN                    --spare
+    bspot15       :BOOLEAN                    --spare
+    bspot16       :BOOLEAN                    --spare
+    bspot17       :BOOLEAN                    --spare
+    bspot18       :BOOLEAN                    --spare
+    bspot19       :BOOLEAN                    --spare
+    bspot20       :BOOLEAN                    --spare
+    sg_maxpr      :REAL                       --spare
+    rspot2        :REAL                       --spare
+    rspot3        :REAL                       --spare
+    rspot4        :REAL                       --spare
+    rspot5        :REAL                       --spare
+    rspot6        :REAL                       --spare
+    rspot7        :REAL                       --spare
+    rspot8        :REAL                       --spare
+    rspot9        :REAL                       --spare
+    rspot10       :REAL                       --spare
+    rspot11       :REAL                       --spare
+    rspot12       :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMSPOTCT FROM GMVARS = STRUCTURE           --Spot controller and gun
+    spot_gun       :ARRAY[5] OF spotappgun   --Spot gun
+  ENDSTRUCTURE
+
+TYPE
+  studappgun FROM GMVARS = STRUCTURE          --Stud gun and controller
+    di_comp1      :INTEGER                    --weld complete head 1  
+    di_comp2      :INTEGER                    --weld coplete head 2
+    di_comp3      :INTEGER                    --weld complete head 3
+    di_comp4      :INTEGER                    --weld complete head 4
+    di_feed       :INTEGER                    --stud low
+    di_iotol      :INTEGER                    --in tolerance
+    di_minalm     :INTEGER                    --no alert
+    di_wcflt1     :INTEGER                    --no fault head 1
+    di_wcflt2     :INTEGER                    --no fault head 2
+    di_wcflt3     :INTEGER                    --no fault head 3
+    di_wcflt4     :INTEGER                    --no fault head 4
+    di_wdenbl     :INTEGER                    --weld mode on
+    di_wdinpr1    :INTEGER                    --weld in prog head 1
+    di_wdinpr2    :INTEGER                    --weld in prog head 2
+    di_wdinpr3    :INTEGER                    --weld in prog head 3
+    di_wdinpr4    :INTEGER                    --weld in prog head 4
+    di_whret1     :INTEGER                    --head back head 1
+    di_whret2     :INTEGER                    --head back head 2
+    di_whret3     :INTEGER                    --head back head 3
+    di_whret4     :INTEGER                    --head back head 4
+    do_mdsone     :INTEGER                    --weld mode 
+    do_mdstwo     :INTEGER                    --part mode
+    do_refeed1    :INTEGER                    --manual adv head 1
+    do_refeed2    :INTEGER                    --manual adv head 2
+    do_refeed3    :INTEGER                    --manual adv head 3
+    do_refeed4    :INTEGER                    --manual adv head 4
+    do_rstrt      :INTEGER                    --reset fault
+    do_start1     :INTEGER                    --initiate head 1
+    do_start2     :INTEGER                    --initiate head 2
+    do_start3     :INTEGER                    --initiate head 3
+    do_start4     :INTEGER                    --initiate head 4
+    go_sched      :INTEGER                    --schedule
+    istud33       :INTEGER                    --spare
+    istud34       :INTEGER                    --spare
+    istud35       :INTEGER                    --spare
+    istud36       :INTEGER                    --spare
+    istud37       :INTEGER                    --spare
+    istud38       :INTEGER                    --spare
+    istud39       :INTEGER		      --spare
+    istud40       :INTEGER		      --spare
+    bstud1        :BOOLEAN                    --spare
+    bstud2        :BOOLEAN                    --spare
+    bstud3        :BOOLEAN                    --spare
+    bstud4        :BOOLEAN                    --spare
+    bstud5        :BOOLEAN                    --spare
+    bstud6        :BOOLEAN                    --spare
+    bstud8        :BOOLEAN                    --spare
+    bstud9        :BOOLEAN                    --spare
+    bstud10       :BOOLEAN                    --spare
+    rstud1        :REAL                       --spare
+    rstud2        :REAL                       --spare
+    rstud3        :REAL                       --spare
+    rstud4        :REAL                       --spare
+    rstud5        :REAL                       --spare
+    rstud6        :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMSTUDCT FROM GMVARS = STRUCTURE           --Stud controller and gun
+    stud_gun       :ARRAY[5] OF studappgun   --Stud gun
+  ENDSTRUCTURE
+
+TYPE
+  projappgun FROM GMVARS = STRUCTURE          --Projection weld gun and controller
+    di_bucld_i    :INTEGER		      --gun open
+    di_gucld_i	  :INTEGER		      --gun closed
+    di_buopd_i    :INTEGER		      --gun home
+    do_cl_gun_i   :INTEGER                    --close gun
+    di_majalm     :INTEGER                    --No Alarm
+    di_minalm     :INTEGER                    --No alert
+    di_rdpres     :INTEGER                    --Read Pressure
+    di_wdcomp     :INTEGER                    --Process Complete
+    di_wdenbl     :INTEGER                    --Weld Enabled
+    di_wdinpr     :INTEGER                    --In Progress
+    gi_wldprs     :INTEGER                    --Pressure
+    do_encnts     :INTEGER                    --Enable contactor saver
+    do_rqpres     :INTEGER                    --Request Pressure
+    do_rstwc      :INTEGER                    --Fault Reset
+    do_wdenbl     :INTEGER                    --Weld Mode
+    do_wdinit     :INTEGER                    --Initiate Weld
+    go_sched      :INTEGER                    --Weld Schedule
+    iproj1        :INTEGER                    --spare
+    iproj2        :INTEGER                    --spare
+    iproj3        :INTEGER                    --spare
+    iproj4        :INTEGER                    --spare
+    iproj5        :INTEGER                    --spare
+    iproj6        :INTEGER                    --spare
+    iproj7        :INTEGER                    --spare
+    iproj8        :INTEGER                    --spare
+    iproj9        :INTEGER                    --spare
+    iproj10       :INTEGER                    --spare
+    iproj11       :INTEGER                    --spare
+    iproj12       :INTEGER                    --spare
+    iproj13       :INTEGER                    --spare
+    iproj14       :INTEGER                    --spare
+    iproj15       :INTEGER                    --spare
+    iproj16       :INTEGER                    --spare
+    iproj17       :INTEGER                    --spare
+    iproj18       :INTEGER                    --spare
+    iproj19       :INTEGER                    --spare
+    iproj20       :INTEGER                    --spare
+    iproj21       :INTEGER                    --spare
+    iproj22       :INTEGER                    --spare
+    iproj23       :INTEGER                    --spare
+    bproj1        :BOOLEAN                    --spare
+    bproj2        :BOOLEAN                    --spare
+    bproj3        :BOOLEAN                    --spare
+    bproj4        :BOOLEAN                    --spare
+    bproj5        :BOOLEAN                    --spare
+    bproj6	  :BOOLEAN    		     --spare
+    bproj7        :BOOLEAN                    --spare
+    bproj8        :BOOLEAN                    --spare
+    bproj9        :BOOLEAN                    --spare
+    bproj10       :BOOLEAN                    --spare
+    rproj1        :REAL                       --spare
+    rproj2        :REAL                       --spare
+    rproj3        :REAL                       --spare
+    rproj4        :REAL                       --spare
+    rproj5        :REAL                       --spare
+    rproj6        :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMPROJCT FROM GMVARS = STRUCTURE           --Projection weld controller and gun
+    proj_gun       :ARRAY[5] OF projappgun   --Projection weld gun
+  ENDSTRUCTURE
+
+TYPE
+  GMDISPCT FROM GMVARS = STRUCTURE		--Dispsense controller IO
+    di_drumemi  : INTEGER			--P: Dispenser Drum Empty
+    di_in_proci : INTEGER			--P: Dispenser in Process
+    di_maj_flti : INTEGER      			--P: Dispenser Major Fault
+    di_min_flti : INTEGER			--P: Dispnser Minor Fault
+    di_purgrqi  : INTEGER			--P: Dispenser Purge Request
+    di_rmtinpi  : INTEGER			--P: Dispenser Remote Start in Process
+    di_vol_oki  : INTEGER			--P: Dispenser Volume OK
+    disp_rdyi	: INTEGER  			--P: Dispenser Ready
+    do_clrflti  : INTEGER			--P: Dispenser Fault Reset
+    do_dispcomp : INTEGER			--P: Dispenser Complete
+    do_prtstrbi : INTEGER			--P: Dispenser Style Strobe
+    do_onguni   : INTEGER			--P: Dispenser Gun 1 On
+    do_ongun2i  : INTEGER			--P: Dispenser Gun 2 On
+    do_ongun3i  : INTEGER			--P: Dispenser Gun 3 On
+    do_ongun4i  : INTEGER			--P: Dispenser Gun 4 On
+    do_rmtsrti  : INTEGER			--P: Dispenser Remote Start
+    go_prt_idi  : INTEGER                       --P: Dispenser Part ID
+    ao_cmdflwt  : INTEGER                       --P: Dispenser Flow Command Type
+    ao_cmdflwi  : INTEGER			--P: Dispenser Flow Command
+    ispare1       :INTEGER                      --spare
+    ispare2       :INTEGER                      --spare
+    ispare3       :INTEGER                      --spare
+    ispare4       :INTEGER                      --spare
+    ispare5       :INTEGER                      --spare
+    ispare6       :INTEGER                   	--spare
+    ispare7       :INTEGER                   	--spare
+    ispare8       :INTEGER                   	--spare
+    ispare9       :INTEGER                   	--spare
+    ispare10      :INTEGER                   	--spare
+    ispare11      :INTEGER                   	--spare
+    ispare12      :INTEGER                   	--spare
+    ispare13      :INTEGER                   	--spare
+    ispare14      :INTEGER                   	--spare
+    ispare15      :INTEGER                   	--spare
+    ispare16      :INTEGER                   	--spare
+    ispare17      :INTEGER                   	--spare
+    ispare18      :INTEGER                   	--spare
+    ispare19      :INTEGER                   	--spare
+    ispare20      :INTEGER                   	--spare		
+    bspare1       :BOOLEAN                   	--spare
+    bspare2       :BOOLEAN                   	--spare
+    bspare3       :BOOLEAN                   	--spare	
+    bspare4       :BOOLEAN                   	--spare	
+    bspare5       :BOOLEAN                   	--spare	
+    bspare6       :BOOLEAN                   	--spare	
+    bspare8       :BOOLEAN                   	--spare
+    bspare9       :BOOLEAN                   	--spare
+    bspare10      :BOOLEAN                   	--spare	
+    rspare1       :REAL                      	--spare
+    rspare2       :REAL                      	--spare
+    rspare3       :REAL                     	 --spare
+    rspare4       :REAL                      	--spare
+    rspare5       :REAL                      	--spare
+    rspare6       :REAL                      	--spare
+  ENDSTRUCTURE
+
+TYPE
+  fdsappgun FROM GMVARS = STRUCTURE          --FDS gun and controller
+    ifds1        :INTEGER                    --spare
+    ifds2        :INTEGER                    --spare
+    ifds3        :INTEGER                    --spare
+    ifds4        :INTEGER                    --spare
+    ifds5        :INTEGER                    --spare
+    ifds6        :INTEGER                    --spare
+    ifds7        :INTEGER                    --spare
+    ifds8        :INTEGER                    --spare
+    ifds9        :INTEGER                    --spare
+    ifds10       :INTEGER                    --spare
+    ifds11       :INTEGER                    --spare
+    ifds12       :INTEGER                    --spare
+    ifds13       :INTEGER                    --spare
+    ifds14       :INTEGER                    --spare
+    ifds15       :INTEGER                    --spare
+    ifds16       :INTEGER                    --spare
+    ifds17       :INTEGER                    --spare
+    ifds18       :INTEGER                    --spare
+    ifds19       :INTEGER                    --spare
+    ifds20       :INTEGER                    --spare
+    ifds21       :INTEGER                    --spare
+    ifds22       :INTEGER                    --spare
+    ifds23       :INTEGER                    --spare
+    ifds24       :INTEGER                    --spare
+    ifds25       :INTEGER                    --spare
+    ifds26       :INTEGER                    --spare
+    ifds27       :INTEGER                    --spare
+    ifds28       :INTEGER                   --spare
+    ifds29       :INTEGER                   --spare
+    ifds30       :INTEGER                   --spare
+    ifds31       :INTEGER                   --spare
+    ifds32       :INTEGER                   --spare
+    ifds33       :INTEGER                   --spare
+    ifds34       :INTEGER                   --spare
+    ifds35       :INTEGER                   --spare
+    ifds36       :INTEGER                   --spare
+    ifds37       :INTEGER                   --spare
+    ifds38       :INTEGER                   --spare
+    ifds39	  :INTEGER		     --spare
+    ifds40       :INTEGER		     --spare
+    bfds1        :BOOLEAN                    --spare
+    bfds2        :BOOLEAN                    --spare
+    bfds3        :BOOLEAN                    --spare
+    bfds4        :BOOLEAN                    --spare
+    bfds5        :BOOLEAN                    --spare
+    bfds6	  :BOOLEAN    		     --spare
+    bfds7        :BOOLEAN                    --spare
+    bfds8        :BOOLEAN                    --spare
+    bfds9        :BOOLEAN                    --spare
+    bfds10       :BOOLEAN                    --spare
+    rfds1        :REAL                       --spare
+    rfds2        :REAL                       --spare
+    rfds3        :REAL                       --spare
+    rfds4        :REAL                       --spare
+    rfds5        :REAL                       --spare
+    rfds6        :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMFDSCT FROM GMVARS = STRUCTURE           --FDS controller and gun
+    fds_gun       :ARRAY[5] OF fdsappgun    --FDS gun
+  ENDSTRUCTURE
+
+TYPE
+  sprappgun FROM GMVARS = STRUCTURE          --SPR gun and controller
+    do_cl_gun_i	 :INTEGER		     --close gun
+    do_op_bu_i   :INTEGER		     --open gun
+    ispr1        :INTEGER                    --spare
+    ispr2        :INTEGER                    --spare
+    ispr3        :INTEGER                    --spare
+    ispr4        :INTEGER                    --spare
+    ispr5        :INTEGER                    --spare
+    ispr6        :INTEGER                    --spare
+    ispr7        :INTEGER                    --spare
+    ispr8        :INTEGER                    --spare
+    ispr9        :INTEGER                    --spare
+    ispr10       :INTEGER                    --spare
+    ispr11       :INTEGER                    --spare
+    ispr12       :INTEGER                    --spare
+    ispr13       :INTEGER                    --spare
+    ispr14       :INTEGER                    --spare
+    ispr15       :INTEGER                    --spare
+    ispr16       :INTEGER                    --spare
+    ispr17       :INTEGER                    --spare
+    ispr18       :INTEGER                    --spare
+    ispr19       :INTEGER                    --spare
+    ispr20       :INTEGER                    --spare
+    ispr21       :INTEGER                    --spare
+    ispr22       :INTEGER                    --spare
+    ispr23       :INTEGER                    --spare
+    ispr24       :INTEGER                    --spare
+    ispr25       :INTEGER                    --spare
+    ispr26       :INTEGER                    --spare
+    ispr27       :INTEGER                    --spare
+    ispr28       :INTEGER                   --spare
+    ispr29       :INTEGER                   --spare
+    ispr30       :INTEGER                   --spare
+    ispr31       :INTEGER                   --spare
+    ispr32       :INTEGER                   --spare
+    ispr33       :INTEGER                   --spare
+    ispr34       :INTEGER                   --spare
+    ispr35       :INTEGER                   --spare
+    ispr36       :INTEGER                   --spare
+    ispr37      :INTEGER                    --spare
+    ispr38       :INTEGER                   --spare
+    bspr1        :BOOLEAN                    --spare
+    bspr2        :BOOLEAN                    --spare
+    bspr3        :BOOLEAN                    --spare
+    bspr4        :BOOLEAN                    --spare
+    bspr5        :BOOLEAN                    --spare
+    bspr6	  :BOOLEAN    		     --spare
+    bspr7        :BOOLEAN                    --spare
+    bspr8        :BOOLEAN                    --spare
+    bspr9        :BOOLEAN                    --spare
+    bspr10       :BOOLEAN                    --spare
+    rspr1        :REAL                       --spare
+    rspr2        :REAL                       --spare
+    rspr3        :REAL                       --spare
+    rspr4        :REAL                       --spare
+    rspr5        :REAL                       --spare
+    rspr6        :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMSPRCT FROM GMVARS = STRUCTURE           --SPR controller and gun
+    spr_gun       :ARRAY[5] OF sprappgun    --SPR gun
+  ENDSTRUCTURE
+
+TYPE
+  dimpappgun FROM GMVARS = STRUCTURE          --Dimpler gun and controller
+    di_bucld_i    :INTEGER		      --gun open
+    di_gucld_i	  :INTEGER		      --gun closed
+    do_cl_gun_i   :INTEGER                    --close gun
+    idimp1        :INTEGER                    --spare
+    idimp2        :INTEGER                    --spare
+    idimp3        :INTEGER                    --spare
+    idimp4        :INTEGER                    --spare
+    idimp5        :INTEGER                    --spare
+    idimp6        :INTEGER                    --spare
+    idimp7        :INTEGER                    --spare
+    idimp8        :INTEGER                    --spare
+    idimp9        :INTEGER                    --spare
+    idimp10       :INTEGER                    --spare
+    idimp11       :INTEGER                    --spare
+    idimp12       :INTEGER                    --spare
+    idimp13       :INTEGER                    --spare
+    idimp14       :INTEGER                    --spare
+    idimp15       :INTEGER                    --spare
+    idimp16       :INTEGER                    --spare
+    idimp17       :INTEGER                    --spare
+    idimp18       :INTEGER                    --spare
+    idimp19       :INTEGER                    --spare
+    idimp20       :INTEGER                    --spare
+    idimp21       :INTEGER                    --spare
+    idimp22       :INTEGER                    --spare
+    idimp23       :INTEGER                    --spare
+    idimp24    	  :INTEGER		      --spare
+    idimp25       :INTEGER                    --spare
+    idimp26       :INTEGER                    --spare
+    idimp27       :INTEGER                    --spare
+    idimp28       :INTEGER                    --spare
+    idimp29       :INTEGER                    --spare
+    idimp30       :INTEGER                    --spare
+    idimp31       :INTEGER                    --spare
+    idimp32       :INTEGER                    --spare
+    idimp33       :INTEGER                    --spare
+    idimp34       :INTEGER                    --spare
+    idimp35       :INTEGER                    --spare
+    idimp36       :INTEGER                    --spare
+    idimp37       :INTEGER                    --spare
+    bproj1        :BOOLEAN                    --spare
+    bproj2        :BOOLEAN                    --spare
+    bproj3        :BOOLEAN                    --spare
+    bproj4        :BOOLEAN                    --spare
+    bproj5        :BOOLEAN                    --spare
+    bproj6	  :BOOLEAN    		     --spare
+    bproj7        :BOOLEAN                    --spare
+    bproj8        :BOOLEAN                    --spare
+    bproj9        :BOOLEAN                    --spare
+    bproj10       :BOOLEAN                    --spare
+    rproj1        :REAL                       --spare
+    rproj2        :REAL                       --spare
+    rproj3        :REAL                       --spare
+    rproj4        :REAL                       --spare
+    rproj5        :REAL                       --spare
+    rproj6        :REAL                       --spare
+  ENDSTRUCTURE
+
+TYPE
+  GMDIMPCT FROM GMVARS = STRUCTURE           --Dimpler controller and gun
+    dimp_gun       :ARRAY[5] OF dimpappgun   --Dimple gun
+  ENDSTRUCTURE
+
+VAR
+  --All Applications
+  globalctrl    IN SHADOW FROM GMVARS :INTEGER  --Type of controller hardware (e.g. G4)
+  hscd_macreg   IN SHADOW FROM GMVARS :INTEGER  --P: Collision Guard Macro Register
+  proces_name   IN SHADOW FROM GMVARS :ARRAY[5] OF STRING[8]
+  process_def   IN SHADOW FROM GMVARS :ARRAY[5] OF STRING[10]
+  process_enb   IN CMOS   FROM GMVARS :ARRAY[5] OF BOOLEAN 
+  process_mode  IN CMOS   FROM GMVARS :ARRAY[5] OF BOOLEAN
+  num_process   IN CMOS   FROM GMVARS :INTEGER 
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded 
+  collab_rbt    IN SHADOW FROM GMVARS :BOOLEAN  --Collaborative robot arm 
+  dcs_posspd	IN SHADOW FROM GMVARS :BOOLEAN  --DCS Position Speed Software Option J567              
+
+  --INPUTS
+  di_adprun_p1  IN SHADOW FROM GMVARS: INTEGER  --   Adaptive Rerun Pt Process 1
+  di_adprun_p2  IN SHADOW FROM GMVARS: INTEGER  --   Adaptive Rerun Pt Process 2
+  di_buopd1     IN SHADOW FROM GMVARS: INTEGER  --P: Backup Open Detect
+  di_buopd2     IN SHADOW FROM GMVARS: INTEGER  --P: Backup Open Detect
+  di_bucld1     IN SHADOW FROM GMVARS: INTEGER  --P: Gun Open Detect
+  di_bucld2     IN SHADOW FROM GMVARS: INTEGER  --P: Gun Open Detect
+  di_clsgun1mc  IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun Process 1 Macro Input
+  di_clsgun2mc  IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun Process 2 Macro Input
+  di_gunopnflt  IN SHADOW FROM GMVARS: INTEGER  --P: Gun Open on Fault
+  di_inisty_i   IN SHADOW FROM GMVARS: INTEGER  --P: Initiate Style
+  di_MCC        IN SHADOW FROM GMVARS: INTEGER  --   MCC 
+  di_NMotn      IN SHADOW FROM GMVARS: INTEGER  --   SPI 2 Non Motion Breaker
+  di_opngun1mc  IN SHADOW FROM GMVARS: INTEGER  --P: Open Gun Process 1 Macro Input
+  di_opngun2mc  IN SHADOW FROM GMVARS: INTEGER  --P: Open Gun Process 2 Macro Input
+  di_opta_i	IN SHADOW FROM GMVARS: INTEGER  --P: OptionBitA
+  di_optb_i     IN SHADOW FROM GMVARS: INTEGER  --P: OptionBitB
+  di_optc_i     IN SHADOW FROM GMVARS: INTEGER  --P: OptionBitC
+  di_optd_i     IN SHADOW FROM GMVARS: INTEGER  --P: OptionBitD
+  di_opte_i     IN SHADOW FROM GMVARS: INTEGER  --P: OptionBitE
+  di_pthcnt_i	IN SHADOW FROM GMVARS: INTEGER  --P: PathSegment
+  di_start      IN SHADOW FROM GMVARS: INTEGER  --   Start
+  di_spo_1      IN SHADOW FROM GMVARS: INTEGER  --P: SPO[1]
+  di_tryout_i   IN SHADOW FROM GMVARS: INTEGER  --P: Tryout Mode   
+  di_xfok1      IN SHADOW FROM GMVARS: INTEGER  --P: Transformer OverTemp Gun 1
+  di_xfok2      IN SHADOW FROM GMVARS: INTEGER  --P: Transformer OverTemp Gun 2
+  di_wfok1      IN SHADOW FROM GMVARS: INTEGER  --P: Water Flow OK to Weld
+  di_wfok2      IN SHADOW FROM GMVARS: INTEGER  --P: Water Flow OK to Weld
+  di_zdt_i      IN SHADOW FROM GMVARS: INTEGER  --P: ZDT Event Acknwldg
+  di_24Brk      IN SHADOW FROM GMVARS: INTEGER  --   SPI 1 24Vout Breaker
+  si_NM_24Bk    IN SHADOW FROM GMVARS: INTEGER  --   SOPIN 12 No Motion or 24Vout Breaker
+  si_10AAuxPwr  IN SHADOW FROM GMVARS: INTEGER  --   SOPIN 13 10 Amp Power Supply Aux Power Loss   
+  
+  --GROUP INPUTS
+  gi_decsn_i    IN SHADOW FROM GMVARS: INTEGER  --P: Decision Code GI
+  gi_stysel_i   IN SHADOW FROM GMVARS: INTEGER  --P: Style Select GI
+  
+  --OUTPUTS
+  blal_out_i	IN SHADOW FROM GMVARS: INTEGER  --P: Battery Low 
+  do_aprtip_i	IN SHADOW FROM GMVARS: INTEGER  --P: 
+  do_autoaval   IN SHADOW FROM GMVARS: INTEGER  --P: Auto Exit
+  do_autoexec   IN SHADOW FROM GMVARS: INTEGER  --P: Auto Exit
+  do_cgsblow1   IN SHADOW FROM GMVARS: INTEGER  --P: Carried gun, servo dresser blower output tip dresser 1
+  do_cgsblow2   IN SHADOW FROM GMVARS: INTEGER  --P: Carried gun, servo dresser blower output tip dresser 2
+  do_cgsblow3   IN SHADOW FROM GMVARS: INTEGER  --P: Carried gun, servo dresser blower output tip dresser 3
+  do_cgsblow4   IN SHADOW FROM GMVARS: INTEGER  --P: Carried gun, servo dresser blower output tip dresser 4
+  do_cl_gun1    IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun 1
+  do_cl_gun2    IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun 2
+  do_cl_bu1     IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun 1 Backup
+  do_cl_bu2     IN SHADOW FROM GMVARS: INTEGER  --P: Close Gun 2 Backup
+  do_guncls     IN SHADOW FROM GMVARS: INTEGER  --P: Gun Closed Position
+  do_guncls2    IN SHADOW FROM GMVARS: INTEGER  --P: Gun 2 Closed Position
+  do_gunopnflt  IN SHADOW FROM GMVARS: INTEGER  --P: Gun Open on Fault
+  do_op_bu1     IN SHADOW FROM GMVARS: INTEGER  --P: Open Gun 1 Backup
+  do_op_bu2     IN SHADOW FROM GMVARS: INTEGER  --P: Open Gun 2 Backup
+  do_hfault_i   IN SHADOW FROM GMVARS: INTEGER  --P: MH Fault
+  do_halert_i   IN SHADOW FROM GMVARS: INTEGER  --P: MH Alert
+  do_incycl_i   IN SHADOW FROM GMVARS: INTEGER  --P: In Cycle
+  do_intlck_i   IN SHADOW FROM GMVARS: INTEGER  --P: Interlock
+  do_isolat_i	IN SHADOW FROM GMVARS: INTEGER  --P: Isolation
+  do_mansty_i	IN SHADOW FROM GMVARS: INTEGER  --P: Manual Style Request
+  do_opta_i	IN SHADOW FROM GMVARS: INTEGER  --P: Manual Option Bit A
+  do_optb_i	IN SHADOW FROM GMVARS: INTEGER  --P: Manual Option Bit B
+  do_optc_i	IN SHADOW FROM GMVARS: INTEGER  --P: Manual Option Bit C
+  do_outtol_i   IN SHADOW FROM GMVARS: INTEGER  --P: Out of Tolerance
+  do_outtol2i   IN SHADOW FROM GMVARS: INTEGER  --P: Out of Tolerance Process 2
+  do_pedblow1   IN SHADOW FROM GMVARS: INTEGER  --P: Pedestal blower output tip dresser 1
+  do_pedblow2   IN SHADOW FROM GMVARS: INTEGER  --P: Pedestal blower output tip dresser 2
+  do_pedblow3   IN SHADOW FROM GMVARS: INTEGER  --P: Pedestal blower output tip dresesr 3
+  do_pedblow4   IN SHADOW FROM GMVARS: INTEGER  --P: Pedestal blower output tip dresser 4
+  do_prccom_i   IN SHADOW FROM GMVARS: INTEGER  --P: Process Task Okay
+  do_prcflt_i   IN SHADOW FROM GMVARS: INTEGER  --P: Process1 Fault
+  do_prcflt2i   IN SHADOW FROM GMVARS: INTEGER  --P: Process2 Fault  
+  do_prcalt_i   IN SHADOW FROM GMVARS: INTEGER  --P: Process1 Alert
+  do_prcalt2i   IN SHADOW FROM GMVARS: INTEGER  --P: Process2 Alert  
+  do_pthreq_i   IN SHADOW FROM GMVARS: INTEGER  --P: Path Segment Request
+  do_sd_alert1  IN SHADOW FROM GMVARS: INTEGER  --P: Servo dresser alert tip dresser 1
+  do_sd_alert2  IN SHADOW FROM GMVARS: INTEGER  --P: Servo dresser alert tip dresser 2
+  do_sd_fault1  IN SHADOW FROM GMVARS: INTEGER  --P: Servo dresser fault tip dresser 1
+  do_sd_fault2  IN SHADOW FROM GMVARS: INTEGER  --P: Servo dresser fault tip dresser 2
+  do_tryout_i   IN SHADOW FROM GMVARS: INTEGER  --P: Tryout Mode 
+  doagcpiclsg1  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun CPI doCloseG1 
+  doagcpiclsg2  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun CPI doCloseG2
+  doagcniclsg1  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun CNI doCloseG1
+  doagpniclsg2  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun PNI doCloseG2
+  doagpniclsg3  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun PNI doCloseG3
+  doagpniclsg4  IN SHADOW FROM GMVARS: INTEGER  --C: Air Gun PNI doCloseG4
+  do_1spt_i     IN SHADOW FROM GMVARS: INTEGER  --P: Joint 1 Made
+  do_wsr1       IN SHADOW FROM GMVARS: INTEGER  --P: Reset Water Saver
+  do_wsr2       IN SHADOW FROM GMVARS: INTEGER  --P: Reset Water Saver
+  go_binmpv1    IN SHADOW FROM GMVARS: INTEGER  --P: Multi pressure
+  go_binmpv2    IN SHADOW FROM GMVARS: INTEGER  --P: Multi pressure
+  go_bineql1    IN SHADOW FROM GMVARS: INTEGER  --P: Equalization pressure
+  go_bineql2    IN SHADOW FROM GMVARS: INTEGER  --P: Equalization pressure
+  ffr_dout      IN SHADOW FROM GMVARS: INTEGER  --P: FFR DO
+  hscd_doenbl   IN SHADOW FROM GMVARS: INTEGER  --P: Collision Guard Enabled
+  hscd_doerr    IN SHADOW FROM GMVARS: INTEGER  --P: Collision Guard Error
+  inpt_sim_do   IN SHADOW FROM GMVARS: INTEGER  --P: Digital Input Simulated
+  lvccfg_do     IN SHADOW FROM GMVARS: INTEGER  --P: LVC Disabled
+  lvcrun_do     IN SHADOW FROM GMVARS: INTEGER  --P: LVC Path Running Normal
+  out_sim_do    IN SHADOW FROM GMVARS: INTEGER  --P: Digital Output Simulated 
+  prmp_dout     IN SHADOW FROM GMVARS: INTEGER  --P: User Prompt Box DO
+  prmp_sdout    IN SHADOW FROM GMVARS: INTEGER  --P: System Prompt Box DO
+  refhome_do    IN SHADOW FROM GMVARS: INTEGER  --P: Home Reference Position DO
+  zdt_do_i      IN SHADOW FROM GMVARS: INTEGER  --P: ZDT Event
+ 
+  --GROUP OUTPUTS         
+  go_decsn_i	IN SHADOW FROM GMVARS: INTEGER  --P: Decision Code GO
+  go_pthseg_i   IN SHADOW FROM GMVARS: INTEGER  --P: Path Segment GO 
+  go_stysel_i   IN SHADOW FROM GMVARS: INTEGER  --P: Style Select GO
+
+--Collaborative
+  di_cr_cfmpay  IN SHADOW FROM GMVARS: INTEGER  --P: Confirm Payload DI
+  di_cr_hspdmd  IN SHADOW FROM GMVARS: INTEGER  --P: High Speed Mode DI
+  do_cr_cntsaf  IN SHADOW FROM GMVARS: INTEGER  --P: Contact Safe DO
+  do_cr_cntstp  IN SHADOW FROM GMVARS: INTEGER  --P: Contact Stop DO
+  do_cr_cnstds  IN SHADOW FROM GMVARS: INTEGER  --P: Contact Stop Disabled DO
+  do_cr_pshesc  IN SHADOW FROM GMVARS: INTEGER  --P: Push to Escape Active DO
+  do_cr_paychg  IN SHADOW FROM GMVARS: INTEGER  --P: Payload Changing DO
+  do_cr_autmot  IN SHADOW FROM GMVARS: INTEGER  --P: Auto Stauts Check Timeout DO
+  do_cr_prgrun  IN SHADOW FROM GMVARS: INTEGER  --P: Program Running DO
+  do_cr_prgpau  IN SHADOW FROM GMVARS: INTEGER  --P: Program Paused DO
+  do_cr_dbltap  IN SHADOW FROM GMVARS: INTEGER  --P: Double Tap DO
+  go_cr_payld   IN SHADOW FROM GMVARS: INTEGER  --P: Payload GO
+  go_cr_frcrsl  IN SHADOW FROM GMVARS: INTEGER  --P: Force Monitor Resultant GO
+  go_cr_pfrcrl  IN SHADOW FROM GMVARS: INTEGER  --P: Payload Force Resultant GO
+  go_cr_pmmtrl  IN SHADOW FROM GMVARS: INTEGER  --P: Payload Moment Resultant GO
+  cso_cr_cntsf  IN SHADOW FROM GMVARS: INTEGER  --P: Contact Safe CSO
+  cso_cr_cntst  IN SHADOW FROM GMVARS: INTEGER  --P: Contact Stop CSO
+  cso_cr_pshes  IN SHADOW FROM GMVARS: INTEGER  --P: Push to Escape Mode CSO
+   
+--Spot Application
+  spotctrl     IN SHADOW FROM GMVARS: ARRAY[2] OF GMSPOTCT
+  g_ped_gun    IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN -- Pedestal gun flag
+  gn_montd_den IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN -- Gun mounted dense flage
+  pedpins      IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN
+
+--Servo Gun
+  g_servo_gun  IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN -- Servo gun 
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN     -- Servo gun option loaded
+  g_tipdress   IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN -- Servo gun
+  capweargung1 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g1
+  capwearrbtg1 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g1
+  capweargung2 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g2
+  capwearrbtg2 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g2
+  capweargung3 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g3
+  capwearrbtg3 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g3
+  capweargung4 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g4
+  capwearrbtg4 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g4
+  wschtry_enb  IN SHADOW FROM GMVARS : BOOLEAN  --P:  Weld schedule in tryout mode enable
+  tryout_sch   IN SHADOW FROM GMVARS : INTEGER  --P:  Weld schedule in tryout mode schedule  
+
+--STUD
+  studctrl     IN SHADOW FROM GMVARS: ARRAY[2] OF GMSTUDCT  
+
+--Projection Weld
+  projctrl     IN SHADOW FROM GMVARS: ARRAY[2] OF GMPROJCT
+
+--Dispense
+  dispctrl  	IN SHADOW FROM GMVARS: ARRAY[2] OF GMDISPCT
+  gm_res_wet    IN SHADOW FROM GMVARS: BOOLEAN  --  Resume wet 
+  do_disp_p1    IN SHADOW FROM GMVARS: INTEGER  -- Dispense process 1 output
+  do_disp_p2    IN SHADOW FROM GMVARS: INTEGER  -- Dispense process 2 output
+
+--FDS
+  fdsctrl     IN SHADOW FROM GMVARS: ARRAY[2] OF GMFDSCT
+
+--SPR
+  sprctrl     IN SHADOW FROM GMVARS: ARRAY[2] OF GMSPRCT 
+
+--Dimpler
+  dimpctrl    IN SHADOW FROM GMVARS: ARRAY[2] OF GMDIMPCT
+		
+--Execution variables --variables are used in programs like swshell
+  deadman_sw    IN SHADOW FROM GMVARS: BOOLEAN  --   Deadman Switch
+  grsltch       IN SHADOW FROM GMVARS: BOOLEAN  --   used in power supply monitoring
+  pwr3sply      IN SHADOW FROM GMVARS: BOOLEAN
+  pwrs_extinlk  IN SHADOW FROM GMVARS: BOOLEAN
+  unhide_dcs    IN SHADOW FROM GMVARS: BOOLEAN
+

@@ -1,0 +1,534 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPOTVR6.KL
+--   TITLE:          GMSPOTVR6 PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2018/09/27
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and sai
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Spot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             V4.0   2018/09/27 marchaka         Servo gun change motor setup
+--                                                
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPOTVR6
+
+%COMMENT = 'GM Spot V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT SGDEF1  --SWG variables
+
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+
+-- variables declared for All shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgspt  -- GM spot application variables
+%INCLUDE gm_var --GM Variables
+
+CONST
+Version = '2018-09-27'
+
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SpotVR6Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+  defpath     IN SHADOW : STRING[16] --used for copying swg dt files for swg setup
+  gun_num     : STRING[2] 
+  
+  srvo_td_opt  IN SHADOW FROM GMCUSTO: BOOLEAN --servo tip dress option loaded
+  srvo_dress   IN SHADOW FROM GMCUSTO: INTEGER
+  num_tipdrs   IN SHADOW FROM GMCUSTO: INTEGER
+  sgunchng     IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Servo gun tool changer option loaded 
+
+  srvotd      IN SHADOW FROM GMSPOTVR3: BOOLEAN --user selected servo tip dresser in wizard
+  dtgfiletmp   IN SHADOW FROM GMCUSTO  : ARRAY[4] OF STRING[64] --group 2 dt file
+  dtgfiletmp2  IN SHADOW FROM GMCUSTO  : ARRAY[7] OF STRING[64] --for when there is more than two guns
+  dtafiletmp   IN SHADOW FROM GMCUSTO  : ARRAY[5] OF STRING[64]  --gun axis dt file  
+  numsrvodrs  IN SHADOW FROM GMSPOTVR3  : INTEGER --number of servo tip dressers
+  dt_name      IN SHADOW FROM GMCUSTO : STRING[16]  
+  dt_file      IN SHADOW FROM GMCUSTO : FILE
+  dt_fulnam    IN SHADOW FROM GMCUSTO : STRING[32]
+  got_rtu      IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Extended axis option loaded
+  gm_status : INTEGER
+ 
+  Reset_Cell   IN SHADOW FROM GMCFGCEL: BOOLEAN    --Used for if all Cell I/O shoudl be all reset
+  UseToolChngr IN SHADOW FROM gmcfgtlc : BOOLEAN -- If Tool Changer on Tool
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt --check if servo gun option loaded
+ROUTINE srvotd_optn FROM gmwizspt
+ROUTINE sgunchg_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initspot6var
+-- PURPOSE: to initialize registers associated with setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+  IF UNINIT(srvo_td_opt) THEN
+    srvotd_optn --servo tip dresser option loaded
+  ENDIF
+
+  IF UNINIT(sgunchng) THEN
+    sgunchg_optn --servo gun change option
+  ENDIF
+
+  IF UNINIT(num_tipdrs) THEN
+    num_tipdrs = 0
+  ENDIF
+
+  IF UNINIT(servotipdrs) THEN
+    servotipdrs = 0
+  ENDIF
+
+END initspot6var
+-----------------------------------------------------------------------------
+ROUTINE dt_sgtc_var
+-- PURPOSE: set dt variables based on wizard answers.  do this before setting
+--          up the groups and axis.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ls_amp_num   : STRING[16]
+l_i          : INTEGER
+l_copy_str   : STRING[32]
+
+BEGIN
+
+
+  IF (g_servog_opt = TRUE) THEN  --swg on robot
+    IF ((wld1_app = wld1app_cg) AND (UseToolChngr = TRUE) AND (sgunchng = TRUE)) THEN --carried servo gun change app
+      IF (spotapp_eq[1].spotgun[1].sp_srvogn = wizans_yes) THEN --gun is a servo gun
+        IF (spotapp_eq[1].spotgun[1].sg_ax_setup = wizans_yes) THEN --setup servo gun
+
+          --common for all servo gun tool change applications
+          IF (got_rtu = FALSE) THEN --no RTU
+            spotapp_eq[1].spotgun[1].sg_ampno = 2 --amplifier used
+          ELSE --RTU
+            spotapp_eq[1].spotgun[1].sg_ampno = 3 --amplifier used
+          ENDIF
+          --amp setup motor setup moved to item 5 in array, fixes issue with amp question
+	  --getting asked during gun axis configuration
+          SELECT spotapp_eq[1].spotgun[1].sg_ampno OF --setup amp
+            CASE(2):  --amp 2
+              CNV_INT_STR(2,1,0,ls_amp_num)
+              dtafiletmp[5] = 'amp_num ' + ls_amp_num + ' -- Generated by Wizard'
+            CASE(3):  --amp 3
+              CNV_INT_STR(3,1,0,ls_amp_num)
+              dtafiletmp[5] = 'amp_num ' + ls_amp_num + ' -- Generated by Wizard'
+            ELSE:
+          ENDSELECT --amp setup
+   
+          IF (swgtcnumguns >= 1) THEN --setup servo gun 1
+            SELECT spotapp_eq[1].spotgun[1].sg_motr OF --set up based on motor configuration
+	      CASE(tol_sw44):
+                dtafiletmp[2] = 'motor 42421' + ' --Generated by Wizard'  
+              CASE(tol_HT23):
+                dtafiletmp[2] = 'motor 41909' + ' --Generated by Wizard'  
+              CASE(gswa_201_202):
+                dtafiletmp[2] = 'motor 43301' + ' --Generated by Wizard'  
+              CASE(gswa_101):
+                dtafiletmp[2] = 'motor 42677' + ' --Generated by Wizard'  
+              CASE(gswa_ima44):
+                dtafiletmp[2] = 'motor 42933' + ' --Generated by Wizard'  
+              CASE(gswa_ima33):
+                dtafiletmp[2] = 'motor 43701' + ' --Generated by Wizard'  
+              CASE(fac_4000):
+                IF (spotapp_eq[1].spotgun[1].sg_mot2 = fac_4000_40) THEN
+              	  dtafiletmp[2] = 'motor 16053' + ' --Generated by Wizard' 
+                ENDIF
+                IF(spotapp_eq[1].spotgun[1].sg_mot2 = fac_4000_80) THEN
+                  dtafiletmp[2] = 'motor 16055' + ' --Generated by Wizard'  
+                ENDIF
+              ELSE:
+            ENDSELECT  --setup motor config 
+
+            dt_name = 'svg' + INT_TO_STRG(2) + 'a' + INT_TO_STRG(1) + '.dt'
+            dt_fulnam = defpath + dt_name
+            --writeconsole('[svg2a1.dt] request open')
+            OPEN FILE dt_file('RW', dt_fulnam)
+            gm_status = IO_STATUS(dt_file)
+            --writeconsole('[svg2a1.dt] open ok')
+            IF (gm_status <> 0) THEN
+              --writeconsole('[svg2a1.dt] open fail')
+              ABORT
+            ENDIF
+      
+            FOR l_i=1 TO ARRAY_LEN(dtafiletmp) DO
+              WRITE dt_file(dtafiletmp[l_i], CR)
+            ENDFOR
+            WRITE dt_file('ENDOFL -- End of file', CR)
+
+            CLOSE FILE dt_file
+            --writeconsole('[svg2a1.dt] file closed')    -- Copy DT's to FRSU
+            l_copy_str = 'frcopy ' + defpath + dt_name + ' FRSU:'
+            SPRUNCMD( l_copy_str, gm_status )
+          ENDIF --setup servo gun 1
+
+          IF (swgtcnumguns >= 2) THEN --setup servo gun 2
+            SELECT spotapp_eq[1].spotgun[2].sg_motr OF --set up based on motor configuration
+	      CASE(tol_sw44):
+                dtafiletmp[2] = 'motor 42421' + ' --Generated by Wizard'  
+              CASE(tol_HT23):
+                dtafiletmp[2] = 'motor 41909' + ' --Generated by Wizard'  
+              CASE(gswa_201_202):
+                dtafiletmp[2] = 'motor 43301' + ' --Generated by Wizard'  
+              CASE(gswa_101):
+                dtafiletmp[2] = 'motor 42677' + ' --Generated by Wizard'  
+              CASE(gswa_ima44):
+                dtafiletmp[2] = 'motor 42933' + ' --Generated by Wizard'  
+              CASE(gswa_ima33):
+                dtafiletmp[2] = 'motor 43701' + ' --Generated by Wizard'  
+              CASE(fac_4000):
+                IF (spotapp_eq[1].spotgun[2].sg_mot2 = fac_4000_40) THEN
+              	  dtafiletmp[2] = 'motor 16053' + ' --Generated by Wizard' 
+                ENDIF
+                IF(spotapp_eq[1].spotgun[2].sg_mot2 = fac_4000_80) THEN
+                  dtafiletmp[2] = 'motor 16055' + ' --Generated by Wizard'  
+                ENDIF
+              ELSE:
+            ENDSELECT  --setup motor config 
+
+            dt_name = 'svg' + INT_TO_STRG(2) + 'a' + INT_TO_STRG(2) + '.dt'
+            dt_fulnam = defpath + dt_name
+            --writeconsole('[svg2a2.dt] request open')
+            OPEN FILE dt_file('RW', dt_fulnam)
+            gm_status = IO_STATUS(dt_file)
+            --writeconsole('[svg2a2.dt] open ok')
+            IF (gm_status <> 0) THEN
+              --writeconsole('[svg2a2.dt] open fail')
+              ABORT
+            ENDIF
+      
+            FOR l_i=1 TO ARRAY_LEN(dtafiletmp) DO
+              WRITE dt_file(dtafiletmp[l_i], CR)
+            ENDFOR
+            WRITE dt_file('ENDOFL -- End of file', CR)
+
+            CLOSE FILE dt_file
+            --writeconsole('[svg2a2.dt] file closed')    -- Copy DT's to FRSU
+            l_copy_str = 'frcopy ' + defpath + dt_name + ' FRSU:'
+            SPRUNCMD( l_copy_str, gm_status )
+          ENDIF --setup servo gun 2
+
+          IF (swgtcnumguns >= 3) THEN --setup servo gun 3
+            SELECT spotapp_eq[1].spotgun[3].sg_motr OF --set up based on motor configuration
+	      CASE(tol_sw44):
+                dtafiletmp[2] = 'motor 42421' + ' --Generated by Wizard'  
+              CASE(tol_HT23):
+                dtafiletmp[2] = 'motor 41909' + ' --Generated by Wizard'  
+              CASE(gswa_201_202):
+                dtafiletmp[2] = 'motor 43301' + ' --Generated by Wizard'  
+              CASE(gswa_101):
+                dtafiletmp[2] = 'motor 42677' + ' --Generated by Wizard'  
+              CASE(gswa_ima44):
+                dtafiletmp[2] = 'motor 42933' + ' --Generated by Wizard'  
+              CASE(gswa_ima33):
+                dtafiletmp[2] = 'motor 43701' + ' --Generated by Wizard'  
+              CASE(fac_4000):
+                IF (spotapp_eq[1].spotgun[3].sg_mot2 = fac_4000_40) THEN
+              	  dtafiletmp[2] = 'motor 16053' + ' --Generated by Wizard' 
+                ENDIF
+                IF(spotapp_eq[1].spotgun[3].sg_mot2 = fac_4000_80) THEN
+                  dtafiletmp[2] = 'motor 16055' + ' --Generated by Wizard'  
+                ENDIF
+              ELSE:
+            ENDSELECT  --setup motor config 
+
+            dt_name = 'svg' + INT_TO_STRG(2) + 'a' + INT_TO_STRG(3) + '.dt'
+            dt_fulnam = defpath + dt_name
+            --writeconsole('[svg2a3.dt] request open')
+            OPEN FILE dt_file('RW', dt_fulnam)
+            gm_status = IO_STATUS(dt_file)
+            --writeconsole('[svg2a3.dt] open ok')
+            IF (gm_status <> 0) THEN
+              --writeconsole('[svg2a3.dt] open fail')
+              ABORT
+            ENDIF
+      
+            FOR l_i=1 TO ARRAY_LEN(dtafiletmp) DO
+              WRITE dt_file(dtafiletmp[l_i], CR)
+            ENDFOR
+            WRITE dt_file('ENDOFL -- End of file', CR)
+
+            CLOSE FILE dt_file
+            --writeconsole('[svg2a3.dt] file closed')    -- Copy DT's to FRSU
+            l_copy_str = 'frcopy ' + defpath + dt_name + ' FRSU:'
+            SPRUNCMD( l_copy_str, gm_status )
+          ENDIF --setup servo gun 3
+
+          IF (swgtcnumguns >= 4) THEN --setup servo gun 4
+            SELECT spotapp_eq[1].spotgun[4].sg_motr OF --set up based on motor configuration
+	      CASE(tol_sw44):
+                dtafiletmp[2] = 'motor 42421' + ' --Generated by Wizard'  
+              CASE(tol_HT23):
+                dtafiletmp[2] = 'motor 41909' + ' --Generated by Wizard'  
+              CASE(gswa_201_202):
+                dtafiletmp[2] = 'motor 43301' + ' --Generated by Wizard'  
+              CASE(gswa_101):
+                dtafiletmp[2] = 'motor 42677' + ' --Generated by Wizard'  
+              CASE(gswa_ima44):
+                dtafiletmp[2] = 'motor 42933' + ' --Generated by Wizard'  
+              CASE(gswa_ima33):
+                dtafiletmp[2] = 'motor 43701' + ' --Generated by Wizard'  
+              CASE(fac_4000):
+                IF (spotapp_eq[1].spotgun[4].sg_mot2 = fac_4000_40) THEN
+              	  dtafiletmp[2] = 'motor 16053' + ' --Generated by Wizard' 
+                ENDIF
+                IF(spotapp_eq[1].spotgun[4].sg_mot2 = fac_4000_80) THEN
+                  dtafiletmp[2] = 'motor 16055' + ' --Generated by Wizard'  
+                ENDIF
+              ELSE:
+            ENDSELECT  --setup motor config 
+
+            dt_name = 'svg' + INT_TO_STRG(2) + 'a' + INT_TO_STRG(4) + '.dt'
+            dt_fulnam = defpath + dt_name
+            --writeconsole('[svg2a4.dt] request open')
+            OPEN FILE dt_file('RW', dt_fulnam)
+            gm_status = IO_STATUS(dt_file)
+            --writeconsole('[svg2a4.dt] open ok')
+            IF (gm_status <> 0) THEN
+              --writeconsole('[svg2a4.dt] open fail')
+              ABORT
+            ENDIF
+      
+            FOR l_i=1 TO ARRAY_LEN(dtafiletmp) DO
+              WRITE dt_file(dtafiletmp[l_i], CR)
+            ENDFOR
+            WRITE dt_file('ENDOFL -- End of file', CR)
+
+            CLOSE FILE dt_file
+            --writeconsole('[svg2a4.dt] file closed')    -- Copy DT's to FRSU
+            l_copy_str = 'frcopy ' + defpath + dt_name + ' FRSU:'
+            SPRUNCMD( l_copy_str, gm_status )
+          ENDIF --setup servo gun 4
+
+        ENDIF --setup servo gun                     
+      ENDIF --gun is a servo gun
+    ENDIF --carried servo gun change tool change applicatio                                  
+  ENDIF --swg on robot
+ 
+END dt_sgtc_var
+-----------------------------------------------------------------------------
+ROUTINE dt_sgtcgpcfg
+-- PURPOSE: Routine to create DT files and load to FRSU 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  l_i          : INTEGER
+  l_copy_str   : STRING[32]
+  l_ans_real   : REAL
+  dt2_finish   : INTEGER
+  
+BEGIN
+
+  IF (g_servog_opt) ThEN --servo gun option is loaded on the robot
+    IF ((wld1_app = wld1app_cg) AND (UseToolChngr = TRUE) AND (sgunchng = TRUE)) THEN --carried servo gun change app
+      IF (spotapp_eq[1].spotgun[1].sp_srvogn = wizans_yes) THEN --gun is a servo gun
+        IF (spotapp_eq[1].spotgun[1].sg_ax_setup = wizans_yes) THEN --setup servo gun
+      
+          -- Correct number of groups configured just update svgX.dt files
+          -- Must Add additional axis to groups.
+          -- ****************************************************************************
+          -- Build SVG2.DT files:
+          -- ****************************************************************************
+          IF got_rtu = FALSE THEN
+
+            IF (srvo_td_opt = FALSE) THEN  --no servo tip dresser
+              dtgfiletmp[1] = 'hw_strt 7 -- Generated by Wizard' -- Determined by Application
+            ELSE  --servo tip dresser         
+              IF (servotipdrs = wizans_yes) THEN --using servo tip dressers
+                SELECT num_tipdrs OF --number of tip dressers used
+                  CASE(1):  --one tip dresser
+                    dtgfiletmp[1] = 'hw_strt 8 -- Generated by Wizard' -- Determined by Application
+                  CASE(2):  --twp tip dressers
+                    dtgfiletmp[1] = 'hw_strt 9 -- Generated by Wizard' -- Determined by Application
+                  CASE(3):  --three tip dressers
+                    dtgfiletmp[1] = 'hw_strt 10 -- Generated by Wizard' -- Determined by Application
+                  CASE(4):  --four tip dressers
+                    dtgfiletmp[1] = 'hw_strt 11 -- Generated by Wizard' -- Determined by Application
+                  ELSE:
+                    dtgfiletmp[1] = 'hw_strt 7 -- Generated by Wizard' -- Determined by Application
+                ENDSELECT --number of tip dressers
+              ELSE  --user isn't using servo tip dressers
+                dtgfiletmp[1] = 'hw_strt 7 -- Generated by Wizard' -- Determined by Application               
+              ENDIF -- using servo tip dressers
+            ENDIF --no servo tip dresser option
+
+           ELSE  --RTU
+
+             IF (srvo_td_opt = FALSE) THEN  --no servo tip dresser
+               dtgfiletmp[1] = 'hw_strt 8 -- Generated by Wizard' -- Determined by Application
+             ELSE  --servo tip dresser         
+               IF (servotipdrs = wizans_yes) THEN --using servo tip dressers
+                 SELECT num_tipdrs OF --number of tip dressers used
+                   CASE(1):  --one tip dresser
+                     dtgfiletmp[1] = 'hw_strt 9 -- Generated by Wizard' -- Determined by Application
+                   CASE(2):  --twp tip dressers
+                     dtgfiletmp[1] = 'hw_strt 10 -- Generated by Wizard' -- Determined by Application
+                   CASE(3):  --three tip dressers
+                     dtgfiletmp[1] = 'hw_strt 11 -- Generated by Wizard' -- Determined by Application
+                   CASE(4):  --four tip dressers
+                     dtgfiletmp[1] = 'hw_strt 12 -- Generated by Wizard' -- Determined by Application
+                   ELSE:
+                     dtgfiletmp[1] = 'hw_strt 8 -- Generated by Wizard' -- Determined by Application
+                 ENDSELECT --number of tip dressers
+               ELSE --not using servo tip dreser
+                 dtgfiletmp[1] = 'hw_strt 8 -- Generated by Wizard' -- Determined by Application
+               ENDIF -- using servo tip dressers
+            ENDIF--no servo tip dresser option
+           
+          ENDIF -- RTU
+            
+          IF (swgtcnumguns = 1) THEN  --one gun will be used
+            dtgfiletmp[2] = 'a1_exist 1 -- Generated by Wizard' -- Determined by Application
+            dtgfiletmp[3] = 'a2_exist 0 -- Generated by Wizard' -- Determined by Application
+          ENDIF --one gun will be used
+          IF (swgtcnumguns >= 2) THEN  --at least two guns will be used
+            dtgfiletmp[2] = 'a1_exist 1 -- Generated by Wizard' -- Determined by Application
+            dtgfiletmp[3] = 'a2_exist 1 -- Generated by Wizard' -- Determined by Application
+          ENDIF
+          IF (swgtcnumguns >= 3) THEN --at least three guns will be used
+            dtgfiletmp2[1] = 'a3_exist 1 --Generated by Wizard'  --Determined by Application
+            dt2_finish = 1
+          ENDIF
+          IF (swgtcnumguns >= 4) THEN --at least four guns will be used
+            dtgfiletmp2[2] = 'a4_exist 1 --Generated by Wizard'  --Determined by Application
+            dt2_finish = 2
+          ENDIF
+            
+          -- Because servo guns always start on group #2 we will have to add 
+          -- a 1 to p_equipment.       \
+          -- Always adding Group #3 ONLY, User should NOT delete group 2 
+          defpath = 'fr:\'
+          dt_name = 'svg' + INT_TO_STRG(2) + '.dt'
+ 
+          dt_fulnam = defpath + dt_name
+          OPEN FILE dt_file('RW', dt_fulnam)
+          gm_status = IO_STATUS(dt_file)
+          IF (gm_status <> 0) THEN
+            WRITE TPERROR(CHR(cc_clear_win),'Open.',dt_name,' failed',CR)
+            ABORT
+          ENDIF
+      
+          FOR l_i=1 TO ARRAY_LEN(dtgfiletmp) DO
+            WRITE dt_file(dtgfiletmp[l_i], CR)
+          ENDFOR
+      
+          IF (swgtcnumguns >= 3) THEN --need to setup two more lines in DT file for guns 3 and/or 4
+            FOR l_i = 1 TO dt2_finish DO
+              WRITE dt_file(dtgfiletmp2[l_i], CR)
+            ENDFOR
+          ENDIF --guns 3 and 4                 
+
+          WRITE dt_file('ENDOFL -- End of file', CR)
+
+          CLOSE FILE dt_file
+  
+          -- Copy DT's to FRSU
+          l_copy_str = 'frcopy ' + defpath + dt_name + ' FRSU:'
+          SPRUNCMD( l_copy_str, gm_status )
+        
+        ENDIF -- setup servo gun      
+      ENDIF --gun 1 is a servo gun
+    ENDIF --carried servo gun change app    
+  ENDIF --servo gun option is loaded on the robot
+
+END dt_sgtcgpcfg
+-----------------------------------------------------------------------------
+ROUTINE set_spotvar6
+-- PURPOSE: set spot welding application variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numwldctrl <> 0) THEN --spot welding applciation
+
+  Current_Ver = Version -- Set the version for reference
+
+  -- Insert routines created call here
+  initspot6var
+
+ENDIF --numweldctrl
+
+END set_spotvar6
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmspotvr6

@@ -1,0 +1,492 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="GENERATOR" content="Microsoft FrontPage 12.0">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>GRS-4 Production Home</title>
+
+<style type="text/css">
+.style1 {
+	margin-left: 0px;
+}
+.style2 {
+	text-align: center;
+}
+.style3 {
+	text-align: left;
+}
+</style>
+
+</head>
+<body>
+
+<div align="left">
+  <table border="0" cellspacing="0" width="628" height="365" cellpadding="0">
+    <tbody class="style2">
+    <tr>
+      <td width="100%">
+              						<table height="365" align="center" style="width: 100%">											
+										<tr>
+											<td height="20" valign="middle" rowspan="2" style="height: 70px" class="style2">
+											<object classid="clsid:7106067C-0E45-11D3-81B6-0000E206D650" id="FRIPButtonChange1" style="width: 126px; height: 66px">
+												<param name="Caption" value="Production Speed Page">
+												<param name="FontSize" value="14">
+												<param name="width" value="126">
+												<param name="height" value="66">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="PageName" value="/fr/PrdSpd.stm">
+												<param name="BackColor" value="16776960">
+											</object>
+											</td>
+											<td height="20" rowspan="2" style="height: 70px" class="style2">
+											<object classid="clsid:7106067C-0E45-11D3-81B6-0000E206D650" id="FRIPButtonChange3" style="width: 126px; height: 66px; float: middle;" align="middle">
+												<param name="Caption" value="GM Robot Manuals">
+												<param name="FontSize" value="14">
+												<param name="width" value="126">
+												<param name="height" value="66">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="PageName" value="/fr/GM_lib.stm">
+												<param name="BackColor" value="16776960">
+											</object>
+											</td>
+											<td height="20" align="center" valign="middle" colspan="2">
+											<object align="top" id="FRIPToggleLamp28" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 137px; height: 27px; float: left">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3466">
+                                                <param name="_ExtentY" value="714">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="AUTO Mode">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="11">
+                                                <param name="DataType" value="1">
+                                                <param name="DataIndex" value="2005">
+                                                <param name="TrueColor" value="65280">
+                                                <param name="FalseColor" value="255">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+                                                <param name="ViewType" value="2">
+												<param name="width" value="131">
+												<param name="height" value="27">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="20" align="center" valign="middle">
+											Style<br>
+											IN</td>
+											<td height="20" align="center" valign="middle">
+											Style<br>
+											OUT</td>
+										</tr>											
+										<tr>
+											<td height="50" align="center" valign="middle" colspan="2">
+											<object align="top" id="FRIPToggleLamp27" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 142px; height: 29px; float: left;">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3598">
+                                                <param name="_ExtentY" value="767">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="TP ENABLED">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="11">
+                                                <param name="DataType" value="12">
+                                                <param name="DataIndex" value="7">
+                                                <param name="TrueColor" value="65280">
+                                                <param name="FalseColor" value="255">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+                                                <param name="ViewType" value="2">
+												<param name="width" value="136">
+												<param name="height" value="29">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="50" align="center" valign="middle">
+											<object height="45" align="top" width="45" id="FRIPLabel27" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="18">
+                                                <param name="DataIndex" value="1">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td height="50" align="center" valign="middle">
+											<object height="45" align="top" width="45" id="FRIPLabel19" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="19">
+                                                <param name="DataIndex" value="1">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+										</tr>
+										<tr>
+											<td height="20" valign="middle" class="style2">
+											&nbsp;</td>
+											<td height="20">
+											&nbsp;</td>
+											<td height="20" valign="middle" colspan="2" class="style2">
+											<object align="top" id="FRIPToggleLamp42" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 143px; height: 29px; float: left;">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3625">
+                                                <param name="_ExtentY" value="767">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="AT HOME 1">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="11">
+                                                <param name="DataType" value="2">
+                                                <param name="DataIndex" value="433">
+                                                <param name="TrueColor" value="65280">
+                                                <param name="FalseColor" value="255">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+                                                <param name="ViewType" value="2">
+												<param name="width" value="137">
+												<param name="height" value="29">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td align="center" valign="middle">
+											Segment<br>
+											IN </td>	
+											<td align="center" valign="middle">
+											Segment<br>
+											OUT</td>	
+										</tr>
+										<tr>
+											<td height="20" valign="middle" class="style2">
+											&nbsp;</td>
+											<td height="20">
+											&nbsp;</td>
+											<td height="50" align="center" valign="middle" colspan="2">
+											<object align="top" id="FRIPToggleLamp31" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 143px; height: 37px; float: left;">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3625">
+                                                <param name="_ExtentY" value="979">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="BATTERIES OK">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="11">
+                                                <param name="DataType" value="2">
+                                                <param name="DataIndex" value="7">
+                                                <param name="TrueColor" value="255">
+                                                <param name="FalseColor" value="65280">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+												<param name="width" value="137">
+												<param name="height" value="37">
+												<param name="TrueFont" value="-1">
+												<param name="TrueCaption" value="BATTERIES LOW">
+											</object>
+											</td>
+											<td align="center" valign="middle">
+											<object height="45" align="top" width="45" id="FRIPLabel21" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="18">
+                                                <param name="DataIndex" value="3">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td align="center" valign="middle">
+											<object height="45" align="top" width="45" id="FRIPLabel29" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="19">
+                                                <param name="DataIndex" value="3">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+										</tr>
+										<tr>
+											<td height="20" valign="middle" class="style2">
+											Robot Name</td>
+											<td height="20" class="style2">
+											Robot IP</td>
+											<td height="20" align="center" valign="middle">
+											Port1<br>
+											Mode</td>
+											<td height="20" align="center" valign="middle">
+											Port1<br>
+											Duplex</td>
+											<td height="20" align="center" valign="middle">
+											DCD<br>
+											IN</td>
+											<td height="20" align="center" valign="middle">
+											DCD<br>
+											OUT</td>
+										</tr>
+										<tr>
+											<td valign="middle" class="style2">
+											<object height="45" align="top" width="145" id="FRIPLabel11" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3836">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="102">
+                                                <param name="DataIndex" value="$HOSTNAME">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="145">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td>
+											<object align="middle" id="FRIPLabel12" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" class="style1" style="width: 169px; height: 46px; float: middle;">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="4471">
+                                                <param name="_ExtentY" value="1217">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="102">
+                                                <param name="DataIndex" value="$HOSTENT[17].$H_ADDR">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="169">
+												<param name="height" value="46">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+											<td align="center" valign="middle">
+											<object classid="clsid:7106066C-0E45-11D3-81B6-0000E206D650" id="FRIPToggleButton1" style="width: 57px; height: 40px">
+												<param name="Caption" value="100">
+												<param name="FontSize" value="14">
+												<param name="width" value="57">
+												<param name="height" value="40">
+												<param name="DataType" value="102">
+												<param name="DataIndex" value="$ENETMODE[1].$SPEED">
+												<param name="TrueColor" value="8454016">
+												<param name="FalseColor" value="8454016">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="Type" value="1">
+												<param name="OtherPhase" value="-1">
+												<param name="TrueValue" value="2">
+												<param name="FalseValue" value="1">
+												<param name="TrueCaption" value="AUTO">
+												<param name="ChkTpEnable" value="-1">
+											</object>
+											</td>
+											<td align="center" valign="middle">
+											<object align="top" id="FRIPToggleLamp16" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 56px; height: 40px">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1482">
+                                                <param name="_ExtentY" value="1058">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="HALF">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="102">
+                                                <param name="DataIndex" value="$ENETMODE[1].$FULL_DUPLEX">
+                                                <param name="TrueColor" value="65535">
+                                                <param name="FalseColor" value="65535">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+												<param name="width" value="56">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+												<param name="TrueCaption" value="FULL">
+											</object>
+											</td>
+											<td height="50" align="center">
+											<object height="45" align="top" width="45" id="FRIPLabel30" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="18">
+                                                <param name="DataIndex" value="2">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>																					
+											<td height="50" align="center">
+											<object height="45" align="top" width="45" id="FRIPLabel31" classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="1191">
+                                                <param name="_ExtentY" value="1191">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value>
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="14">
+                                                <param name="DataType" value="19">
+                                                <param name="DataIndex" value="2">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="BackColor" value="65535">
+                                                <param name="Border" value="4">
+												<param name="width" value="45">
+												<param name="height" value="45">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>																					
+										</tr>
+										<tr>
+											<td valign="middle" style="height: 50px" class="style2">
+											&nbsp;</td>
+											<td align="center" style="height: 50px">
+											<object align="top" id="FRIPToggleLamp37" classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" style="width: 157px; height: 44px; float: left;" class="style1">
+                                                <param name="_Version" value="65536">
+                                                <param name="_ExtentX" value="3995">
+                                                <param name="_ExtentY" value="1164">
+                                                <param name="_StockProps" value="6">
+                                                <param name="Caption" value="24OUT/NM BRKR FLT">
+                                                <param name="FontName" value="Courier New">
+                                                <param name="FontSize" value="11">
+                                                <param name="DataType" value="11">
+                                                <param name="DataIndex" value="12">
+                                                <param name="TrueColor" value="65280">
+                                                <param name="FalseColor" value="255">
+                                                <param name="Interval" value="250">
+                                                <param name="FastLoad" value="-1">
+                                                <param name="Border" value="4">
+												<param name="width" value="151">
+												<param name="height" value="44">
+												<param name="TrueFont" value="-1">
+												<param name="TrueCaption" value="24OUT/NM BRKR OK">
+											</object>
+											</td>
+											<td valign="middle" style="height: 50px" colspan="2" class="style3">
+											<object classid="clsid:71060668-0E45-11D3-81B6-0000E206D650" id="FRIPToggleLamp41" style="width: 144px; height: 29px">
+												<param name="Caption" value="DCS BYPASSED">
+												<param name="FontSize" value="11">
+												<param name="width" value="144">
+												<param name="height" value="29">
+												<param name="DataType" value="102">
+												<param name="DataIndex" value="$CIPS_SET.$MODE">
+												<param name="TrueColor" value="65280">
+												<param name="FalseColor" value="255">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="Type" value="1">
+												<param name="CmpValue" value="1">
+												<param name="TrueCaption" value="DCS ENABLED">
+											</object>
+											</td>
+											<td valign="middle" style="height: 50px" colspan="2" class="style3">
+											&nbsp;</td>
+										</tr>
+										<tr>
+											<td height="50" valign="middle" class="style2">
+											&nbsp;</td>
+											<td height="50">
+											&nbsp;<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+										</tr>
+										<tr>
+											<td height="20" valign="middle">
+											&nbsp;</td>
+											<td>
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle">
+											&nbsp;</td>
+										</tr>
+										<tr>
+											<td height="50" valign="middle">
+											&nbsp;</td>
+											<td height="50">
+											&nbsp;<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="50" align="center" valign="middle">
+											&nbsp;</td>
+											<td height="50" align="center">
+											&nbsp;</td>																					
+											<td height="50" align="center">
+											&nbsp;</td>																					
+										</tr>
+										</table>
+      </td>
+    </tr>
+    <tr>
+      <td width="100%">
+              						&nbsp;</td>
+    </tr>
+  </table>
+</div>
+
+</body>
+
+</html>

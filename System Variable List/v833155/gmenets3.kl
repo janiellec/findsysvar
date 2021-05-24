@@ -1,0 +1,476 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMENETS3.KL
+--   TITLE:          GMENETS3 PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2020/03/23
+--
+--   LANGUAGE:       KAREL 8.30 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   000000
+--   PROJECT NAME:   GOOD CUSTOMER
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: X PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             V4.0   2020/03/23 marchaka         Intial Release
+--             V4.1   2020/11/05 schoensm         During V8.33P10 added PushCorp and Proportional Valve for Laser Grind/Clean, and Reamer
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMENETS3
+
+%COMMENT = 'Enet 3 Routines'
+%NOLOCKGROUP
+%STACKSIZE = 1000
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+
+CONST
+Revision='2020-11-23'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  gm_status  : INTEGER
+
+  SBI_Err_Sv IN SHADOW FROM GMENETSU: INTEGER -- Used for the Severity $EIP_CONN[x].$ERR_SV setting by GMENETS3
+  PCor_Err_Sv IN SHADOW FROM GMENETSU: INTEGER -- Used for the Severity $EIP_CONN[x].$ERR_SV setting by GMENETS3
+  PVal_Err_Sv IN SHADOW FROM GMENETSU: INTEGER -- Used for the Severity $EIP_CONN[x].$ERR_SV setting by GMENETS3 
+  Ream_Err_Sv IN SHADOW FROM GENENTSU: INTEGER -- USED for the Severity $EIP_CONN[x].$ERR_SV setting by GMENETS3
+
+%INCLUDE gmcfgcel -- used for the cell variables for configuration in the wizard
+
+%INCLUDE GMRDUTIL -- Utility Routine for Int@str, VerifyAnswer Etc...
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-----------------------------------------------------------------------------
+ROUTINE SBI_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING)
+-- PURPOSE: Setup the EIP connection for the Spot Plasma SBI Controller # passed
+--
+--
+--
+-- INPUT:   Connection Number to Setup
+--          Connection Name to comment the connection to
+--          Connection Ip Address, because this on ON PORT #1 Not #2 Ip is not known
+--
+-- OUTPUT:
+--
+--
+-- CALLED BY:  gmsptplsm
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+-- Check the severity has been setup
+    Ch_err_sv
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- Set the Connection Name
+-- set the description comment sent
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',p_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+-- Need to change from wizard answer
+
+IF UNINIT(P_host_ip) THEN
+  P_host_ip = '0.0.0.0'
+ENDIF
+IF P_host_ip = '0.0.0.0' THEN
+  POST_ERR(38000, 'EIP_CONN['+Con_String+'] IP Address IN CORRECT!!', 0, 0) --
+ENDIF
+
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',P_host_ip)
+
+  -- Set Connection is Scanner
+  Set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',SBI_Err_Sv)--0= stop 1= warn,2=pause
+
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',0)
+
+  --Set the I/O Produce size for the Block in 16-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',42) --When Scanner=Output, Adaptor=Input
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',42) --When Scanner=Input, Adaptor=Output
+
+ -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  --DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',TRUE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',0)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',150)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',100) --assembly instance (input)
+
+  Set_I_Svar('$EIP_CONN[2].$TOAPI',0)
+  Set_I_Svar('$EIP_CONN[2].$OTAPI',0)
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$BW_COMP',0)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END SBI_EIP
+-----------------------------------------------------------------------------
+ROUTINE PCORP_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)
+-- PURPOSE:Setup the EIP connection for the Input Connection # passed
+--
+--
+--
+-- INPUT:   Connection Number to Setup
+--          Some setting are assume and Hard coded based on the type Setup
+--          Connection Name to comment the connection to
+--          for instance the input block are assumed to be specific brands
+--            - Turck input block TBEN-LG-16DIP
+
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+ -- Check the severity has been setup
+    Ch_err_sv
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- set the description comment set above
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',P_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+  l_host_ip = '192.168.1.'+Con_String -- The host name is equal to base setup and Passed element
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',l_host_ip)
+
+  -- Set Connection is Scanner
+  set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',PCor_Err_Sv)--0= stop 1= warn,2=pause
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+  -- Setup all EIP Scanner variables
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',8)--When Scanner=Input
+  --Set the I/O Produce size for the Block in 8-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',5)--When Scanner=Output
+
+  -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  --DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',FALSE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',106)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',104)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',103) --assembly instance (input)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END PCORP_IN_EIP
+-----------------------------------------------------------------------------
+ROUTINE PVALV_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)
+-- PURPOSE:Setup the EIP connection for the Input Connection # passed
+--
+--
+--
+-- INPUT:   Connection Number to Setup
+--          Some setting are assume and Hard coded based on the type Setup
+--          Connection Name to comment the connection to
+--          for instance the input block are assumed to be specific brands
+--            - Laser Grind/Clean Proportional Valve 
+
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+ -- Check the severity has been setup
+    Ch_err_sv
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- set the description comment set above
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',P_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+  l_host_ip = '192.168.1.'+Con_String -- The host name is equal to base setup and Passed element
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',l_host_ip)
+
+  -- Set Connection is Scanner
+  set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',PVal_Err_Sv)--0= stop 1= warn,2=pause
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+  -- Setup all EIP Scanner variables
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',2)--When Scanner=Input
+  --Set the I/O Produce size for the Block in 8-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',1)--When Scanner=Output
+
+  -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  --DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',FALSE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',106)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',100)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',150) --assembly instance (input)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END PVALV_IN_EIP
+-----------------------------------------------------------------------------
+ROUTINE REAM_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_Err_Sv:INTEGER)
+-- PURPOSE:Setup the EIP connection for the Input Connection # passed
+--
+--
+--
+-- INPUT:   Connection Number to Setup
+--          Some setting are assume and Hard coded based on the type Setup
+--          Connection Name to comment the connection to
+--          for instance the input block are assumed to be specific brands
+--            - Turck FEN20-16DXP (Used if Reamer is a Torch Wizard, Elco Reamer/Nozzle Detect)
+
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+-- Check the severity has been setup
+  Ch_err_sv
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- set the description comment set above
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',P_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+  l_host_ip = '192.168.1.'+Con_String -- The host name is equal to base setup and Passed element
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',l_host_ip)
+
+  -- Set Connection is Scanner
+  set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',P_Err_Sv)--0= stop 1= warn,2=pause
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+  -- Setup all EIP Scanner variables
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',5)--When Scanner=Input
+  --Set the I/O Produce size for the Block in 8-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',2)--When Scanner=Output
+
+  -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  --DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',FALSE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',106)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',104)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',103) --assembly instance (input)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END REAM_IN_EIP
+-----------------------------------------------------------------------------
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+ BEGIN
+
+
+END GMENETS3

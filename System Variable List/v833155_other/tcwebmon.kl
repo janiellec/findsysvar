@@ -1,0 +1,543 @@
+PROGRAM TCWEBMON
+
+-- This program was created by GENE Siegle to handle tool change applications
+--Modification history:
+-- 2018/10/11 marchaka Replaced open.gif with gm_open.gif.  There is already an open.gif in the Fanuc standard gui.
+
+ 
+%PRIORITY = 50
+%SYSTEM
+%ALPHABETIZE
+%NOLOCKGROUP
+%RWACCESS
+%NOBUSYLAMP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+%COMMENT = 'GM TC Webpg V4.2'
+%NOPAUSESHFT
+--%ENVIRONMENT FDEV
+--%ENVIRONMENT REGOPE
+--%ENVIRONMENT IOBLT.EV
+%ENVIRONMENT uif
+--%ENVIRONMENT PBCORE
+
+%INCLUDE klevkmsk
+%INCLUDE klevkeys
+%INCLUDE kliotyps
+%INCLUDE KLEVCCDF  -- allows use of 'cc_clear_win' command
+%INCLUDE kliosop  
+
+CONST
+  CH_TC1 = 100
+  CH_TC2 = 110
+  CH_TC3 = 120
+
+
+VAR
+ 
+  status,entry,success : INTEGER    -- returns status of attempted operation
+  HFO,s_gc,n_stat,enb_c	:BOOLEAN
+  str	:STRING[128]
+  nest_sel,st_sel	:STRING[12]
+  nest_num1,nest_num2,nest_num3,nest_num4,stds	:INTEGER
+  scrn_url,scrn_url2,m_page	:STRING[60]
+  n_stnd_1,n_stnd_2,n_stnd_3,n_stnd_4,num_stds	:INTEGER
+  f1,f2,f3	:FILE
+  ch_num,st_num_ch,n_n,n_s	:INTEGER
+  choice	:ARRAY[3] OF STRING[12]
+  st_choice	:ARRAY[5] OF STRING[12]
+
+---/KCL/set%20var%20[TCWEBMON]s_gc=TRUE" 
+------------------------------------------------------------------------------
+ROUTINE main
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  GET_VAR(entry, '*system*', '$UI_PANEDATA[1].$PAGEURL', scrn_url, status) --get screen id
+  GET_VAR(entry, '*system*', '$UI_PANEDATA[2].$PAGEURL', scrn_url2, status) --get screen id
+  GET_VAR(entry, 'gmcfgtlc', 'NUM_TOOLSTND', num_stds, status) 
+  GET_VAR(entry, 'gmcfgtlc', 'TOOLSTNDTYPE[1]', nest_num1, status) 
+  GET_VAR(entry, 'gmcfgtlc', 'TOOLSTNDTYPE[2]', nest_num2, status) 
+  GET_VAR(entry, 'gmcfgtlc', 'TOOLSTNDTYPE[3]', nest_num3, status) 
+  GET_VAR(entry, 'gmcfgtlc', 'TOOLSTNDTYPE[4]', nest_num4, status)
+  
+
+--Set selection list based on the number of Tool stands	
+  SELECT num_stds OF  --Set the pop out menu option for the number of tool stands configured
+    CASE(1):
+      st_choice[2] = 'Stand 1'
+      st_choice[3] = ''
+      st_choice[4] = ''
+      st_choice[5] = ''
+    CASE(2):
+      st_choice[2] = 'Stand 1'
+      st_choice[3] = 'Stand 2'
+      st_choice[4] = ''
+      st_choice[5] = ''
+    CASE(3):
+      st_choice[2] = 'Stand 1'
+      st_choice[3] = 'Stand 2'
+      st_choice[4] = 'Stand 3'
+      st_choice[5] = ''
+    CASE(4):
+      st_choice[2] = 'Stand 1'
+      st_choice[3] = 'Stand 2'
+      st_choice[4] = 'Stand 3'
+      st_choice[5] = 'Stand 4'
+    ELSE:
+  ENDSELECT
+
+
+--Set the selection list for nests per stand  
+  SELECT st_num_ch OF  --Set the pop out menu option for the number of nest per stand configured
+    CASE(1):
+      IF nest_num1 = 2 THEN
+        choice[2] = 'Nest 1'
+        choice[3] = 'Nest 2'
+      ELSE
+        choice[2] = 'Nest 1'
+        choice[3] = ''
+      ENDIF
+    CASE(2):
+      IF nest_num2 = 2 THEN
+        choice[2] = 'Nest 1'
+        choice[3] = 'Nest 2'
+      ELSE
+        choice[2] = 'Nest 1'
+        choice[3] = ''
+      ENDIF
+    CASE(3):
+      IF nest_num3 = 2 THEN
+        choice[2] = 'Nest 1'
+        choice[3] = 'Nest 2'
+      ELSE
+        choice[2] = 'Nest 1'
+        choice[3] = ''
+      ENDIF
+    CASE(4):
+      IF nest_num1 = 2 THEN
+        choice[2] = 'Nest 1'
+        choice[3] = 'Nest 2'
+      ELSE
+        choice[2] = 'Nest 1'
+        choice[3] = ''
+      ENDIF
+    ELSE:
+  ENDSELECT
+
+--IF (n_n = ch_num) AND (n_s = st_num_ch) THEN
+--  GOTO SKIP
+--ENDIF
+
+	  
+----------------------------------------------------------------------------------------
+--Set to nest 1 -- if stand1 has 1 or 2 nests   
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 1) AND (ch_num = 1) THEN  --yes no page
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="931"')
+    WRITE f2 ('Id="NinPos" DataIndex="932"')
+    WRITE f2 ('Id="OPEN" DataIndex="929"')
+    WRITE f2 ('Id="CLOSE" DataIndex="930"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-931"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-932"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-929"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-930"')
+    CLOSE FILE f2
+    IF (DIN[929] = ON) AND (DIN[930] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[929] = OFF) AND (DIN[930] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[929] = OFF) AND (DIN[930] = OFF)) OR ((DIN[929] = ON) AND(DIN[930] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 2 -- if stand1 has 2 nests   
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 1) AND (ch_num = 2) THEN  --yes no page
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="935"')
+    WRITE f2 ('Id="NinPos" DataIndex="932"')
+    WRITE f2 ('Id="OPEN" DataIndex="933"')
+    WRITE f2 ('Id="CLOSE" DataIndex="934"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-935"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-932"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-933"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-934"')
+    CLOSE FILE f2
+    IF (DIN[933] = ON) AND (DIN[934] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[933] = OFF) AND (DIN[934] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[933] = OFF) AND (DIN[934] = OFF)) OR ((DIN[933] = ON) AND(DIN[934] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 2 if stand1 has 1 nest and stand2 has 1 nest  
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 2) AND (ch_num = 1) AND (nest_num1 = 1) AND (nest_num2 = 1) THEN  --Set for nest 3
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="939"')
+    WRITE f2 ('Id="NinPos" DataIndex="940"')
+    WRITE f2 ('Id="OPEN" DataIndex="937"')
+    WRITE f2 ('Id="CLOSE" DataIndex="934"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-939"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-940"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-937"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-938"')
+    CLOSE FILE f2
+    IF (DIN[937] = ON) AND (DIN[938] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[937] = OFF) AND (DIN[938] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[937] = OFF) AND (DIN[938] = OFF)) OR ((DIN[937] = ON) AND(DIN[938] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 3 -- if stand1 has 2 nests and stand2 has 1 nest  
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 2) AND (ch_num = 1) AND (nest_num1 = 2) AND (nest_num2 = 1) THEN  --Set for nest 3
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="947"')
+    WRITE f2 ('Id="NinPos" DataIndex="948"')
+    WRITE f2 ('Id="OPEN" DataIndex="945"')
+    WRITE f2 ('Id="CLOSE" DataIndex="946"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-947"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-948"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-945"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-946"')
+    CLOSE FILE f2
+    IF (DIN[945] = ON) AND (DIN[946] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[945] = OFF) AND (DIN[946] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[945] = OFF) AND (DIN[946] = OFF)) OR ((DIN[945] = ON) AND(DIN[946] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 3 -- if stand1 has 2 nests and stand2 has 2 nest  
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 2) AND (ch_num = 1) AND (nest_num1 = 2) AND (nest_num2 = 2) THEN  --Set for nest 3
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="947"')
+    WRITE f2 ('Id="NinPos" DataIndex="948"')
+    WRITE f2 ('Id="OPEN" DataIndex="945"')
+    WRITE f2 ('Id="CLOSE" DataIndex="946"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-947"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-948"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-945"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-946"')
+    CLOSE FILE f2
+    IF (DIN[945] = ON) AND (DIN[946] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[945] = OFF) AND (DIN[946] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[945] = OFF) AND (DIN[946] = OFF)) OR ((DIN[945] = ON) AND(DIN[946] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 3 -- if there are 3 or more stands
+----------------------------------------------------------------------------------------
+  IF (st_num_ch = 3) AND (ch_num = 1) AND (nest_num1 = 1) AND (nest_num2 = 1) THEN  --Set for nest 3
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="947"')
+    WRITE f2 ('Id="NinPos" DataIndex="948"')
+    WRITE f2 ('Id="OPEN" DataIndex="945"')
+    WRITE f2 ('Id="CLOSE" DataIndex="946"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-947"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-948"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-945"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-946"')
+    CLOSE FILE f2
+    IF (DIN[945] = ON) AND (DIN[946] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[945] = OFF) AND (DIN[946] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[945] = OFF) AND (DIN[946] = OFF)) OR ((DIN[945] = ON) AND(DIN[946] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+	    
+----------------------------------------------------------------------------------------
+--Set to nest 4 -- if there are 2 stands  with 2 nests each
+----------------------------------------------------------------------------------------
+
+  IF (st_num_ch = 2) AND (ch_num = 2) AND (nest_num1 = 2) AND (nest_num2 = 2) THEN  --
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="951"')
+    WRITE f2 ('Id="NinPos" DataIndex="948"')
+    WRITE f2 ('Id="OPEN" DataIndex="949"')
+    WRITE f2 ('Id="CLOSE" DataIndex="950"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-951"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-948"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-949"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-950"')
+    CLOSE FILE f2
+    IF (DIN[949] = ON) AND (DIN[950] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[949] = OFF) AND (DIN[950] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[949] = OFF) AND (DIN[950] = OFF)) OR ((DIN[949] = ON) AND(DIN[950] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------
+--Set to nest 4 -- if there are 4 stands  with 1 nests each
+----------------------------------------------------------------------------------------
+
+  IF (st_num_ch = 4) AND (ch_num = 1) AND (nest_num1 = 1) AND (nest_num2 = 1) THEN  --
+    OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+    WRITE f2 ('Id="HinNest" DataIndex="955"')
+    WRITE f2 ('Id="NinPos" DataIndex="956"')
+    WRITE f2 ('Id="OPEN" DataIndex="953"')
+    WRITE f2 ('Id="CLOSE" DataIndex="954"')
+    WRITE f2 ('Id="Hin_LBL" Caption="Hin Din-955"')
+    WRITE f2 ('Id="Nip_LBL" Caption="Nip Din-956"')
+    WRITE f2 ('Id="OPN_LBL" Caption="Opn Din-953"')
+    WRITE f2 ('Id="Cls_LBL" Caption="CLS Din-954"')
+    CLOSE FILE f2
+    IF (DIN[953] = ON) AND (DIN[954] = OFF) THEN
+      n_stat = True
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" TrueImage="/frh/gui/gm_open.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF (DIN[953] = OFF) AND (DIN[954] = ON) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/closed.gif"')
+      CLOSE FILE f2
+    ENDIF
+    IF ((DIN[953] = OFF) AND (DIN[954] = OFF)) OR ((DIN[953] = ON) AND(DIN[954] = ON)) THEN
+      n_stat = False
+      OPEN FILE f2 ('AP','PIP:mypipe2.dat')
+      WRITE f2 ('Id="COVER" FalseImage="/frh/gui/broken.gif"')
+      CLOSE FILE f2
+    ENDIF
+  ENDIF
+----------------------------------------------------------------------------------------
+
+SKIP::
+
+------------------------------------------------------------------------------
+END main
+-----------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+ROUTINE refresh
+-----------------------------------------------------------------------------
+BEGIN
+  str = 'refresh=prim'
+  FORCE_LINK(tp_panel, str)
+  str = 'refresh=dual'
+  FORCE_LINK(tp_panel, str)
+  str = 'refresh=third'
+  FORCE_LINK(tp_panel, str)
+  n_n = ch_num
+  n_s = st_num_ch
+  ENABLE CONDITION[CH_TC1]
+  ENABLE CONDITION[CH_TC2]
+  ENABLE CONDITION[CH_TC3]
+------------------------------------------------------------------------------
+END refresh
+-----------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+ROUTINE main2
+-----------------------------------------------------------------------------
+BEGIN
+  IF enb_c = False THEN
+    CONDITION[CH_TC1]:
+      WHEN (n_n <> ch_num) DO
+	refresh
+    ENDCONDITION
+    ENABLE CONDITION[CH_TC1]
+    CONDITION[CH_TC2]:
+      WHEN (n_s <> st_num_ch) DO
+	refresh
+    ENDCONDITION
+    ENABLE CONDITION[CH_TC2]
+	CONDITION[CH_TC3]:	 --check the status of the nest cover io then refresh webpage to show proper status.
+  	  WHEN DIN[929]+ DO
+  		refresh
+  	  WHEN DIN[929]- DO
+  		refresh
+  	  WHEN DIN[930]+ DO
+  		refresh
+  	  WHEN DIN[930]- DO
+  		refresh
+  	  WHEN DIN[933]+ DO
+  		refresh
+  	  WHEN DIN[933]- DO
+  		refresh
+  	  WHEN DIN[934]+ DO
+  		refresh
+  	  WHEN DIN[934]- DO
+  		refresh
+  	  WHEN DIN[937]+ DO
+  		refresh
+  	  WHEN DIN[937]- DO
+  		refresh
+  	  WHEN DIN[938]+ DO
+  		refresh
+  	  WHEN DIN[938]- DO
+  		refresh
+  	  WHEN DIN[945]+ DO
+  		refresh
+  	  WHEN DIN[945]- DO
+  		refresh
+  	  WHEN DIN[946]+ DO
+  		refresh
+  	  WHEN DIN[946]- DO
+  		refresh
+  	  WHEN DIN[949]+ DO
+  		refresh
+  	  WHEN DIN[949]- DO
+  		refresh
+  	  WHEN DIN[950]+ DO
+  		refresh
+  	  WHEN DIN[950]- DO
+  		refresh
+  	  WHEN DIN[953]+ DO
+  		refresh
+  	  WHEN DIN[953]- DO
+  		refresh
+  	  WHEN DIN[954]+ DO
+  		refresh
+  	  WHEN DIN[954]- DO
+  		refresh
+	ENDCONDITION
+	ENABLE CONDITION[CH_TC3]
+    enb_c = True
+  ENDIF
+------------------------------------------------------------------------------
+END main2
+-----------------------------------------------------------------------------
+
+
+
+BEGIN
+
+  IF UNINIT (HFO) THEN
+    HFO = False
+  ENDIF
+  IF UNINIT (st_num_ch) THEN
+    st_num_ch = 1
+  ENDIF
+  IF UNINIT (ch_num) THEN
+    ch_num = 1
+  ENDIF
+
+
+  enb_c = False
+
+
+
+  --REPEAT
+      main
+      DELAY 500
+  --UNTIL ((HFO = TRUE))
+
+  REPEAT
+    main2
+    DELAY 500
+  UNTIL ((HFO = TRUE))
+
+
+END TCWEBMON

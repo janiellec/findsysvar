@@ -1,0 +1,222 @@
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: patch
+--
+--    Description: This a utility program used at controlled start to load 
+--                 specific programs; and set specific variables without
+--                 running the wizzard. It shall be
+--                 included as a utility option in the FD program for updates.
+-------------------------------------------------------------------------------------------------------------
+--    ROUTINES INCLUDED
+--    gm_mac_rld  
+-------------------------------------------------------------------------------------------------------------
+--
+--    gmtpld2
+--
+--    Language: KAREL
+--
+--    Source File: gmupdt1    1-AUG-03   03:33PM
+--
+--    Author: Lloyd Steed
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--       08-19-10   Steedlj AutoUpdate#2 set brake values to defaults before load
+--       03-19-11   Steedlj AutoUpdate#3 change register names, must run before update.
+--    10-15-13 jja R30iB Development
+-------------------------------------------------------------------------------------------------------------
+PROGRAM brkparm
+-------------------------------------------------------------------------------------------------------------
+%ENVIRONMENT ATCLDEF
+%ENVIRONMENT celldef
+%ENVIRONMENT DNSVDEF
+%ENVIRONMENT iosetup
+%ENVIRONMENT mnmcdef
+%ENVIRONMENT SLDEF
+%ENVIRONMENT swgdef
+%ENVIRONMENT SYCRDEF
+%ENVIRONMENT sysdef
+%ENVIRONMENT TPE
+%ENVIRONMENT tpthrdef
+%ENVIRONMENT FDEV 
+%ENVIRONMENT REGOPE
+%ENVIRONMENT BCDEF
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%COMMENT = 'Brkparm V4.0'
+
+VAR
+  gm_status  : INTEGER
+  status     : INTEGER
+  entry	     : INTEGER
+  g_x        : INTEGER
+  l_sty      : STRING[2]
+  I          : INTEGER
+  psve	     : INTEGER
+  l_i	     : INTEGER
+  prog_nam   : STRING[12]
+
+-- From other programs
+  run_fix       IN SHADOW FROM RUNFIX   : ARRAY[30] OF STRING[25]
+  g_press       IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+-- GM RS4 routines
+%INCLUDE kliotyps
+%INCLUDE klrdutil
+
+-----------------------------------------------------------------------------
+ROUTINE gm_mac_rld
+------------------------------------------------------------------------------
+
+VAR
+  l_reload	 : INTEGER
+  l_status	 : INTEGER
+  l_stat         : INTEGER
+  l_psve         : INTEGER
+  l_dummy        : INTEGER
+  SUCCESS        : INTEGER
+
+BEGIN
+
+IF UNINIT (g_press) THEN
+ g_press = FALSE
+ENDIF
+
+IF g_press = FALSE THEN
+
+  SET_REG_CMT(6,   'TW Ratio fix G2', gm_status)
+  SET_REAL_REG(6,  .5, l_status)   
+  SET_REG_CMT(7,   'TW Ratio fix G3', gm_status)
+  SET_REAL_REG(7,  .5, l_status)   
+  SET_REG_CMT(8,   'TW Ratio fix G4', gm_status)
+  SET_REAL_REG(8,  .5, l_status)   
+ 
+  SET_REG_CMT(401,  'REFILL DWELL', gm_status)
+  SET_INT_REG(401,  30000, l_status)
+  SET_REG_CMT(402,   'Continue Last', gm_status)
+  SET_REG_CMT(403,   'Continue Next', gm_status)
+  SET_REG_CMT(404,   'Faulted SPR ID', gm_status)
+  SET_REG_CMT(405,   'Current SPR ID', gm_status)
+  SET_REG_CMT(406,   'Last SPR ID', gm_status)
+  SET_REG_CMT(407,   'SPRID1', gm_status)
+  SET_REG_CMT(408,   'SPRID2', gm_status)
+  SET_REG_CMT(409,   'SPRID3', gm_status)
+  SET_REG_CMT(410,   'SPRID4', gm_status)
+  SET_REG_CMT(411,   'SPRID5', gm_status)
+  SET_REG_CMT(412,   'SPRID6', gm_status)
+  SET_REG_CMT(413,   'SPRID7', gm_status)
+  SET_REG_CMT(414,   'SPRID8', gm_status)
+  SET_REG_CMT(415,   'SPRID9', gm_status)
+  SET_REG_CMT(416,   'SPRID10', gm_status)
+  SET_REG_CMT(417,   'SPRID11', gm_status)
+  SET_REG_CMT(418,   'SPRID12', gm_status)
+  SET_REG_CMT(419,   'SPRID13', gm_status)
+  SET_REG_CMT(420,   'SPRID14', gm_status)
+  SET_REG_CMT(421,   'SPRID15', gm_status)
+  SET_REG_CMT(422,   'SPRID16', gm_status)
+  SET_REG_CMT(423,   'SPRID17', gm_status)
+  SET_REG_CMT(424,   'SPRID18', gm_status)
+  SET_REG_CMT(425,   'SPRID19', gm_status)
+  SET_REG_CMT(426,   'SPRID20', gm_status)
+  SET_REG_CMT(427,   'SPRID21', gm_status)
+  SET_REG_CMT(428,   'SPRID22', gm_status)
+  SET_REG_CMT(429,   'SPRID23', gm_status)
+  SET_REG_CMT(430,   'SPRID24', gm_status)
+  SET_REG_CMT(431,   'SPRID25', gm_status)
+  SET_REG_CMT(432,   'SPRID26', gm_status)
+  SET_REG_CMT(433,   'SPRID27', gm_status)
+  SET_REG_CMT(434,   'SPRID28', gm_status)
+  SET_REG_CMT(435,   'SPRID29', gm_status)
+  SET_REG_CMT(436,   'SPRID30', gm_status)
+  SET_REG_CMT(437,   'SPR ID Work', gm_status)
+  SET_INT_REG(437,  0, gm_status)
+  SET_REG_CMT(438,   'MaxNum SPR', gm_status)
+  SET_INT_REG(438,  30, gm_status)
+  SET_REG_CMT(439,   'SPR ID count', gm_status)
+  SET_REG_CMT(440,   'SPRIDWorkCount', gm_status)
+
+  SET_REG_CMT(450,  'PWTipLimit', gm_status)
+  SET_INT_REG(450,  5000, gm_status)
+  SET_REG_CMT(451,  'PWAppTipLimit', gm_status)
+  SET_INT_REG(451,  200, gm_status)
+  SET_REG_CMT(452,  'PW Active', gm_status)
+  SET_INT_REG(452,  0, gm_status)
+  SET_REG_CMT(459,  'DVGEnabled', gm_status)
+
+ELSE
+
+  SET_REG_CMT(78,   'FANNING METHOD', l_status)  
+  SET_REG_CMT(129,  'AUX VALVE ACTION', l_status)
+  SET_REG_CMT(70,   'MAX PEEL SLID mm', l_status) 
+  SET_REG_CMT(109,  'CAP POS VALUE', l_status)
+  SET_REG_CMT(110,  'PEEL X SLIDE mm', gm_status)
+  SET_REG_CMT(111,  'PEEL Y SLIDE mm', gm_status)
+
+ENDIF
+
+  -- Set to correct for additional failures
+  FOR I = 1 to 8 DO
+    $BCK_GRP[I].$MOVER_LIMIT[1] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[2] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[3] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[4] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[5] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[6] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[7] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[8] = 20000
+    $BCK_GRP[I].$MOVER_LIMIT[9] = 20000
+    $BCK_GRP[I].$MOVE_LIMIT2[1] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[2] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[3] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[4] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[5] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[6] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[7] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[8] = 4000
+    $BCK_GRP[I].$MOVE_LIMIT2[9] = 4000
+  ENDFOR 
+
+IF UNINIT(run_fix[3]) THEN
+  run_fix[3] = '   '
+ENDIF
+
+IF run_fix[3]= 'Brake Chk parm fix' THEN
+  FOR I = 1 to 8 DO
+	$BCK_GRP[I].$BRK_TORQUE[1] = ($BCK_GRP[I].$BRK_TORQUE[1] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[2] = ($BCK_GRP[I].$BRK_TORQUE[2] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[3] = ($BCK_GRP[I].$BRK_TORQUE[3] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[4] = ($BCK_GRP[I].$BRK_TORQUE[4] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[5] = ($BCK_GRP[I].$BRK_TORQUE[5] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[6] = ($BCK_GRP[I].$BRK_TORQUE[6] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[7] = ($BCK_GRP[I].$BRK_TORQUE[7] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[8] = ($BCK_GRP[I].$BRK_TORQUE[8] * 1.25)
+	$BCK_GRP[I].$BRK_TORQUE[9] = ($BCK_GRP[I].$BRK_TORQUE[9] * 1.25)
+  ENDFOR
+    run_fix[3] = '   '
+ENDIF
+  
+END gm_mac_rld
+------------------------------------------------------------------------------
+
+BEGIN 
+
+gm_mac_rld
+
+END brkparm

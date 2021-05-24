@@ -1,0 +1,371 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMERRCVY.KL
+--   TITLE:          GMERRCVY PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  4/17/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GM Global 4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Program to allow GM to have recovery that is unique to
+--                      GM only. this program routines have the ability to have
+--                      reactions done based on recovery selected by the users
+--                      choices done in the ATERRJOB, but not to have to be tied
+--                      to ATERRJOB. the aterrjob program should be for PRODUCT
+--                      and users customized recovery be outside the product files
+--
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMERRCVY
+
+%COMMENT = 'GMERRCVY Prog'
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+%INCLUDE swdcshu4
+%INCLUDE swevshl4 -- recovery option contants and form Name
+%INCLUDE etdcapsh
+%INCLUDE gmevrs4io
+
+CONST
+-- 2-14-15 R Kosaski added for GMPT Advance Recovery
+-- I dont know why these are hard coded instead fo from include file
+  er_clampa    = 41256  -- "Clamp %s A state error"
+  er_clampb    = 41257  -- "Clamp %s B state error"
+
+VAR
+  pr_done FROM aterrjob: BOOLEAN -- set to TRUE so program knows to be done? this is a guess
+  entry,                               -- because there is no comment in aterrjob
+  status,
+  i: INTEGER -- added for the FOR loop to execute
+  GMGrp_Rcvy  IN CMOS FROM MHGRPCMN: ARRAY[32] OF STRING[80] -- used for variable choice menu for MHGRIP flts
+  tglEnabled  : BOOLEAN -- move globally from the local routien set_subMenu
+  exitEnabled : BOOLEAN
+
+  Ignore_enbl IN CMOS FROM GMCFGPWR : BOOLEAN -- used for if recovery can have ignore 20 and 1 cycles. Default is TRUE
+  sw_tglEnbl  IN SHADOW FROM GMCFGMH : BOOLEAN --was ATCUSTO Used for if the MHGRP set allows Exit recovery option
+  sw_ExitEnbl IN SHADOW FROM GMCFGMH : BOOLEAN -- Used for if the MHGRP set allows Exit recovery option Switch for option
+
+  mh_other     FROM ATERRJOB: INTEGER -- Used for I dont know
+  sub_menu     FROM ATERRJOB: INTEGER -- used for what Submenu to use in the CHOICE menu
+  prmp_file    FROM ATERRJOB: FILE  -- used for the WRITE_DICT command
+
+  value_array2 FROM ATERRJOB: ARRAY[1] OF STRING[36] -- for set sub menu
+  mh_string2   FROM ATERRJOB: STRING[16]
+
+%INCLUDE GMrdutil -- Gm utility program containing many common routines
+
+ROUTINE can_tgl  : BOOLEAN FROM mhgrpcmn --is faulted valve in grip state, cant use in CHECK PART when same error code used
+ROUTINE can_exit : BOOLEAN FROM mhgrpcmn --is faulted valve have exit recover enabled cant use in CHECK PART when same error code used
+
+ROUTINE check_flttbl(p_fault,p_other:INTEGER): BOOLEAN from atdsbflt
+ROUTINE set_name(p_fault,p_other:INTEGER;mh_string2:STRING) from mhgrshll
+ROUTINE update_cnt2(p_fault,p_other:INTEGER;p_dsb1Cyc:BOOLEAN): INTEGER from atdsbflt
+
+ROUTINE clear_fault(p_fault,p_other:INTEGER): INTEGER from atdsbflt
+ROUTINE resetandStrt FROM ATERRJOB -- used to reset and restart the cycle for GM after recovery has been done
+
+ROUTINE SetExitFlag(state:INTEGER) FROM mhgrpcmn -- Need to set the recovery flag so user program knows exit selected
+ROUTINE togl_flt_vlv FROM mhgrpcmn --toggle last faulted valve for error recovery
+-----------------------------------------------------------------------------
+ROUTINE log_answer(p_option:INTEGER)
+-- PURPOSE: to log the operators entry for the reply
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: SWERRJOB (aka ATERRJOB)
+--
+--
+-----------------------------------------------------------------------------
+
+VAR
+l_Temp_str : STRING[40]
+
+BEGIN
+
+l_Temp_str = ''
+
+SELECT p_option OF
+
+    CASE(1): -- No action required, only restart so code can recheck I/O
+            l_Temp_str = 'Recheck I/O' --
+    CASE(2):-- disable alarm for 20 Cycles
+            l_Temp_str = 'Disable Alarm 20 Cycles' --
+    CASE(3):-- disble alarm for 1 Cycle
+            l_Temp_str = 'Disable Alarm 1 Cycle' --
+    CASE(4):--Toggle clamp option
+            l_Temp_str = 'Toggle ' --
+    CASE(5): -- RK Added option #5 for exit and recover
+            l_Temp_str = 'RECOVER & EXIT'
+    ELSE: --  Else for gm_mhd_opts OPTION Choice for GM Advc MH recovery
+            l_Temp_str = 'Unknown Option'+int2str(p_option)
+ENDSELECT
+
+  l_Temp_str = l_Temp_str +' Recovery Selected'
+
+POST_ERR(41104, l_Temp_str, 0, 0) --was 38000
+
+END log_answer
+----------------------------------------------------------------------
+ROUTINE set_submenu(p_fault,p_other:INTEGER)
+-- MH check fault table and set appropriate sub_menu
+-- p_fault - IN - fault number
+-- p_other - OUT - other info
+----------------------------------------------------------------------
+%INCLUDE etdcmhnd -- needed for the error codes Cant put up top
+
+VAR
+--  tglEnabled: BOOLEAN
+--   exitEnabled : BOOLEAN
+allow_ignore :BOOLEAN -- allow Ingore to be in the menu local only
+
+BEGIN
+-- RK Check if in the Fault table already, if true dont post choice with Disable
+-- choice 2 & 3
+
+IF UNINIT(sw_exitenbl) THEN
+  sw_exitenbl = TRUE
+ENDIF
+IF UNINIT(sw_tglenbl) THEN
+  sw_tglenbl = TRUE
+ENDIF
+
+-- go get the value the user said for being able to ignore faults
+GET_VAR(entry, 'GMCFGPWR' , 'EnblIgnrFlts', Ignore_enbl, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[GMCFGPWR].EnblIgnrFlts FAILED', status, 0) --
+   ENDIF
+IF UNINIT(Ignore_enbl) THEN -- Builtin vfailed like wizard not ran or something
+  Ignore_enbl = TRUE        -- Set to default
+ENDIF
+
+
+  IF check_flttbl(p_fault,p_other) THEN  -- check if in disable faults already
+    allow_ignore = Ignore_enbl -- set based on users preferance, part of GMCFGPWR and thier wizard
+  ELSE -- don't show choice 2&3 (disable) because already in Fault table
+    allow_ignore = FALSE -- set ignore FALSE because user already selected ingore for this
+  ENDIF                 -- paticual alarm...so not understanding why here again??
+
+  tglEnabled = False
+  IF sw_tglenbl THEN -- if software allows toggle enable check this current faulted tool/Valve
+    tglEnabled = can_tgl
+  ENDIF
+
+      ExitEnabled = FALSE
+
+-- Setting up for Disable faults with options setup
+
+      IF ((p_fault = er_clampa) OR (p_fault = er_clampb))  THEN
+        -- RK 2-27-16 Changed to have variables for selections
+        -- Had so many choices easier to follow by setup choices here versus dictionary
+
+--          FOR i = 1 TO ARRAY_LEN(GMGrp_Rcvy) DO
+--            GMGrp_Rcvy[i] = '' -- reset all choices
+--          ENDFOR --
+--          GMGrp_Rcvy[1] = '' -- This one is not used??? not sure
+--          GMGrp_Rcvy[2] = 'Recheck ' -- will always have this choice
+--         IF (Ignore_enbl = TRUE) THEN  -- if the user can ignore sensors, GMPT does not like this
+--           GMGrp_Rcvy[3] = 'Disable20 Cycles' -- set flag to ignore sensor for 20 cycles
+--           GMGrp_Rcvy[4] = 'Disable 1 Cycle'-- Set Flag to be able to disable for this 1 cycle
+--         ENDIF           -- 1234567890123456
+--         IF (ExitEnabled = TRUE) THEN
+--           GMGrp_Rcvy[5] = 'Toggle & ReCheck' -- allow action to be Toggled, then Check again..(Restart)
+--         ENDIF
+--         IF (tglEnabled = TRUE) THEN
+--             GMGrp_Rcvy[6] = 'Cancel&Recover' -- allow action to be cancelled then recover
+--         ENDIF
+--           GMGrp_Rcvy[7]= '\a' -- set the end of choice menu for form manager
+--
+--         sub_menu = GMMH_CHCES -- set sub menu to variable choices
+--
+       IF sw_exitenbl THEN -- if sw option for exit recovery avaialble see if variables are setup for exit
+         ExitEnabled = Can_Exit -- call routine to determine if this error has exit recovery enabled
+       ENDIF
+
+     -- these option currently only avaialable on clamp faults
+        IF Ignore_enbl = TRUE THEN -- if user can ignore gripper sensors
+          IF (ExitEnabled = TRUE) AND (tglEnabled = TRUE) THEN
+            sub_menu = gmmhdtc_opts --custom menu with toggle option and Cancel
+          ENDIF
+          IF (ExitEnabled = FALSE) AND (tglEnabled = TRUE) THEN
+            sub_menu = gmmhdt_opts --custom menu with toggle option and NOT Cancel
+          ENDIF
+          IF (ExitEnabled = TRUE) AND (tglEnabled = FALSE) THEN
+              sub_menu = gmmhd_c_opts --custom menu with toggle clamp option
+            ENDIF
+          IF (ExitEnabled = FALSE) AND (tglEnabled = FALSE) THEN
+            sub_menu = gmmhd_opts --custom menu with only disable option
+          ENDIF
+
+        ELSE -- User cannot select to disable or ignore clamp faults
+
+           IF (ExitEnabled = TRUE) AND (tglEnabled = TRUE) THEN
+             sub_menu = gmmhtc_opts --custom menu with toggle option and Cancel NO IGNORE/Disable
+           ENDIF
+           IF (ExitEnabled = FALSE) AND (tglEnabled = TRUE) THEN
+             sub_menu = gmmht_opts --custom menu with toggle option and NOT Cancel NO IGNORE/Disable
+           ENDIF
+           IF (ExitEnabled = TRUE) AND (tglEnabled = FALSE) THEN
+               sub_menu = gmmh_c_opts --custom menu with toggle clamp option NO IGNORE/Disable
+             ENDIF
+           IF (ExitEnabled = FALSE) AND (tglEnabled = FALSE) THEN
+             sub_menu = gmmh_opts --custom menu with only disable option NO IGNORE/Disable
+           ENDIF
+         ENDIF
+
+      ELSE -- It is not clamp fault so differant recovery
+        IF (p_fault = er_vacnoton) OR (p_fault = er_vacnotoff) OR (p_fault = er_prtpresf) OR &
+          (p_fault = er_noprtprsf) THEN
+          sub_menu = gmmhd_opts -- display GM I/O recovery options
+        ELSE
+          sub_menu = fr_mhd_opts
+        ENDIF
+      ENDIF
+
+  set_name(p_fault,p_other,mh_string2)
+  value_array2[1]='mh_string2'
+
+END set_submenu
+
+--------------------------------------------------------------------------
+ROUTINE MH_Rcvy_Done(p_option:integer)
+-- PURPOSE: because SWERRJOB (aterrjob) is too large
+--
+--
+-- INPUT:  the option that was selected by the user for the following error ONLY
+--       Disable  Dsbl&Togl  Dsbl,Tgl,Cncl Dsbl&Cncl    retry     togle only  tgl&cancel cancel only
+--CASE(GMMHD_OPTS,GMMHDT_OPTS,GMMHDTC_OPTS,GMMHD_C_OPTS,GMMH_OPTS,GMMHT_OPTS,GMMHTC_OPTS,GMMH_C_OPTS):
+--
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: SWERRJOB only in case of MH faults
+--
+-----------------------------------------------------------------------------
+VAR
+  l_reset: BOOLEAN
+  l_dsb1Cyc : BOOLEAN -- used for if only one cycle is to be disabled
+
+BEGIN
+
+IF UNINIT(Ignore_enbl) THEN
+  Ignore_enbl = TRUE
+  POST_ERR(38000, 'IGNORE_ENBL had to be set in MH_Rcvy_Done routine ', 0, 0) --
+ENDIF
+IF UNINIT(tglEnabled) THEN
+  tglEnabled = FALSE
+  POST_ERR(38000, 'TGLENABLED had to be set in MH_Rcvy_Done routine ', 0, 0) --
+ENDIF
+
+l_dsb1Cyc = FALSE
+
+-- set option for Programs to see gripper routines that fault need to know if
+-- option #5 Canel was chosen
+
+  SET_VAR(entry, 'MHGRPCMN' , 'RcvryOptnSel', p_option, status)
+    IF status <> 0 THEN
+      POST_ERR(38000, '[MHGRPCMN].RcvryOptnSel FAILED', status, 0) --
+    ENDIF
+
+  log_answer(p_option)-- RK Added to save operators input to Alarm log
+
+  SELECT p_option OF
+    CASE(1): p_option = opt_retry
+    CASE(2): -- disable for 20 Cycles
+             IF Ignore_enbl = TRUE THEN -- if user can ignore gripper sensors
+               p_option = opt_dsbflt
+             ELSE
+               POST_ERR(38000, 'IGNORE sensors is DISABLED', 0, 0)
+               DELAY 2000
+             ENDIF
+    CASE(3): -- disable 1 cycle
+             IF Ignore_enbl = TRUE THEN -- if user can ignore gripper sensors
+              l_dsb1Cyc = TRUE
+              p_option = opt_dsbflt
+             ELSE
+               POST_ERR(38000, 'IGNORE sensors is DISABLED', 0, 0)
+               DELAY 2000
+             ENDIF
+    CASE(4): -- RK changed case 4 and added Case#5 2-14-15
+            p_option=opt_retry -- change to retry to fake out so retry is the reaction
+            IF (tglEnabled = TRUE) THEN
+              RESET(l_reset)
+              IF l_reset THEN  --only toggle if reset is successful
+                togl_flt_vlv  --Toggle faulted valve
+              ELSE --IF NOT l_reset
+                WRITE_DICT(prmp_file, uif_dict, gm_res_fail, status)
+              ENDIF --IF l_reset
+            ELSE
+              POST_ERR(38000, 'Toggle DISABLED for this Valve', 0, 0) --
+            ENDIF                         --toggle clamp option
+    CASE(5): -- RK Added option #5 for exit and recover
+            p_option = opt_retry -- change to retry to fake out so retry is the reaction
+            SetExitFlag(1) -- set flag for users TP file to react
+    ELSE: --  Else for gm_mhd_opts OPTION Choice for GM Advc MH recovery
+      POST_ERR(38000, 'option_sel UNKNOWN in Advc_Recvr Routine', 0, 0) --
+  ENDSELECT
+
+    IF p_option <> opt_dsbflt THEN
+      status=clear_fault(error_code,mh_other)
+    ELSE --
+      status=update_cnt2(error_code,mh_other,l_dsb1Cyc)
+      WRITE_DICT(prmp_file, uif_dict, dsb_flt_msg, status)
+      --- post error that fault has been disabled
+      IF l_dsb1Cyc THEN
+        POST_ERR(SH_DSBLE1, '', 0, apsh_warn)-- disabled for one cycle
+      ELSE
+        POST_ERR(SH_DSBLE, '', 0, apsh_warn) -- disabled for 20 cycles or System Var
+      ENDIF
+      DELAY(2000)
+      WRITE_DICT(prmp_file, uif_dict, fr_clr_win, status)
+    ENDIF
+
+  -- RK GM wants cycle resumed after MH option selected
+   ResetandStrt  -- call routine to restart program
+    -- return back to dsp_flt_menu routine to allow to close hopefully
+
+    -- set PR_DONE to TRUE so program knows to end and not do recovery option action again
+     SET_VAR(entry, 'ATERRJOB' , 'pr_done', TRUE, status)
+       IF status <> 0 THEN
+         POST_ERR(38000, '[ATERRJOB].pr_done FAILED', status, 0) --
+       ENDIF
+
+END MH_Rcvy_Done
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+
+BEGIN
+
+
+END GMERRCVY

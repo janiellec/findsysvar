@@ -1,0 +1,158 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         RUN_PROG.KL
+--   TITLE:          RUN_PROG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1-29-08
+--
+--   LANGUAGE:       KAREL 7.30 RJ3
+--   CONTROL GROUP:  AUTOMATED SYSTEMS GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   000000
+--   PROJECT NAME:   ALL CUSTOMERs
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2000
+--         DESCRIPTION: Run Program passed to the routine, if paused resume
+--                      if aborted run.
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM RUN_PROG
+
+%COMMENT = 'RUN_PROG Prog'
+%NOLOCKGROUP
+
+VAR
+  task_name   : STRING [16]  -- Current Tasks Name To Check Status
+ -- entry        : INTEGER -- Variable # return from GET VAR built-in
+  task_num     IN CMOS : INTEGER
+  status       : INTEGER
+  value_int    : INTEGER
+  task_status  : INTEGER
+  value_str   : STRING[20]
+  tp_state      : BOOLEAN
+
+-- Variable needed for the get agrugment
+
+param_num,
+param_type,
+param_int    :INTEGER
+param_real   :REAL
+param_string :STRING[118]
+
+
+-- --------------------------------------------------------------------
+--
+-- ROUTINE:     CH_TASKS
+-- TITLE:       Check to Ferris Wheel Programs For Status
+--
+-- DESCRIPTION: This routine Restarts a Paused Task or Restarts a Aborted Tasks
+--
+--
+-- PARAMETERS: [IN]  task_name to check upon reciving the cycle start &
+--                   group_number is the group for the robot to check if
+--                   it is ready
+--             [OUT] TRUE OR FALSE Based on whether the program was restarted
+--
+-- --------------------------------------------------------------------
+
+ROUTINE ch_tasks (task_name:string)
+VAR
+
+loaded,
+initialized : BOOLEAN
+
+BEGIN
+  task_status = 0 -- if task was not ever ran task_status is uninit.
+
+LOAD_STATUS(task_name,loaded, initialized)
+
+  IF loaded = FALSE THEN
+    POST_ERR(38000, task_name +' is NOT LOADED', 0, 0) --
+    RETURN
+  ENDIF
+
+--IF $MOR_GRP[group_number].$SERVO_READY THEN   -- if drives are energized,
+REPEAT --
+       -- check if TP is enabled before running
+   tp_state = OPOUT[7]
+
+    task_num = 0
+
+  GET_TSK_INFO(task_name,task_num,TSK_STATUS,task_status,value_str,status) --
+    IF status <> 0 THEN
+      IF status = 3016 THEN -- task was not ran
+        RUN_TASK(task_name,0,FALSE,tp_state,0,status)
+        IF status <>0 THEN
+          POST_ERR(38000,'FAILED RUN TASK ' + task_name, status,0) --
+          RETURN
+        ENDIF
+      ELSE
+        POST_ERR(38000,'FAILED GET TASK INFO ' + task_name, status,0) --
+        RETURN
+      ENDIF
+    ELSE -- when program not running abort it and restart it
+      IF task_status = PG_RUNNING THEN
+        RETURN
+      ENDIF
+        IF task_status = PG_PAUSED THEN -- Programs should be aborted in case of Program bugs cause it to pause
+          ABORT_TASK(task_name,TRUE,TRUE,status)
+          IF status <> 0 THEN
+            POST_ERR(38000, task_name +' FAILED TO ABORT', status, 0) --
+            DELAY 2000
+          ENDIF
+        ENDIF
+    ENDIF
+
+UNTIL (task_status = PG_ABORTED) OR (status = 3016) --
+
+  RUN_TASK(task_name,0,FALSE,tp_state,0,status)
+    IF status <> 0 THEN
+      POST_ERR(38000,task_name +' FAILED TO START', status,0) --
+      DELAY 2000
+    ENDIF
+
+END ch_tasks
+
+
+BEGIN
+
+
+   -- Get the Program name that is passed to the program
+  param_num = 1
+  GET_TPE_PRM(param_num,param_type,param_int,param_real,param_string,status)
+  IF (status <> 0) THEN
+      POST_ERR(status, '', 0, 0) --
+   ELSE
+    -- Verify that the Parameter is a integer
+    SELECT (param_type) OF --
+      CASE(1): -- Integer value is in the parameter
+        POST_ERR(38000, 'Param in RUN_PROG is Integer,NAME Required', 0, 0) --
+      CASE(2): -- Real number is in the parameter
+        POST_ERR(38000, 'Param in RUN_PROG is REAL, need INTEGER', 0, 0) --
+
+      CASE(3): -- String value is in parameter
+          ch_tasks(param_string)
+     ELSE:
+      POST_ERR(38000, 'INVALID data_type in RUN_PROG', 0, 0) --
+    ENDSELECT
+  ENDIF
+
+END RUN_PROG

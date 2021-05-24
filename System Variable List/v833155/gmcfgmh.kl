@@ -1,0 +1,23 @@
+
+--Material Handling
+  Use_MH_Tool  IN SHADOW FROM GMCFGMH : BOOLEAN -- When True using the MHGRIP routines
+  Updt_MH_Arry IN SHADOW FROM GMCFGMH : BOOLEAN -- When True MHGRIP Array Sizes need to be done update was g_cfg_mh
+  EOATCommType IN SHADOW FROM GMCFGMH : INTEGER -- Tool Communication types 1=devicenet,2=Ethernet,3=RI/RO
+  NumEOATInBlk IN SHADOW FROM GMCFGMH : INTEGER -- Number of input blocks
+
+  EOATUseAnlog IN SHADOW FROM GMCFGMH : BOOLEAN -- Use analog Input for gripper sensor
+  NumEOATOtMan IN SHADOW FROM GMCFGMH : INTEGER -- Number of Output Manifolds
+  NumAnlogInpt IN SHADOW FROM GMCFGMH : INTEGER -- If Analog for Powertrain
+  NumAnlogOtpt IN SHADOW FROM GMCFGMH : INTEGER -- for future development
+  AnlgInptBrnd IN SHADOW FROM GMCFGMH : INTEGER -- For Analog brand for Powertrain 1=turck , 2 = Baluff
+
+  Use_Vacuum   IN SHADOW FROM GMCFGMH : BOOLEAN -- WHen True using the Vacuum is used
+  Decnt_Vacuum IN SHADOW FROM GMCFGMH : BOOLEAN -- WHen True using the Decentralized Vacuum is used
+  NumVacPumps  IN SHADOW FROM GMCFGMH : INTEGER -- Number of Vacuum Pumps
+  VacPumpType  IN SHADOW FROM GMCFGMH : INTEGER -- Type of Vacuum Pumps
+
+  -- RK  MOVED below sw_tglenbl from SWCUSTO to get MHGRIP out of the Custo put in place by IE
+  sw_tglenbl   IN SHADOW FROM GMCFGMH : BOOLEAN -- variable to control the enabling of the toggle and retry edit
+  sw_ExitEnbl  IN SHADOW FROM GMCFGMH : BOOLEAN -- Used for if the MHGRP set allows Exit recovery option
+
+

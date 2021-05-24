@@ -1,0 +1,70 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         MHSRCHON.KL
+--   TITLE:          MHSRCHON PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  11/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Propulson Systems
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Program used to set a variable in MHGRIPPT to
+--                      to indicate the NO part sensed should open the set
+--                      of grippers, then set flag to allow next position
+--                      to be set.
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM MHSRCHON
+
+%COMMENT = 'Enbl Grip Search'
+%NOLOCKGROUP
+
+%INCLUDE KLEVCCDF -- used for the TPERROR builtin
+
+Version = '2016-11-26'
+
+VAR
+
+entry,
+status :INTEGER
+
+Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+
+BEGIN
+
+Current_Ver = Version
+
+ SET_VAR(entry, 'MHGRIPPT' , 'Grip_Search', TRUE, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[MHGRIPPT].Grip_Search FAILED', status, 0) --
+   ELSE
+     WRITE TPERROR(CHR(cc_clear_win),'Enabled Search for Next Grip')
+   ENDIF
+
+END MHSRCHON

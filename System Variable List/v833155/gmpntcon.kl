@@ -1,0 +1,88 @@
+-- 
+--    This material is the joint property of GMFanuc Robotics Corporation  and 
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics 
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material 
+--    and   the  information  illustrated  or  contained  herein  may  not  be 
+--    reproduced, copied, used, or transmitted in whole or in part in any  way 
+--    without the prior written consent of both GMFanuc Robotics and FANUC. 
+--     
+--             All Rights Reserved 
+--             Copyright (C)  1994 
+--             GMFanuc Robotics Corporation 
+--             FANUC LTD Japan 
+--     
+--             Karel is a registered trademark of 
+--             GMFanuc Robotics Corporation 
+-- 
+--    Include File: PNT_CONS - Constants used by Paint Shop 
+-- 
+--    Language:  KAREL 
+--     
+--    Source File: 
+--     
+--    Author: David R. Friedeman 
+--            Fanuc Robotics Corporation
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan 48309-3253
+--     
+--  Modification history: 
+--  04/27/18 FRIEDEMAN Created for GM G4.
+--
+
+CONST 
+
+  -- The following constants are used by vis_status
+  V3DL_PENDING = -1 -- Indicates that 3DL is pending
+  VIS_PENDING  =  0 -- Indicates that 2DV vision RETRY/ABORT is pending
+  VIS_SUCCESS  =  1 -- Indicates that vision was successful 
+
+
+  -- Position register constants
+  OFFSET_REG   = 1  -- Position register which holds vision offset 
+
+  -- General Constants
+  ER_WARN      =  0 -- Fault severity
+  ER_PAUSE     =  1 -- Fault severity
+  ER_ABORT     =  2 -- Fault severity
+
+  PARM_INTEGER =  1
+  PARM_REAL    =  2
+  PARM_STRING  =  3
+
+  MAX_BUFFER   =244
+
+  MAX_AUTO_TRY =  5
+
+  -- 3DL Single-Find PR Constants
+
+  -- Data register constants
+  VIS_STAT_REG = 910 --** 60 -- Register contains the status of the vision operation
+  VIS_MODE_REG = 911 --** 61 -- Register conatins the MODE of the vision system
+  VIS_PROC_OK  = 916 --** 64 -- Okay to continue - the panel or hole is complete.
+  VIS_RE_FIND  = 912 -- # Automatic re-snap attempts (without faulting)
+  VIS_CUR_FIND = 913 -- Current Vision re-snap number
+  VIS_FBROTENB = 918 -- Used by Findbody.kl to Enable or Disable rotations.
+  VIS_NUMFOUND = 917 -- Used by GETOFFST.KL to see if the target was found.
+
+  V_XYZTOL_REG = 914 --** 18 -- XYZ Offset Tolerance
+  V_WPRTOL_REG = 915 --** 19 -- WPR Offset Tolerance
+  
+  VIS_CUR_OFST =  2 -- PR[2] contains the single-snap current offset
+
+  -- 3DL Multi-Find PR Constants
+  VIS_SNP1_REG =  21 --** 6 -- PR[6] contians SNAP 1
+  VIS_SNP2_REG =  22 --** 7 -- PR[7] contains SNAP 2
+  VIS_SNP3_REG =  23 --** 8 -- PR[8] contians SNAP 3
+  VIS_OFST_REG =  24 --** 1 -- PR[2] contains the multi-snap offset
+  VIS_CUR_NOM  =  25 --** 3 -- PR[3] contains the single-snap current nominal
+  V_VALPOS_REG =  36 --** 16 -- Used by VAL_3DL as part of vision validation.  This
+                    -- Register contains the position of the unshifted base
+                    -- position, which is used by /3DL in the "Convert Current
+                    -- Offset Using POSREG".  This forces vision to send a
+                    -- different offset when the robot is moved.
+  V_VALNOM_REG =  37 --** 17 -- Contains the nominalized offset value for the /3DL
+                    -- validation.  This value is subtracted from the current
+                    -- offset to determine the measured deviation.
+
+
+

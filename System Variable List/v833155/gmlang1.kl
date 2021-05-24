@@ -1,0 +1,1145 @@
+--  
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--   
+--             All Rights Reserved
+--             Copyright (C)   2007
+--    Program: gmlang1
+--
+--    Description:
+--
+--    SWEVRLNG: Wizard Question Variables for Language
+--
+--    Language: KAREL
+--
+--    Source File: swlang1.kls    20-JAN-07   01:00PM
+--
+--    Modification history:
+--           2016-03-02  marchaka created program
+--           2016-09-25  marchaka Changed welder and water saver EIP question from global 3
+--                                to global 4
+--           2016-10-07  marchaka Add dimpler and projection weld variables
+--           2016-10-20  marchaka Add variables for spot + stud and proj + dimp applications
+--           2017-01-26  marchaka gm_capcgr test modified
+--           2018-04-02  marchaka Add miscellaneous tools menu variables
+--           2018-04-06  marchaka Change grerunwiz to gmrerunwiz
+--           2018-09-04  marchaka Add miscelleous tools menu selections
+--           2018-08-27  schoensm added variables for 1K/2K during V8.33P06 updates
+--           2018-09-10  marchaka Add text for DCS apply.  Add new cap changing text.
+--           2018-09-24  marchaka Add text for notifying the user that servo gun motor setup must be done
+--                                from the miscellaneous tools menu for servo gun change applications.
+--           2018-10-26  marchaka Add additional text for gun change applicaiton instructions.
+--           2018-11-02  marchaka Change IDNS Safety Options to just safety options.
+--           2019-08-10  marchaka Add servo gun tool change maximum pressure
+--           2019-08-25  marchaka Add body chassis marriage text.  Add servo nut weld text.
+--           2020-02-21  marchaka Add stud backup head text for display program.
+--           2020-09-29  schoensm Add Aluminum Weld questions to gmwizspt during V8.33P10.
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+--      set_english
+--      set_german
+--      
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmlang1
+-------------------------------------------------------------------------------------------------------------
+-- Softpart built-ins
+%CMOSVARS
+
+%ENVIRONMENT MNMCDEF
+%ENVIRONMENT MULTI
+%ENVIRONMENT SWGDEF
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT tpthrdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT proddef
+%ENVIRONMENT FDEV
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+%INCLUDE gmevrlng
+
+CONST
+Version = '2020-09-29'
+%INCLUDE gmcnstnt  --GM wizard constants
+
+VAR
+
+  gm_status  : INTEGER       -- error gm_status
+  gm_psve    : INTEGER
+
+  LastLang_set IN CMOS : INTEGER -- Last Language so can post error when it changes
+
+%INCLUDE klrdutil
+-----------------------------------------------------------------
+ROUTINE set_english                                            --
+--  Sets all Wizard question to ENGLISH                        --
+-----------------------------------------------------------------
+BEGIN
+
+   IF UNINIT(LastLang_set) THEN
+     LastLang_set = 0
+   ENDIF
+
+   -- Main
+   m1_gmdata      = 'Start Setup Wizard'
+   m2_gmdata      = 'Set Cell I/O to PLC'
+   m3_gmdata      = 'Add to Configuration'
+   m4_gmdata      = 'Select English, German'
+   m5_gmdata      = 'Select robot I/O type'
+   m6_gmdata      = 'for CELL Interface'
+   m7_gmdata      = 'Clear ALL Config(s)'
+   m8_gmdata      = 'Load Global 4 Standard EIP'
+   m9_gmdata      = 'Parameters'
+   m10_gmdata     = ''
+   m11_gmdata     = 'Global 1 '
+   m12_gmdata     = 'Global 2 '
+   m13_gmdata     = 'R-30iB Controller Type ONLY'
+   m14_gmdata     = 'Set IDNS MAC Id'
+   m15_gmdata     = ''
+   m16_gmdata     = 'Global 3'
+   m17_gmdata     = 'Display Current Robot Configuration'
+   m18_gmdata     = 'Run Robot Configuration Tool'
+   m19_gmdata     = 'Load Robot Configuration from File'
+   m30_gmdata     = 'GRS-4 Global 4 Customization'
+   m31_gmdata     = 'Enter Selection'
+   m32_gmdata     = 'Exiting Wizard'
+   m40_gmdata     = 'Select Language for Wizard'
+   m41_gmdata     = 'setup questions and error text'
+   m42_gmdata     = 'Run-Wizard to Configure Robot'
+   m43_gmdata     = 'or COLD START after selection'
+   m44_gmdata     = 'English'
+   m45_gmdata     = 'Spanish'
+   m46_gmdata     = 'German'
+   m47_gmdata     = 'Load Global 4 Standard'
+   m48_gmdata     = 'Settings'
+   appl_gmdata    = ' Application'
+
+   m50_gmdata     = 'Cold Start'
+   m51_gmdata     = 'then go to controlled start'
+
+   --Miscellaneous Tools Menu
+   misc_gmdata    = 'Miscellaneous Tools'
+   misc_idnsopt   = 'Safety Options'
+   misc_stndaln   = 'Standalone Single Configurations'
+   misc_addprg    = 'Additional Programs and Templates'
+   misc_swgset    = 'Additional Servo Gun App Setup'
+
+   --IDNS Safety 
+   idns_rust	  = 'RUST Form Changes Required'
+
+   --External I/O Interlock Hardware
+   extio_gmdata   = 'External I/O Interlock Relay Setup'
+   extio_gmdt_1   = 'Please see GM Wizard manual sec 8.7'
+   extio_gmdt_2   = 'IMPORTANT! Enable or disable'
+   extio_gmdt_3   = 'will cause a change to DCS sig'  
+   extio_gmdt_4   = 'Enable external I/O interlock rly'  
+   extio_gmdt_5   = 'Disable external I/O interlock rly'
+   extio_gmdt_6   = 'Enter 1 to execute setup'
+   extio_gmdt_7   = 'Enter 0 to cancel and exit'
+   extio_gmdt_8   = ''
+   extio_gmdt_9   = ''
+   extio_gmdt10   = ''
+   extio_gmdt11   = ''
+   extio_gmdt12   = '' 
+   extio_gmdt13   = ''
+   extio_gmdt14   = ''
+   extio_gmdt14   = ''
+   extio_gmdt15   = ''
+   extio_gmdt16   = ''
+
+   --Clear Config
+   clrcfg_gm_1    = 'Clear Config'
+
+   --Stand Alone Configuration Menu
+   stnda_lsrgnd	  = 'PCorp Laser Grind'
+   stnda_lsrcln   = 'PCorp Laser Clean'
+   stnda_lsrdbr   = 'PCorp Laser Debur'
+   stnda_srvbrs   = 'Fanuc Servo Brushing'
+   stnda_sptpls   = 'SBI Spot Plasma'
+   stnda_bcm      = 'Body Chassis Marriage'
+
+   --Additional Programs and Templates Menu
+   addp_sekfnd    = 'MH Seek and Find Templates'
+   addp_qckcls	  = 'Quick Close Grip Templates'
+
+   --Additional Servo Gun Setup Menu
+   swgset_gchng   = 'Gun Change Setup'
+   swgset_mtr     = 'Motor Setup'
+   swgsetguntip   = 'Gun and Tipdress Setup'
+   swgchngapp     = 'Servo Gun Change Application'
+   swgsetcomp1    = 'setup must be completed'
+   swgsetcomp2    = 'after robot configuration'
+   swgsetcomp3    = 'Go to'
+   swgsetcomp4    = 'in the'
+   swgwizcomp1    = 'The configuration wizard has'
+   swgwizcomp2	  = 'not been executed.'
+   swgwizcomp3    = 'Execute the wizard and return'
+   swgwizcomp4    = 'to do this setup.'
+   swgwizcomp5    = 'menu'
+   swgtcwizap1	  = 'Application is not configured'
+   swgtcwizap2    = 'as a'
+   swgtcwizap3    = 'Returning to the main menu'
+   swg_mtr1       = 'How many servo guns will be used' 
+   swg_mtr2       = 'Motor Selection'
+   swg_mtr3       = 'Gun'
+   swg_mtr4       = 'Change gun'
+   swg_mtr5       = 'motor selection'
+   swg_mtr6       = 'Execute' 
+   swgtd_data1    = 'Enter Total Number'
+   swgtd_data2    = 'of Tipdresser(s)'     
+   swgguntd1      = 'not completed'
+   swgguntd2      = 'and return to'
+   swgguntd3      = 'complete'
+   swgguntd4      = 'Assign gun to servo tip dresser'
+   swgguntd5      = 'What tip dresser will gun'
+   swgguntd6      = 'use'
+   swgguntd7      = 'assigned to tip dresser'
+   swgguntd8      = 'Change tip dresser assignment(s)'
+   swgmax_press   = 'Max Pressure'    
+   swggunty1	  = 'Servo Gun Type'
+   swggunty2	  = 'type assignment(s)'
+   swggunty3	  = 'Metal-Type(s)'
+
+   -- Select Manufacturing Area
+   mfg_gmdata     = 'Select Manufacturing Area'
+   app_gmdata     = 'Select Application'
+   byd_gmdata     = 'Bodyshop'
+   mf_gmdata      = 'Metal Forming'
+   pt_gmdata      = 'Powertrain'
+   ps_gmdata      = 'Paintshop (Sealing)'
+
+   -- General Setup
+   run_gmwiz	  = 'Robot Wizard Settings will be Reset'
+   gmwizcont      = 'Do you want to continue'
+   repwr1_gm	  = 'The robot must now re-power to'
+   repwr2_gm	  = 'controlled start. Please wait until'
+   repwr3_gm      = 'the re-power has finished before'
+   repwr4_gm      = 'performing a COLD-START.'
+   rbtcfg1_gm     = 'Please wait while the robot is'
+   rbtcfg2_gm     = 'configured....'
+   safeio_gm1     = 'Initialize DCS Settinngs'
+   safeio_gm2     = 'Setup Safe I/O'
+   safeio_gm3     = 'If answer is yes'
+   safeio_gm4     = 'DCS APPLY is required'
+
+   -- How Many Processes
+   proc_gmdata	  = 'How Many Processes?'
+   onepc_gmdata   = 'One Process'
+   twopc_gmdata   = 'Two Processes'
+   proc1_gmdata   = 'What is Process 1'
+   proc2_gmdata   = 'What is Process 2'
+   proc1_title    = 'Process 1 Selection'
+   combo_title    = 'Process 1/Process 2 Combo Setup'
+
+   -- Robot Process
+   spt_gmdata     = ' Spotwelding'
+   dis_gmdata     = ' Dispensing '
+   std_gmdata     = ' Studwelding'
+   mul_gmdata     = ' Spt/Disp/Stud Multiple Process'
+   mh_gmdata      = ' Material Handler ONLY'
+   spcpr_gmdata   = ' Flex Joining Processes'
+   spwd_gmdata    = 'Spotweld'
+   disp_gmdata    = 'Dispense'
+   stud_gmdata    = 'Studweld'
+   spr_gmdata     = 'Self-Pierce Rivet'
+   pjwd_gmdata    = 'Projection Weld'
+   fds_gmdata     = 'Flow Drill Screw'
+   dmp_gmdata     = 'Dimpler'
+   menu_gmdata[1] = 'Spot / Spot'
+   menu_gmdata[2] = 'Spot / ProjW'
+   menu_gmdata[3] = 'Spot / Stud'
+   menu_gmdata[4] = 'Spot / Disp'
+   menu_gmdata[5] = 'Spot / SPR'
+   menu_gmdata[6] = 'Stud / Disp'
+   menu_gmdata[7] = 'Stud / SPR'
+   menu_gmdata[10] = 'ProjW / Stud'
+   menu_gmdata[11] = 'ProjW / Disp'
+   menu_gmdata[12] = 'ProjW / Dimpler'
+   menu_gmdata[13] = 'Disp / Disp'
+   menu_gmdata[14] = 'Disp / SPR'
+   menu_gmdata[15] = 'SPR / SPR'
+   menu_gmdata[16] = ''
+   menu_gmdata[17] = ''
+   menu_gmdata[20] = ''
+   menu_gmdata[21] = ''
+   menu_gmdata[22] = ''
+   menu_gmdata[23] = ''
+   menu_gmdata[24] = ''
+   menu_gmdata[25] = ''
+   menu_gmdata[26] = ''
+   menu_gmdata[27] = ''
+
+   --  Spot WC Control Count
+   w1wc_gmdata    = 'One weld controller'
+   w2wc_gmdata    = 'Two weld controllers'
+   mwc_gmdata     = 'Multi-Pack Controller'
+   w3wc_gmdata    = 'How many weld controllers'
+   wusing_data    = 'is the robot using'
+
+   --  Communication
+   eip_gmdata     = 'EthernetIP'
+   dnt_gmdata     = 'DeviceNet'
+   face_gmdata    = 'Select Welder'
+   face2_gmdata   = 'Interface Type'
+   face3_gmdata   = 'Welder'
+   mac_gmdata     = 'Select Cell MAC Id'
+   wface_gmdata   = 'Select Watersaver'
+   wfac3_gmdata   = 'Watersaver'
+   eip_host_nam   = 'Do you know the Robot IP Address'
+   eip_host_na2   = 'What is the Robot IP Address'
+   eip_host_na3   = '1st Octet'
+   eip_host_na4   = '2nd Octet'
+   eip_host_na5   = '3rd Octet'
+   eip_host_na6   = '4th Octet'
+   eip_host_na7   = 'The IP Address is the following:'
+   eip_host_na8   = ''
+   eip_host_na9   = ''
+   eip_host_n10   = 'Change Robot IP Address'
+
+   --Spot Setup
+   spset_gmdata   = 'Spot: Setup'
+
+   -- Select Application 1 Welder
+   rhg_gmdata     = 'Robot Held Gun'
+   hdg_gmdata     = 'Robot Held Dual Gun'
+   spg_gmdata     = 'Single Pedestal Gun'
+   spdg_gmdata    = 'Single Pedestal Dual Gun'
+   dpse_gmdata    = 'Dual Pedestal Single Gun Each'
+   rhmh_gmdata    = 'Robot Held Gun w/ Material Hand.'
+   snut_gmdata    = 'Robot Held Servo Nut Welder'
+
+   -- Select Application 2 Welders
+   rhdg_gmdata    = 'Robot Held Dual Gun'
+   dpdg_gmdata    = 'Dual Pedestal Dual Gun'
+   dgsg_gmdata    = 'Dual Pedestal: Dual Gun & Single'
+   rgpg_gmdata    = 'Robot Held Gun and Pedestal Gun'
+
+   -- Servo Gun
+   axis_data      = 'Would you like to setup Axis data'
+   atune_gmdata   = 'YES,WILL REQUIRE AUTOTUNE OF GUN'
+   motor_gmdata   = 'Motor list:'
+   gear_gmdata    = 'Enter Gear Ratio from Gun tag'
+   press_gmdata   = 'Enter Max Pressure from Gun tag'
+   srvtp_gmdata   = 'What type of Servo Gun is used?'
+   amp_gmdata     = 'What AMP# is the motor on'
+   lim_gmdata     = 'Enter MAX open distance on Gun tag'
+   def_gmdata     = 'Would you like to set the Pressure &'
+   def2_gmdata    = 'Backup & Start Distance tables'
+   def3_gmdata    = 'to default values' 
+   alum_gmdata    = ' Aluminum-Welding'  
+   
+   -- Air Gun
+   vlv_type       = 'Valve Type Euro Double or'
+   NA_gmdata      = 'North American Valves'
+   int_gmdata     = 'Is the Gun Dense Pack Intergrated'
+   ret_gmdata     = 'Do you want a Retract Stroke'
+   gnop_gmdata    = 'Do you want Gun Open Detect'
+   rtop_gmdata    = 'Do you want Retract Open Detect'
+   eqprs_gmdata   = 'Do you want Equalization Pressure'
+   soft_gmdata    = 'Do you want Soft Touch Option '
+   xfrm_data      = 'Do you want Transformer Over Temp '
+   chk_gmdata     = 'checking used for'
+   srv_gmdata     = 'a Servo Gun'
+   pdeq_gmdata    = 'No Equalization on Air Ped Guns'
+   isgun_gmdata   = 'Is gun#'
+   onEq_gmdata    = ' On Equipment#'
+   forgn_gmdata   = 'For Gun#'
+   todef_gmdata   = ' to default'
+   
+   -- Common Spot
+   tipyn_gmdata   = 'Is a Tip Dresser Used'
+   tipyn_srvgm    = 'Is a Servo Tip Dresser Used'   
+   strt_gmdata    = 'Tip Dresser Motor Starter Used'
+   tc_gmdata      = 'Tip Dress after Cap Change'
+   dump_pins      = 'Do Tip Dresser Dump(s) have'
+   dump_pins2     = 'Safety Locking Pin Switch'
+   gm_capcgr      = 'Is a Cap Changer Used'   
+   gm_capcgr1     = 'What Type of Cap Changer'
+   gm_capcgr2     = 'Robot Moving'
+   gm_capcgr3     = 'Robot Stationary'
+   gm_capcgr4     = 'Servo Combo Cap Changer/Dresser'
+   dressverify    = 'Is Dress Verification Used'
+   
+   -- Dispense 
+   diseq_gmdata   = 'Number of dispense equipments'
+   d1de_gmdata    = ' 1 Dispense Equipment'
+   d2de_gmdata    = ' 2 Dispense Equipments'
+   d1dc_gmdata    = 'One Dispense Controller'
+   d2dc_gmdata    = 'Two Dispense Controllers'
+   rhn_gmdata     = 'Robot Held Nozzle'
+   r2n_gmdata     = 'Robot Held Dual Nozzle'
+   r2p1e_gmdata   = 'Pedestal Held Nozzle'
+   rnpn_gmdat     = 'Robot Held & Pedestal Held Nozzle'
+   phn_gmdata     = 'Pedestal Held Nozzle'
+   rnmh_gmdata    = 'Robot Held Nozzle w/ Material Hand.'
+   d2p1e_gmdata   = 'Dual Ped: Two Single Nozzels'
+   dtype_gmdata   = 'Dispense Equipment Type'
+   dtype2gmdata   = 'HTS ASC5000'
+   dtype3gmdata   = 'MTS SYS/300/6000/3000'
+   dtype4gmdata   = 'LTS Gun ON/OFF'
+   dtype5gmdata   = 'Dispense setup will toggle'
+   dtype6gmdata   = 'screens when exiting WIZARD'
+   dtype7gmdata   = 'After hitting enter wait 30sec'
+   dtype8gmdata   = ''             
+   dtype9gmdata   = 'Dispense Equip 1 Schedule Setup'  
+   dtyp10gmdata   = 'Load Standard Disp Sched Defaults?'  
+   dtyp11gmdata   = 'Type of Dozer used?'  
+   dtyp12gmdata   = '80cc'  
+   dtyp13gmdata   = '160cc'  
+   dtyp14gmdata   = 'Neither (no settings)'   
+   dtyp15gmdata   = 'Dispense Equip 2 Schedule Setup'
+   dtyp16gmdata   = 'What type of Dispensing System(E1)?'
+   dtyp17gmdata   = 'What type of Dispensing System(E2)?'    
+   dtyp18gmdata   = '1K System'
+   dtyp19gmdata   = '2K System'   
+   g2disp_msg     = 'Setting Dispense EQ to 2'
+   gmrerunwiz     = 'Must re-run wizard after restart'
+ 
+  -- Stud
+   s1sd_gmdata    = 'One Stud Controller'
+   
+   pd_gmdata      = 'Pedestal Held Gun'
+   pd2_gmdata     = '2 Pedestal Held Guns Only'
+   s3pst_gmdata   = '3 Pedestal Guns'
+   s4pst_gmdata   = '4 Pedestal Guns'
+   bkstd_gdata1   = 'Do you want stud gun backup'
+   bkstd_gdata2   = 'for studwelding equipment'
+   bkstd_gdata3   = 'Stud Gun Backup Equipment'
+
+  --SPR
+  sprctr_data    = 'SPR Controller'
+  sprctr2_data	 = '2 SPR Controllers'
+  sprcnt_gdata   = 'Confirm you have SPR Controller'
+
+  -- FDS
+  c1fds_gmdata    = 'One FDS Controller'
+  fdscnt_gdata    = 'CONFIRM you have FDS Controller'
+
+  --Projection Welding
+  p1pc_gmdata     = 'One Projection Weld Controller'
+  wldct_gmdata    = 'Select Weld Controller'
+  wtc_gmdata      = 'WTC Controller'
+  none_gmdata     = 'None of the above'
+
+  --Dimpler
+  dmp1_gmdata     = 'One Dimpler Controller'
+  rh_gmdata       = 'Robot Held'
+  sp_gmdata       = 'Single Pedestal'
+  
+   
+   --  Multi Application
+   mlti1_gmdata   = 'Pedestal Spot & Dispense'
+   mlti2_gmdata   = 'Robot Held Spot & Pedestal Dispense'
+   mlti3_gmdata   = 'Robot Held Spot & Held Dispense'
+   mlti4_gmdata   = 'Pedestal Spot & Robot Held Dispense'
+   mlti5_gmdata   = 'Pedestal Spot & Stud'
+   mlti6_gmdata   = 'Robot Held Spot & Pedestal Stud '
+   mlti7_gmdata   = 'Pedestal Stud & Dispense '
+
+
+   --Two Processes
+   --Spot + Projection
+   pspot_pproj    = 'Ped Spot + Ped Proj'
+   cspotcprojtc   = 'Carried Spot + Carried Proj + TC'
+   -- Spot + Stud
+   pspot_pstud    = 'Ped Spot + Ped Stud'
+   cspot_pstud    = 'Carried Spot + Ped Stud'
+   -- Spot + Dispense
+   pspot_pdisp    = 'Ped Spot + Ped Disp'
+   cspot_pdisp    = 'Carried Spot + Ped Disp'
+   -- Spot + SPR
+   pspot_pspr     = 'Ped Spot + Ped SPR'
+   cspotcspr_tc   = 'Carried Spot + Carried SPR + TC'
+   -- Stud + Dispense
+   pstud_pdisp    = 'Ped Stud + Ped Disp'
+   -- Stud + SPR
+   pstud_pspr = 'Ped Stud + Ped SPR'
+   -- Projection + Stud
+   pproj_pstud = 'Ped Proj + Ped Stud'
+   -- Projection + Dispense
+   pproj_pdisp = 'Ped Proj + Ped Disp'
+   --Projection + Dimple
+   cprojcdimptc = 'Carried Proj + Carried Dimp + TC'
+   --Dispense + SPR
+   pdisp_pspr = 'Ped Disp + Ped SPR'
+   
+   -- Add to Configuration
+   add1_gmdata    = 'Adding to Configuration'
+   add2_gmdata    = 'Invalid Selection'
+   add3_gmdata    = 'Setup Wizard Never FINISHED'
+   add4_gmdata    = 'MUST COMPLETE SETUP WIZARD'
+   add5_gmdata    = 'SETUP WIZARD must be RE-Run'
+   add6_gmdata    = 'This option adds to configuration'
+   add7_gmdata    = 'Process Equipment and MH Equipment'
+   add8_gmdata    = 'If the Process(s) changes you must'
+   add9_gmdata    = 'Duplicates & Additions are GRS-4 Spec'
+   add10_gmdata   = 'Stud Modifications are Invalid'
+   add11_gmdata   = 'Additions Complete'
+   add12_gmdata   = 'No Additions'
+   add13_gmdata   = 'iRVision,Vision,TL/Chng,MH Valves'
+   add14_gmdata   = 'YES Requires MH Valve Setup'
+   add15_gmdata   = 'Add Metal Forming Equipment'
+   exit_gmdata    = 'Exit '
+   cont_gmdata    = 'Continue '
+   
+   -- MH Tool Changer
+   mhq1_gmdata    = 'Select Number of MH Valve Packs'
+   m1vp_gmdata    = ' 1 Valve Pack'
+   m2vp_gmdata    = ' 2 Valve Packs'
+   m3vp_gmdata    = ' 3 Valve Packs'            
+   mhq2_gmdata    = 'Select Number of MH Input Blocks '
+   m1ib_gmdata    = ' 1 Input Block '
+   m2ib_gmdata    = ' 2 Input Blocks'
+   m3ib_gmdata    = ' 3 Input Blocks'
+   m4ib_gmdata    = ' 4 Input Blocks'           
+   mnoibgmdata    = ' No Input Blocks'
+   mhq3_gmdata    = 'Do you have a Vacuum System '
+   mhq4_gmdata    = 'Number of Pumps or Type '
+   m1vac_gmdata   = ' 1 Vacuum Pump'
+   m2vac_gmdata   = ' 2 Vacuum Pumps'
+   m3vac_gmdata   = ' Decentralized Unit'
+   m4vac_gmdata   = 'Total Number of Cups'  
+   mhq5_gmdata    = 'Is a Tool Changer(s) Present '
+   sl1_gmdata     = 'Tool Nests Single/Dual Slide'
+   slid1_gmdata   = 'Single Gun on Slide'
+   slid2_gmdata   = 'Two Guns on the same Slide'
+   initmh1gdata   = 'Initialize Material Handling to'  
+   initmh2gdata   = 'GRS-4 Defaults: Valves,Vacuum cups'
+   initmh3gdata   = 'Yes: Then acknowledge setup boxes'
+   initmh4gdata   = 'No:  Leave Spot+ configuration'
+
+   -- Vision
+   visq1_gmdata   = 'Do you have a Vision System'
+   visq2_gmdata   = 'Select Vision System'
+   fss_gmdata     = 'Flexible Scanning FSS'
+   fms_gmdata     = 'Flexible Measureing FMS'
+   guid_gmdata    = 'Robot Guidance'
+   v2d3d_gmdata   = 'External Fanuc 2D or 3DL'
+   out_gmdata     = 'External Vision'
+   in_gmdata      = 'Fanuc iRVision'
+   ir2dgmdata     = 'iRVision 2D System'
+   ir3dgmdata     = 'iRVision 3D System'
+   irbthgdata     = 'iRVision 2D & 3D System(s)'
+   irlight        = 'iRVision Lighting System(s)'
+   irlight2       = 'Remote Mounted'
+   irlight3       = 'Robot Mounted'
+   irlight4       = 'Remote & Robot Mounted'
+   irlight5       = 'No Lighting'
+
+   -- Regular Stuff
+   enter_gmdata   = 'Press ENTER to continue'
+   inval_gmdata   = 'Invalid selection'
+   cnv_gmdata     = 'Configuration Not Valid'
+   adcmp_gmdata   = 'Additions Completed'
+   noadd_gmdata   = 'No Additions'
+   swc_gmdata     = 'Setup Wizard Completed'
+   restrt1_data   = 'After robot cycles power, Do not '
+   restrt2_data   = 'Execute Setup Wizard Again.'
+   yes_gmdata     = 'YES'
+   no_gmdata      = 'NO'
+   cll_gmdata     = 'Select Cell Interface to PLC'
+   gdata_ans      = 'Answer'
+   nonegmdata     = 'None'
+   
+   -- Tool Changer
+   tl1_gmdata     = 'Are the tool change nests'
+   tl2_gmdata     = 'controlled by PLC or Robot'
+   tl3_gmdata     = ''
+   
+   -- Metal Forming
+   mfq1_gmdata    = 'Select Metal Forming Application'
+   mfq2_gmdata    = 'Tandem Press Line'
+   mfq3_gmdata    = 'Robotic Destacking'
+   mfq4_gmdata    = 'EOL Transfer Press Line'
+   mfq5_gmdata    = 'Robotic Racking'
+   mfq6_gmdata    = 'Select Tool Change Process'
+   mfq7_gmdata    = 'Manual Tool Change'
+   mfq8_gmdata    = 'Automatic Tool Change'
+   mfq9_gmdata    = 'Select Number of Tool Types'
+   mfq10_gmdata   = 'Other'
+   mfq11_gmdata   = 'Select Number of Tool Nests'
+   mfq12_gmdata   = '2 Nests'
+   mfq13_gmdata   = '4 Nests'
+   mfq14_gmdata   = 'Number of Tool Types'
+   mfq15_gmdata   = 'Enter Number of Tool Types'
+   mfq16_gmdata   = 'Select Number of Tool Stands'
+   mfq17_gmdata   = ''
+   mfq18_gmdata   = ''
+
+   -- Extra for Future Questions Comments and concerns
+   xtra1_data     = ''
+   xtra2_data     = ''
+   xtra3_data     = ''
+   xtra4_data     = ''
+   xtra5_data     = ''
+   xtra6_data     = ''
+   xtra7_data     = ''
+   xtra8_data     = ''
+   xtra9_data     = ''
+   xtra10_data    = ''
+
+  -- FFR Popups
+   frhdr_gmdata   = '  End of repair FFR options'  
+   clast_gmdata   = '      1 = Continue last    '
+   cnext_gmdata   = '      2 = Continue next    '
+   abrt_gmdata    = '      3 = Abort            '
+   rerun_gmdata   = '      1 = Re-Run           '
+   ffrans_gdata   = '  Enter Selection          '
+   acept_gmdata   = '      2 = Accept Part      '  
+   
+  -- FFR Option 3 Popups Sealer Recovery
+   ffr3_gmdata1   = 'Vision Recovery options'  
+   ffr3_gmdata2   = ' 1 = Accept w/Vision Fault '
+   ffr3_gmdata3   = ' 2 = Re-Seal Part     '
+   ffr3_gmdata4   = ' 3 = Reject Part      '
+   ffr3_gmdata5   = ' 4 = Abort            '
+
+   IF ((LastLang_set <> english_lng) AND (LastLang_set >0)) THEN
+     POST_ERR(38000, 'Language changed to English', 0, 0) --
+   ENDIF
+
+   LastLang_set = english_lng
+   
+ END set_english
+----------------------------------------------------------------
+ROUTINE set_german                                            --
+--  Sets all Wizard question to GERMAN                        --
+----------------------------------------------------------------
+BEGIN
+
+   IF UNINIT(LastLang_set) THEN
+     LastLang_set = 0
+   ENDIF
+ 
+ -- Main
+   m1_gmdata      = 'Wizard starten'
+   m2_gmdata      = 'Schnittstelle zur SPS auswaehlen'
+   m3_gmdata      = 'Zur Konfiguration hinzufuegen'
+   m4_gmdata      = 'Waehle Englisch, Deutsch'
+   m5_gmdata      = 'Auswahl Roboter I/O Typ'
+   m6_gmdata      = 'fuer Zellenschnittstelle'
+   m7_gmdata      = 'Clear ALL Config(s)'		    --NEED GERMAN TRANSLATION					
+   m8_gmdata      = 'Global 4 Standard EIP laden'  
+   m9_gmdata      = 'Parameters' 
+   m10_gmdata     = ''
+   m11_gmdata     = 'Global 1'
+   m12_gmdata     = 'Global 2'
+   m13_gmdata     = 'nur R-30iB Steuerungen'  
+   m14_gmdata     = 'Setze IDNS MAC Id'
+   m15_gmdata     = ''
+   m16_gmdata     = 'Global 3'  
+   m17_gmdata     = 'Display Current Robot Configuration'    --NEED GERMAN TRANSLATION
+   m18_gmdata     = 'Run Robot Configuration Tool'           --NEED GERMAN TRANSLATION
+   m19_gmdata     = 'Load Robot Configuration from File'     --NEED GERMAN TRANSLATION
+   m30_gmdata     = 'GRS-4 Global 4 Customization'           --NEED GERMAN TRANSLATION
+   m31_gmdata     = 'Enter Selection'			     --NEED GERMAN TRNASLATION
+   m32_gmdata     = 'Exiting Wizard'			     --NEED GERMAN TRANSLATION
+   m40_gmdata     = 'Select Language for Wizard'	     --NEED GERMAN TRANSLATION
+   m41_gmdata     = 'setup questiosn and error text'	     --NEED GERMAN TRANSLATION
+   m42_gmdata     = 'Run-Wizard to Configure Robot'	     --NEED GERMAN TRANSLATION
+   m43_gmdata     = 'or COLD START after selection'	     --NEED GERMAN TRNASLATION
+   m44_gmdata     = 'English'				     --NEED GERMAN TRANSLATION
+   m45_gmdata     = 'Spanish'				     --NEED GERMAN TRNASLATION
+   m46_gmdata     = 'German'   				     --NEED GERMAN TRANSLATION
+   m47_gmdata     = 'Load Global 4 Standard'	             --NEED GERMAN TRANSLATION
+   m48_gmdata     = 'Settings'				     --NEED GERMAN TRANSLATION
+   appl_gmdata    = ' Application'			     --NEED GERMAN TRANSLATION
+   m50_gmdata     = 'Cold Start'			     --NEED GERMAN TRANSLATION
+   m51_gmdata     = 'then go to controlled start'	     --NEED GERMAN TRANSLATION
+
+   --Miscellaneous Tools Menu
+   misc_gmdata    = 'Miscellaneous Tools'			--NEED GERMAN TRANSLATION 
+   misc_idnsopt   = 'Safety Options'				--NEED GERMAN TRANSLATION
+   misc_stndaln   = 'Standalone Single Configurations'		--NEED GERMAN TRANSLATION
+   misc_addprg    = 'Additional Programs and Templates'		--NEED GERMAN TRANSLATION
+   misc_swgset    = 'Additional Servo Gun App Setup'		--NEED GERMAN TRANSLATION
+
+   --IDNS Safety 
+   idns_rust	  = 'RUST Form Changes Required'		--NEED GERMAN TRANSLATION
+
+   --External I/O Interlock Hardware
+   extio_gmdata   = 'External I/O Interlock Relay Setup'	--NEED GERMAN TRANSLATION 
+   extio_gmdt_1   = 'Please see GM Wizard manual sec 8.7'	--NEED GERMAN TRANSLATION 
+   extio_gmdt_2   = 'IMPORTANT! Enable or disable'		--NEED GERMAN TRANSLATION 
+   extio_gmdt_3   = 'will cause a change to DCS sig' 		--NEED GERMAN TRANSLATION  
+   extio_gmdt_4   = 'Enable external I/O interlock rly'		--NEED GERMAN TRANSLATION 		  
+   extio_gmdt_5   = 'Disable external I/O interlock rly'	--NEED GERMAN TRANSLATION 
+   extio_gmdt_6   = 'Enter 1 to execute setup'			--NEED GERMAN TRANSLATION 
+   extio_gmdt_7   = 'Enter 0 to cancel and exit'		--NEED GERMAN TRANSLATION 
+   extio_gmdt_8   = ''
+   extio_gmdt_9   = ''
+   extio_gmdt10   = ''
+   extio_gmdt11   = ''
+   extio_gmdt12   = '' 
+   extio_gmdt13   = ''
+   extio_gmdt14   = ''
+   extio_gmdt14   = ''
+   extio_gmdt15   = ''
+   extio_gmdt16   = ''
+
+   --Clear Config
+   clrcfg_gm_1    = 'Clear Config'				--NEED GERMAN TRANSLATION
+
+   --Stand Alone Configuration Menu
+   stnda_lsrgnd	  = 'PCorp Laser Grind'			--NEED GERMAN TRANSLATION
+   stnda_lsrcln   = 'PCorp Laser Clean'			--NEED GERMAN TRANSLATION
+   stnda_lsrdbr   = 'PCorp Laser Debur'			--NEED GERMAN TRANSLATION
+   stnda_srvbrs   = 'Fanuc Servo Brushing'		--NEED GERMAN TRANSLATION
+   stnda_sptpls   = 'SBI Spot Plasma'			--NEED GERMAN TRANSLATION
+   stnda_bcm      = 'Body Chassis Marriage'		--NEED GERMAN TRANSLATION
+
+   --Additional Programs and Templates Menu
+   addp_sekfnd    = 'MH Seek and Find Templates'	--NEED GERMAN TRANSLATION
+   addp_qckcls	  = 'Quick Close Grip Templates'	--NEED GERMAN TRANSLATION
+
+   --Additional Servo Gun Setup Menu
+   swgset_gchng   = 'Gun Change Setup'			--NEED GERMAN TRANSLATION
+   swgset_mtr     = 'Motor Setup'			--NEED GERMAN TRANSLATION
+   swgsetguntip   = 'Gun and Tipdress Setup'		--NEED GERMAN TRANSLATION
+   swgchngapp     = 'Servo Gun Change Application'	--NEED GERMAN TRANSLATION
+   swgsetcomp1    = 'setup must be completed'		--NEED GERMAN TRANSLATION
+   swgsetcomp2    = 'after robot configuration'		--NEED GERMAN TRANSLATION
+   swgsetcomp3    = 'Go to'				--NEED GERMAN TRANSLATION
+   swgsetcomp4    = 'in the'				--NEED GERMAN TRANSLATION
+   swgwizcomp1    = 'The configuration wizard has'	--NEED GERMAN TRANSLATION
+   swgwizcomp2	  = 'not been executed.'		--NEED GERMAN TRANSLATION
+   swgwizcomp3    = 'Execute the wizard and return'	--NEED GERMAN TRANSLATION
+   swgwizcomp4    = 'to do this setup.'  		--NEED GERMAN TRNASLATION
+   swgwizcomp5    = 'menu'				--NEED GERMAN TRANSLATION
+   swgtcwizap1	  = 'Application is not configured'			--NEED GERMAN TRANSLATION
+   swgtcwizap2    = 'as a'				--NEED GERMAN TRNASLATION
+   swgtcwizap3    = 'Returning to the main menu'	--NEED GERMAN TRANSLATION
+   swg_mtr1       = 'How many servo guns will be used'  --NEED GERMAN TRANSLATION
+   swg_mtr2       = 'Motor Selection'			--NEED GERMAN TRANSLATION
+   swg_mtr3       = 'Gun'				--NEED GERMAN TRNASLATION
+   swg_mtr4       = 'Change gun'			--NEED GERMAN TRANSLATION
+   swg_mtr5       = 'motor selection' 			--NEED GERMAN TRANSLATION
+   swg_mtr6       = 'Execute' 				--NEED GERMAN TRANSLATION
+   swgtd_data1    = 'Enter Total Number'		--NEED GERMAN TRANSLATION
+   swgtd_data2    = 'of Tipdresser(s)' 		        --NEED GERMAN TRANSLATION
+   swgguntd1      = 'not completed'			--NEED GERMAN TRNASLATION
+   swgguntd2      = 'and return to'			--NEED GERMAN TRANSLATION		
+   swgguntd3      = 'complete'				--NEED GERMAN TRANSLATION
+   swgguntd4      = 'Assign gun to servo tip dresser'	--NEED GERMAN TRNASLATION
+   swgguntd5      = 'What tip dresser will gun'		--NEED GERMAN TRANSLATION
+   swgguntd6      = 'use'				--NEED GERMAN TRANSLATION
+   swgguntd7      = 'assigned to tip dresser'		--NEED GERMAN TRANSLATION
+   swgguntd8      = 'Change tip dresser assignment(s)'	--NEED GERMAN TRANSLATION
+   swgmax_press   = 'Max Pressure' 			--NEED GERMAN TRANSLATION
+   swggunty1	  = 'Servo Gun Type'			--NEED GERMAN TRANSLATION
+   swggunty2	  = 'type assignment(s)'		--NEED GERMAN TRANSLATION
+   swggunty3	  = 'Metal-Type(s)'                     --NEED GERMAN TRANSLATION
+   
+   -- Select Manufacturing Area
+   mfg_gmdata     = 'Select Manufacturing Area'             --NEED GERMAN TRANSLATION   
+   app_gmdata     = 'Auswahl Applikation'
+   byd_gmdata     = ' Rohbau'
+   mf_gmdata      = ' Presswerk'
+   pt_gmdata      = 'Powertrain'                             	--NEED GERMAN TRANSLATION
+   ps_gmdata      = 'Paintshop (Sealing)'                    	--NEED GERMAN TRANSLATION
+   
+   -- General Setup
+   run_gmwiz	  = 'Robot Wizard Settings will be Reset'     	--NEED GERMAN TRANSLATION
+   gmwizcont      = 'Do you want to continue'               	--NEED GERMAN TRANSLATION
+   repwr1_gm	  = 'The robot must now re-power'		--NEED GERMAN TRANSLATION
+   repwr2_gm	  = 'controlled start.  Please wait until'	--NEED GERMAN TRANSLATION
+   repwr3_gm      = 'the re-power has finished before'		--NEED GERMAN TRANSLATION
+   repwr4_gm      = 'performing a COLD-START.'			--NEED GERMAN TRANSLATION
+   rbtcfg1_gm     = 'Please wait while the robot is'		--NEED GERMAN TRANSLATION
+   rbtcfg2_gm     = 'configured....'   				--NEED GERMAN TRANSLATION
+   safeio_gm1     = 'Initialize DCS Settinngs'			--NEED GERMAN TRANSLATION
+   safeio_gm2     = 'Setup Safe I/O'				--NEED GERMAN TRANSLATION
+   safeio_gm3     = 'If answer is yes'				--NEED GERMAN TRANSLATION
+   safeio_gm4     = 'DCS APPLY is required'			--NEED GERMAN TRANSLATION
+  
+   -- How Many Processes
+   proc_gmdata	  = 'How Many Processes?'			--NEED GERMAN TRANSLATION
+   onepc_gmdata   = 'One Process'				--NEED GERMAN TRANSLATION
+   twopc_gmdata   = 'Two Processes'				--NEED GERMAN TRANSLATION 
+   proc1_gmdata   = 'What is Process 1'				--NEED GERMAN TRANSLATION
+   proc2_gmdata   = 'What is Process 2'				--NEED GERMAN TRANSLATION
+   
+   -- Robot Process(s)
+   spt_gmdata     = ' Punktschweissen'
+   dis_gmdata     = ' Kleben '
+   std_gmdata     = ' Bolzenschweissen'
+   mul_gmdata     = ' Mehrfachprozesse'
+   mh_gmdata      = ' Kein Prozess(Handling)'
+   spcpr_gmdata   = ' Special Processes' 
+   spwd_gmdata    = 'Spotweld'					--NEED GERMAN TRANSLATION
+   disp_gmdata    = 'Dispense'					--NEED GERMAN TRANSLATION
+   stud_gmdata    = 'Studweld'					--NEED GERMAN TRANSLATION
+   spr_gmdata     = 'Self-Pierce Rivet'				--NEED GERMAN TRANSLATION
+   pjwd_gmdata    = 'Projection Weld'				--NEED GERMAN TRNASLATION
+   fds_gmdata     = 'Flow Drill Screw'				--NEED GERMAN TRANSLATION 
+   dmp_gmdata     = 'Dimpler'					--NEED GERMAN TRANSLATION
+   menu_gmdata[1] = 'Spot / Spot'				--NEED GERMAN TRANSLATION
+   menu_gmdata[2] = 'Spot / ProjW'				--NEED GERMAN TRANSLATION
+   menu_gmdata[3] = 'Spot / Stud'				--NEED GERMAN TRANSLATION
+   menu_gmdata[4] = 'Spot / Disp'				--NEED GERMAN TRANSLATION
+   menu_gmdata[5] = 'Spot / SPR'				--NEED GERMAN TRANSLATION
+   menu_gmdata[6] = 'Stud / Disp'				--NEED GERMAN TRANSLATION
+   menu_gmdata[7] = 'Stud / SPR'				--NEED GERMAN TRANSLATION
+   menu_gmdata[10] = 'ProjW / Stud'				--NEED GERMAN TRANSLATION
+   menu_gmdata[11] = 'ProjW / Disp'				--NEED GERMAN TRANSLATION
+   menu_gmdata[12] = 'ProjW / Dimpler'				--NEED GERMAN TRANSLATION
+   menu_gmdata[13] = 'Disp / Disp'				--NEED GERMAN TRANSLATION
+   menu_gmdata[14] = 'Disp / SPR'				--NEED GERMAN TRANSLATION
+   menu_gmdata[15] = 'SPR / SPR'				--NEED GERMAN TRANSLATION
+   menu_gmdata[16] = ''
+   menu_gmdata[17] = ''
+   menu_gmdata[20] = ''
+   menu_gmdata[21] = ''
+   menu_gmdata[22] = ''
+   menu_gmdata[23] = ''
+   menu_gmdata[24] = ''
+   menu_gmdata[25] = ''
+   menu_gmdata[26] = ''
+   menu_gmdata[27] = ''  
+   
+   --  Spot WC Control Count
+   w1wc_gmdata    = 'EINE Schweisssteuerung'
+   w2wc_gmdata    = 'ZWEI Schweisssteuerungen '
+   mwc_gmdata     = 'Mehrfachschweisssteuerung'
+   w3wc_gmdata    = 'Wieviele Schweisssteuerungen'
+   wusing_data    = 'nutzt der Roboter'
+   
+   --  Communication
+   eip_gmdata     = 'EthernetIP'
+   dnt_gmdata     = 'DeviceNet'
+   face_gmdata    = 'Schweisssteuerung'
+   face2_gmdata   = 'Schnittstellentyp'
+   face3_gmdata   = 'Welder'               
+   mac_gmdata     = 'Zellen MAC ID auswaehlen'
+   wface_gmdata   = 'Wähle Wasserwächter'
+   wfac3_gmdata   = 'Durchflusswächter'           
+   eip_host_nam   = 'Roboter IP Adresse bekannt' 
+   eip_host_na2   = 'Wie lautet die Roboter IP Adresse' 
+   eip_host_na3   = 'erster Block'
+   eip_host_na4   = 'zweiter Block'
+   eip_host_na5   = 'dritter Block'
+   eip_host_na6   = 'vierter Block'
+   eip_host_na7   = 'Die IP Adresse lautet wie folgt:' 
+   eip_host_na8   = ''
+   eip_host_na9   = ''
+   eip_host_n10   = 'Change Robot IP Address'			--NEED GERMAN TRANSLATION
+   
+   --Spot Setup
+   spset_gmdata   = 'Spot: Setup'				--NEED GERMAN TRANSLATION
+
+   -- Select Application 1 Welder
+   rhg_gmdata     = ' Zange am Roboter'
+   hdg_gmdata     = ' Zwei Zangen am Roboter'
+   spg_gmdata     = ' Eine stationaere Zange'
+   spdg_gmdata    = ' Eine stationaere Doppelzange'
+   dpse_gmdata    = ' Zwei stationaere Zangen'
+   rhmh_gmdata    = ' Zange und Greifer am Roboter'
+   snut_gmdata    = 'Robot Held Servo Nut Welder'		--NEED GERMAN TRANSLATION
+
+   -- Select Application 2 Welders
+   rhdg_gmdata    = ' Eine Doppelzange am Roboter'
+   dpdg_gmdata    = ' Zwei stationaere Doppelzangen'
+   dgsg_gmdata    = ' Zwei stat. Zangen(eine Doppelzange)'
+   rgpg_gmdata    = ' Zange am Rob. und eine stat. Zange'
+
+   -- Servo Gun
+   axis_data      = 'Wollen Sie Achs-Daten eingeben'
+   atune_gmdata   = 'JA, erfordert AUTOTUNING der Zange!'
+   motor_gmdata   = 'Motortyp aus:'
+   gear_gmdata    = 'Eingabe Uebersetzungsverhaeltnis'
+   press_gmdata   = 'Eingabe Maximaldruck '
+   srvtp_gmdata   = 'Welcher Servozangentyp wird benutzt'
+   amp_gmdata     = 'Verstaerkernummer fuer Zangenmotor'
+   lim_gmdata     = 'Eingabe der max. Zangenoeffnung'
+   def_gmdata     = 'Ruecksetzen der Werte fuer Druck,'
+   def2_gmdata    = 'Backup- und Vorposition'
+   def3_gmdata    = ' auf Standardwerte'  
+   alum_gmdata    = ' Aluminum-Welding'  --NEED GERMAN TRANSLATION
+   
+   -- Air Gun
+   vlv_type       = 'Ventiltyp Euro Doppel oder'
+   NA_gmdata      = 'Nordamerika Ventile'
+   int_gmdata     = 'Ist der Ventilbl. auf Zange integr.'
+   ret_gmdata     = 'Wollen Sie einen Rueckhub '
+   gnop_gmdata    = 'Wollen Sie eine Zange-AUF-Erkennung'
+   rtop_gmdata    = 'Wollen Sie eine Rueckhuberkennung'
+   eqprs_gmdata   = 'Wollen Sie einen Zangenausgleichsdr.'
+   soft_gmdata    = 'Wollen Sie Soft Touch'
+   xfrm_data      = 'Existiert ein Uebertemperatursensor'
+   chk_gmdata     = 'Ueberpruefung fuer'
+   srv_gmdata     = 'eine Servozange'
+   pdeq_gmdata    = 'kein Ausgleich an stat. Zange'
+   isgun_gmdata   = 'Ist Gun#'
+   onEq_gmdata    = ' an Equipment#'
+   forgn_gmdata   = 'fuer Gun#'
+   todef_gmdata   = ' auf Standardwerte'
+
+   -- Common Spot
+   tipyn_gmdata   = 'Wird ein Kappenfraeser benutzt'
+   tipyn_srvgm    = 'Wird ein Servo Kappenfraeser benutzt'
+   strt_gmdata    = 'Motortyp des Kappenfraesers'
+   tc_gmdata      = 'Nach einem Kappenwechsel fraesen '
+   dump_pins      = 'Ausg.Kappenfräser dump(s) haben'
+   dump_pins2     = 'Schalter für Sicherheitsverschlussstift' 
+   gm_capcgr      = 'Is a Cap Changer Used' 		     --NEED GERMAN TRANSLATION  
+   gm_capcgr1     = 'What Type of Cap Changer'	             --NEED GERMAN TRANSLATION 
+   gm_capcgr2     = 'Robot Moving'			     --NEED GERMAN TRANSLATION
+   gm_capcgr3     = 'Robot Stationary'			     --NEED GERMAN TRANSLATION
+   gm_capcgr4     = 'Servo Combo Cap Changer/Dresser'	     --NEED GERMAN TRANSLATION
+   dressverify    = 'Is Dress Verification Used'             --NEED GERMAN TRANSLATION
+
+   -- Dispense 
+   diseq_gmdata   = 'Wieviele Dosierer werden benutzt'
+   d1de_gmdata    = ' Ein Dosierer'
+   d2de_gmdata    = ' Zwei Dosierer'
+   d1dc_gmdata    = 'EINE Dosierersteuerung'
+   d2dc_gmdata    = 'ZWEI Dosierersteuerungen'
+   rhn_gmdata     = 'Roboter haelt Pistole'
+   r2n_gmdata     = 'Roboter haelt zwei Pistolen'
+   r2p1e_gmdata   = 'Pistole an Saeule'
+   rnpn_gmdat     = 'Pistole an Saeule u. Roboter'
+   phn_gmdata     = 'Pistole an Saeule'
+   rnmh_gmdata    = 'Roboter haelt Pistole und Greifer'
+   d2p1e_gmdata   = '2 stat. Konsolen:2 einzelne Duesen'
+   dtype_gmdata   = 'Dosierer-Ausrüstung Typ'
+   dtype2gmdata   = 'HTS ASC5000'
+   dtype3gmdata   = 'MTS SYS/300/6000/3000'
+   dtype4gmdata   = 'LTS Pist. AN/AUS'
+   dtype5gmdata   = 'Dosiereinstell. werden umschalten'
+   dtype6gmdata   = 'Bildschirm wenn WIZARD zu Ende'
+   dtype7gmdata   = 'Nach drücken von Enter 30sek.warten'
+   dtype8gmdata   = ''             
+   dtype9gmdata   = 'Parametersatz Klebesteuerung 1'  
+   dtyp10gmdata   = 'Standard Klebeparameter laden?'  
+   dtyp11gmdata   = 'Welcher Dosierer-Typ wird verwendet?'  
+   dtyp12gmdata   = '80ccm'  
+   dtyp13gmdata   = '160ccm'  
+   dtyp14gmdata   = 'Weder noch (keine Einstellung)'   
+   dtyp15gmdata   = 'Parametersatz Klebesteuerung 2'
+   dtyp16gmdata   = 'What type of Dispensing System(E1)?'
+   dtyp17gmdata   = 'What type of Dispensing System(E2)?'    
+   dtyp18gmdata   = '1K System'
+   dtyp19gmdata   = '2K System'     
+   g2disp_msg     = 'Setting Dispense EQ to 2'
+   gmrerunwiz     = 'Must re-run wizard after restart'
+
+
+   -- Stud
+   s1sd_gmdata    = 'Eine Bolzenschweisssteuerung'
+   
+   pd_gmdata      = ' Ein stationaerer Bolzenschweisser'
+   s3pst_gmdata   = ' Drei stationaere Bolzenschweisser'
+   s4pst_gmdata   = ' Vier stationaere Bolzenschweisser'
+   bkstd_gdata1   = 'Bolzenschweiss-Rueckhub aktivieren'
+   bkstd_gdata2   = 'fuer Bolzenschweiss EQ#'
+   bkstd_gdata3   = 'Stud Gun Backup Equipment'			--NEED GERMAN TRANSLATION
+
+  --SPR
+  sprctr_data    = 'SPR Controller'				--NEED GERMAN TRANSLATION
+  sprctr2_data   = '2 SPR Controllers' 			        --NEED GERMAN TRANSLATION
+  sprcnt_gdata   = 'Confirm you have SPR Controller'		--NEED GERMAN TRANSLATION
+
+  -- FDS
+  c1fds_gmdata    = 'One FDS Controller'			--NEED GERMAN TRANSLATION
+  fdscnt_gdata    = 'CONFIRM you have FDS Controller'		--NEED GERMAN TRANSLATION
+
+  --Projection Welding
+  p1pc_gmdata     = 'One Projection Weld Controller'		--NEED GERMAN TRANSLATION
+  wldct_gmdata    = 'Select Weld Controller'			--NEED GERMAN TRANSLATION
+  wtc_gmdata      = 'WTC Controller'				--NEED GERMAN TRANSLATION
+  none_gmdata     = 'None of the above'				--NEED GERMAN TRANSLATION
+
+  --Dimpler
+  dmp1_gmdata     = 'One Dimpler Controller'			--NEED GERMAN TRANSLATION
+  rh_gmdata       = 'Robot Held'				--NEED GERMAN TRANSLATION
+  sp_gmdata       = 'Single Pedestal'				--NEED GERMAN TRANSLATION
+   
+   --  Multi Application
+   mlti1_gmdata   = 'Stat. Zange und stat. Klebepistole'
+   mlti2_gmdata   = 'Zange am Rob. und stat. Klebepist.'
+   mlti3_gmdata   = 'Zange und Klebepist. am Roboter'
+   mlti4_gmdata   = 'Stat. Zange und Klebepist. am Rob.'
+   mlti5_gmdata   = 'Stationaere Zange u. Bolzenschw.'
+   mlti6_gmdata   = 'Zange am Rob. und stat. Bolzenschw.'
+   mlti7_gmdata   = 'Stat. Bolzenschw. und Klebepistole'
+
+
+   --Two Processes
+   --Spot + Projection
+   pspot_pproj    = 'Ped Spot + Ped Proj'			--NEED GERMAN TRANSLATION
+   cspotcprojtc   = 'Carried Spot + Carried Proj + TC'		--NEED GERMAN TRANSLATION
+   -- Spot + Stud
+   pspot_pstud    = 'Ped Spot + Ped Stud'			--NEED GERMAN TRANSLATION
+   cspot_pstud    = 'Carried Spot + Ped Stud'			--NEED GERMAN TRANSLATION
+   -- Spot + Dispense
+   pspot_pdisp    = 'Ped Spot + Ped Disp'			--NEED GERMAN TRANSLATION
+   cspot_pdisp    = 'Carried Spot + Ped Disp'			--NEED GERMAN TRANSLATION
+   -- Spot + SPR
+   pspot_pspr     = 'Ped Spot + Ped SPR'			--NEED GERMAN TRANSLATION
+   cspotcspr_tc   = 'Carried Spot + Carried SPR + TC'		--NEED GERMAN TRANSLATION
+   -- Stud + Dispense
+   pstud_pdisp    = 'Ped Stud + Ped Disp'			--NEED GERMAN TRANSLATION
+   -- Stud + SPR
+   pstud_pspr = 'Ped Stud + Ped SPR'				--NEED GERMAN TRANSLATION
+   -- Projection + Stud						
+   pproj_pstud = 'Ped Proj + Ped Stud'				--NEED GERMAN TRANSLATION
+   -- Projection + Dispense
+   pproj_pdisp = 'Ped Proj + Ped Disp'				--NEED GERMRAN TRANSLATION
+   --Projection + Dimple
+   cprojcdimptc = 'Carried Proj + Carried Dimp + TC'		--NEED GERMAN TRANSLATION
+   --Dispense + SPR
+   pdisp_pspr = 'Ped Disp + Ped SPR'				--NEED GERMAN TRANSLATION
+   
+   -- Add to Configuration
+   add1_gmdata    = 'Zur Konfiguration hinzuf.'
+   add2_gmdata    = 'Ungültige Auswahl'
+   add3_gmdata    = 'Wizard nicht beendet'
+   add4_gmdata    = 'WIZARD komplett durchlaufen'
+   add5_gmdata    = 'WIZARD-Einstell. neu starten'
+   add6_gmdata    = 'Diese Option zur Konfigur. hinzuf.'
+   add7_gmdata    = 'Prozessausrüstung und MH-Ausrüstung'
+   add8_gmdata    = 'Wenn der Prozess wechselt musst du'
+   add9_gmdata    = 'Verdoppeln & Hinzufügen ist GRS-4 Spez'
+   add10_gmdata   = 'Bolzen Modifikation ungültig'
+   add11_gmdata   = 'Hinzufügen fertig'
+   add12_gmdata   = 'Nichts hinzugefügt'
+   add13_gmdata   = 'iRVision,Vision,TL/Chng,MH Ventile'
+   add14_gmdata   = 'JA benötigt MH Ventileinstell.'
+   add15_gmdata   = 'Presswerk Einstell. hinzufügen'
+   exit_gmdata    = 'Ende '
+   cont_gmdata    = 'Weiter '
+   
+   -- MH Tool Changer
+   mhq1_gmdata    = 'Anzahl Ventilbloecke'
+   m1vp_gmdata    = ' 1 Ventilblock'
+   m2vp_gmdata    = ' 2 Ventilbloecke'
+   m3vp_gmdata    = ' 3 Ventilbloecke'
+   mhq2_gmdata    = 'Anzahl Eingangsbloecke '
+   m1ib_gmdata    = ' 1 Eingangsblock '
+   m2ib_gmdata    = ' 2 Eingangsbloecke'
+   m3ib_gmdata    = ' 3 Eingangsbloecke'
+   m4ib_gmdata    = ' 4 Eingangsbloecke'
+   mnoibgmdata    = ' Kein Eingangsblock'
+   mhq3_gmdata    = 'Haben Sie eine Vakuumpumpe '
+   mhq4_gmdata    = 'Anzahl Vakuumpumpen '
+   m1vac_gmdata   = ' 1 Vakuum Pumpe'
+   m2vac_gmdata   = ' 2 Vakuum Pumpe'
+   m3vac_gmdata   = 'Dezentrale Unit' 
+   m4vac_gmdata   = 'Gesamtanzahl der Wkz.Aufn.'  
+   mhq5_gmdata    = 'Haben Sie einen Werkzeugwechsler '
+   sl1_gmdata     = 'Wkz.Aufnah. Einzel/Doppel Träger'
+   slid1_gmdata   = 'Einzelzange am Träger'
+   slid2_gmdata   = 'Zwei Zangen auf gleichem Träger'
+   initmh1gdata   = 'Initialisiere Material Handling zu'  
+   initmh2gdata   = 'GRS-4 Basis: Ventile,Wkz,Träger'
+   initmh3gdata   = 'Ja: Dann Einstell. Box bestätigen'
+   initmh4gdata   = 'Nein: Verlasse Spot+ Konfiguration'
+  
+   -- Vision
+   visq1_gmdata   = 'Haben Sie ein Kamerasystem'
+   visq2_gmdata   = 'Auswahl Kamerasystem'
+   fss_gmdata     = 'Flexibles Scannen FSS'
+   fms_gmdata     = 'Flexibles Messen FMS'
+   guid_gmdata    = 'Roboterfuehrung'
+   v2d3d_gmdata   = 'Externes Fanuc 2D oder 3DL'
+   out_gmdata     = 'Externes Vision'
+   in_gmdata      = 'Fanuc iRVision'
+   ir2dgmdata     = 'iRVision 2D System'
+   ir3dgmdata     = 'iRVision 3D System'
+   irbthgdata     = 'iRVision 2D & 3D System(e)'
+   irlight        = 'iRVision Lighting System(s)'
+   irlight2       = 'ausserhalb montiert'
+   irlight3       = 'Am Rob. montiert'
+   irlight4       = 'ausserh.&Am Rob.montiert'
+   irlight5       = 'kein Licht'
+ 
+   -- Regular Stuff
+   enter_gmdata   = 'ENTER fuer weiter'
+   inval_gmdata   = 'Ungueltige Auswahl'
+   cnv_gmdata     = 'Konfiguration nicht zulaessig'
+   adcmp_gmdata   = 'Ergaenzungen fertig'
+   noadd_gmdata   = 'Keine Ergaenzungen'
+   swc_gmdata     = 'WIZARD beendet'
+   restrt1_data   = 'Nach Rob.-Neustart muss der WIZARD'
+   restrt2_data   = 'erneut ausgefuehrt werden.'
+   yes_gmdata     = ' Ja'
+   no_gmdata      = ' Nein'
+   cll_gmdata     = 'Zellen E/A zur SPS einstellen'
+   gdata_ans      = 'Antwort'
+   nonegmdata     = 'Keine'
+   
+  -- Tool Changer
+   tl1_gmdata     = 'Wkz.-Wechsler von SPS/Rob. gesteuert'
+   tl2_gmdata     = 'SPS/Roboter'
+   tl3_gmdata     = ''
+   
+   -- Metal Forming
+   mfq1_gmdata    = 'Auswahl Presswerk Applikation'
+   mfq2_gmdata    = 'Tandem-Pressenlinie'
+   mfq3_gmdata    = 'Robotergestuetzte Abstapelung'
+   mfq4_gmdata    = 'Transferpressenlinie'
+   mfq5_gmdata    = 'Robotergestuetzte Regalabstapelung'
+   mfq6_gmdata    = 'Auswahl Art des Werkzeugwechsels'
+   mfq7_gmdata    = 'Manueller Werkzeugwechsel'
+   mfq8_gmdata    = 'Automatischer Werkzeugwechsel'
+   mfq9_gmdata    = 'Auswahl Werkzeugtypennummer'
+   mfq10_gmdata   = 'Andere'
+   mfq11_gmdata   = 'Anzahl Werkzeugablagen'
+   mfq12_gmdata   = '2 Ablagen'
+   mfq13_gmdata   = '4 Ablagen'
+   mfq14_gmdata   = 'Anzahl Werkzeugtypen'
+   mfq15_gmdata   = 'Eingabe Wkz.-Typ Nummer'
+   mfq16_gmdata   = 'Anzahl Werkzeugablagen'
+   mfq17_gmdata   = ''
+   mfq18_gmdata   = ''
+
+   -- Extra for Future Questions Comments and concerns
+   xtra1_data     = ''
+   xtra2_data     = ''
+   xtra3_data     = ''
+   xtra4_data     = ''
+   xtra5_data     = ''
+   xtra6_data     = ''
+   xtra7_data     = ''
+   xtra8_data     = ''
+   xtra9_data     = ''
+   xtra10_data    = ''
+
+  -- FFR Popups
+   frhdr_gmdata   = 'FFR Auswahl'  
+   clast_gmdata   = '1 = Weiter mit letztem Pkt.'
+   cnext_gmdata   = '2 = Weiter mit naechst.Pkt.'
+   abrt_gmdata    = '3 = Abbruch                '
+   rerun_gmdata   = '1 = Wiederhole Bahn        '
+   ffrans_gdata   = 'Antwort:                   '
+   acept_gmdata   = '2 = Ubernehme Teil      '  
+
+  -- FFR Option 3 Popups Sealer Recovery
+   ffr3_gmdata1   = 'Vision Recovery options'  
+   ffr3_gmdata2   = ' 1 = Akzept. w/Vision Fehler '
+   ffr3_gmdata3   = ' 2 = Teil erneut abdichten'
+   ffr3_gmdata4   = ' 3 = Teil auswerfen      '
+   ffr3_gmdata5   = ' 4 = Abbruch            '
+
+   IF ((LastLang_set <> german_lng) AND (LastLang_set >0)) THEN
+     POST_ERR(38000, 'Language changed to GERMAN', 0, 0) --
+   ENDIF
+
+   LastLang_set = german_lng
+
+END set_german
+---------------------------------------------------------------------------------------
+BEGIN
+END gmlang1
+
+
+
+
+

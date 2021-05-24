@@ -1,0 +1,1286 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+-- 
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program:
+--
+--    Description: Copied from swwizio4 due to size requirements.
+--				   Origional creator L. Steed
+--
+--    GMPRESPG -- program for loading all unique program that are specific to Press applications
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+--      LoadPresTmpl              -- Loading of programs that ever single press robot gets
+--      Press_LPT                 -- Ran when a LPT robot
+--      ld_Tndem_Prg              -- If tandem robot programs are specific to that type of press robot
+--      ld_Dstck_Prg              -- If Destacker robot programs are specific to that type of press robot
+--      ld_EOLTP_Prg              -- If End Of Line robot programs are specific to that type of press robot
+--      ld_Rckin_Prg              -- If Racking robot programs are specific to that type of press robot
+--      LdPrsTlCHPrg
+--
+-------------------------------------------------------------------------------------------------------------
+--    Other Application files:
+--    GMPRESIO -- program to setup and comment the press I/O GMCELLIO is also required to setup workcell interface
+--    GMPRESRG -- program for setting registers and position registers comments and default values
+--    GMPRESVR -- program for setting variables specific to Press application
+-------------------------------------------------------------------------------
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author: --            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--    16/02/13  R.Kosaski Copied from SWPRESS.
+--    16/06/29  R.Kosaski Edited for initial release
+--    16/07/15  R.Kosaski Edited changes for initial release
+--    16/10/27  R.Kosaski Edited changes per Lloyd Steed PressBuild31 Issue list
+--    16/10/31  R.Kosaski added PRT_INIT.TP to all applications
+--    11/19/16  R.Kosaski CHanged Ati_button.jpeg to JPG
+--    2017/02/13 marchaka Removed $dev_path setting.  It is handled in gmmain1.
+--    2017/04/30 R.Kosaski Added code for Press Sync option
+--    2017//5/3  R.Kosaski CHanged PSIOCST.TP loading on Tandem to ALL PRESS robots
+--                         get PHIOCST.TP got new file from Bill Kroll
+--    2017/07/03 marchaka  Move copying of press web screen images to SetWebScreen in
+--                         gmcellvr
+--    2017/04/04 schoensm  V8.33P05 update
+--    2018/06/28 baker     Removed VI_REQ2 and VI_REQ3 from setup_macro
+--                         Removed lpt_man.pdf and lpt_maint.pdf onto FR
+--    2018/07/17 baker     Made changes to assignments and instruction names in macro table
+--    2018/07/23 baker     Added an if statement fo fanuciR to load programs
+--                         Deleted programs in macro for vision guidance
+--                         Changed rl_rkckrn.tp to rlrkckrn.tp
+--    2019/09/11 schoensm  V8.33P08 -- added cam(1-4)_he_ck.vd, lpt_health, lpt_healthd.tp, flt_mhsync.tp, vi_health_ck.tp
+--    2020/05/07 schoensm  V8.33P09 -- added style128_lpt.tp, not in spec, LS request.
+-----------------------------------------------------------------------------
+PROGRAM GMPRESPG
+-----------------------------------------------------------------------------
+%ENVIRONMENT ATCLDEF -- required for the $Style_name variables
+%ENVIRONMENT mnmcdef -- required for the macro table system variables
+%ENVIRONMENT SYSDEF  -- required for the $group[1]. variable
+%ENVIRONMENT TPE -- required for the set_attr tp program header
+%ENVIRONMENT MULTI -- required for the run task
+
+%COMMENT = 'Press Progs V4.6'
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+
+ Version = '2020-05-07'
+%INCLUDE gmcnstnt -- used for all GM wizard constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  gm_status    : INTEGER
+  psve         : INTEGER
+  dummy        : INTEGER
+--  gpmac_done   : BOOLEAN
+  entry,        -- used for the GET_VAR command
+  ans          : INTEGER
+  prog_nam     : STRING[12]
+  l_stat       : INTEGER
+  l_status     : INTEGER
+  h,I          : INTEGER
+  StrtinErs    : INTEGER  -- How many errors I/O error counter had when the program started
+
+loaded,initialized  : BOOLEAN -- Used for LOAD_STATUS builtin
+cur_styl_len  : INTEGER -- Used for how large Style table is when it is read
+
+PresPrgsDone IN SHADOW FROM GMPRESPG: BOOLEAN -- if the programs has ran completly
+
+-- Variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- Variables declares for Shop specifics
+%INCLUDE gmcfgprs  -- GM wizard variables for press Applications
+%INCLUDE gmcfgtlc  -- GM wizard variables for tool changer Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for vision Applications
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+ -------------------------------------------------------------------
+-------------------------------------------------------------------
+ROUTINE prs_sty_tbl						 --
+--  Press style table is based on tool type for EOAT             --
+-------------------------------------------------------------------
+BEGIN
+   WriteLog('  Press prs_sty_tbl setup Routine Started', FALSE)
+
+cur_styl_len = 0
+-- go check we can set directly or will puke because array lenght is not large enough
+GET_VAR(entry, '*SYSTEM*' , '$STYLE_COUNT', cur_styl_len, gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$STYLE_COUNT FAILED', gm_status, 0) --
+     WriteLog('[*SYSTEM*].$STYLE_COUNT FAILED Status = '+int2str(gm_status),FALSE)
+   ELSE
+     IF (cur_styl_len < 130) THEN
+       POST_ERR(38000, '$STYLE_COUNT is '+int2str(cur_styl_len)+' RETURNING', 0, 0) --
+       WriteLog('$STYLE_COUNT is '+int2str(cur_styl_len)+' RETURNING',FALSE)
+        ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + 1
+       RETURN
+     ENDIF
+   ENDIF
+
+   SELECT (PresLineType) OF --
+     CASE (1):  -- Tandem Press Line
+      -- writeLog('User selected  ', FALSE)
+     CASE (2):  -- Robotic Destacking
+      -- writeLog('User selected  ', FALSE)
+     CASE (3):  --  EOL Transfer
+      -- writeLog('User selected  Press Line', FALSE)
+     CASE (4):  -- Robotic Racking
+      -- writeLog('User selected ', FALSE)
+    --   Set_S_sVar('$style_name[100]','TLRKCKRN')
+   ENDSELECT --
+
+
+-- writeLog('  Setting Tool Programs Stand TYPE#'+int2str(h), FALSE)
+
+  SELECT (PresTLCHType) OF -- loop through the max number of tool stands
+    CASE (1):  -- tool stand type is 1, which is Single Tool
+      FOR i = 1 TO 6 DO  --
+        writeLog('  Setting Manual Tool Stand#'+int2str(i)+' Programs', FALSE)
+        SELECT (i) OF --
+          CASE (1):  -- -- TYPE 1
+            Set_S_sVar('$style_name[101]','TLDRT1N1')
+            Set_S_sVar('$style_name[101]','TLDRT1N1')
+            Set_S_sVar('$style_name[102]','TLDRT1N2')
+            Set_S_sVar('$style_name[103]','TLPKT1N1')
+            Set_S_sVar('$style_name[104]','TLPKT1N2')
+          CASE (2):  --
+            Set_S_sVar('$style_name[105]','TLDRT2N1')
+            Set_S_sVar('$style_name[106]','TLDRT2N2')
+            Set_S_sVar('$style_name[107]','TLPKT2N1')
+            Set_S_sVar('$style_name[108]','TLPKT2N2')
+          CASE (3):  --
+            Set_S_sVar('$style_name[109]','TLDRT3N1')
+            Set_S_sVar('$style_name[110]','TLDRT3N2')
+            Set_S_sVar('$style_name[111]','TLPKT3N1')
+            Set_S_sVar('$style_name[112]','TLPKT3N2')
+          CASE (4):  --
+            Set_S_sVar('$style_name[113]','TLDRT4N1')
+            Set_S_sVar('$style_name[114]','TLDRT4N2')
+            Set_S_sVar('$style_name[115]','TLPKT4N1')
+            Set_S_sVar('$style_name[116]','TLPKT4N2')
+          CASE (5):  --
+            Set_S_sVar('$style_name[117]','TLDRT5N1')
+            Set_S_sVar('$style_name[118]','TLDRT5N2')
+            Set_S_sVar('$style_name[119]','TLPKT5N1')
+            Set_S_sVar('$style_name[120]','TLPKT5N2')
+          CASE (6):  --
+            Set_S_sVar('$style_name[121]','TLDRT6N1')
+            Set_S_sVar('$style_name[122]','TLDRT6N2')
+            Set_S_sVar('$style_name[123]','TLPKT6N1')
+            Set_S_sVar('$style_name[124]','TLPKT6N2')
+          ELSE: --
+        ENDSELECT --
+        writeLog('  Tool Stand Manual Programs Complete', FALSE)
+      ENDFOR -- end of for loop for the single tool stand which can have up to 6--really eight
+
+    CASE (2):  -- tool stand type is 2, which is Dual Tool
+      FOR i = 1 TO 3 DO  --
+        writeLog('  Setting Up Automatic Tool Stand#'+int2str(i)+' Programs', FALSE)
+        SELECT (i) OF --
+          CASE (1):  -- Stand # 1 for Dual Stand setup
+            Set_S_sVar('$style_name[101]','TLDRT1N1')
+            Set_S_sVar('$style_name[102]','TLDRT1N2')
+            Set_S_sVar('$style_name[103]','TLPKT1N1')
+            Set_S_sVar('$style_name[104]','TLPKT1N2')
+            Set_S_sVar('$style_name[113]','TLDRT1N3')
+            Set_S_sVar('$style_name[114]','TLDRT1N4')
+            Set_S_sVar('$style_name[115]','TLPKT1N3')
+            Set_S_sVar('$style_name[116]','TLPKT1N4')
+
+          CASE (2):  -- Stand # 2 for Dual Stand setup
+            Set_S_sVar('$style_name[105]','TLDRT2N1')
+            Set_S_sVar('$style_name[106]','TLDRT2N2')
+            Set_S_sVar('$style_name[107]','TLPKT2N1')
+            Set_S_sVar('$style_name[108]','TLPKT2N2')
+            Set_S_sVar('$style_name[117]','TLDRT2N3')
+            Set_S_sVar('$style_name[118]','TLDRT2N4')
+            Set_S_sVar('$style_name[119]','TLPKT2N3')
+            Set_S_sVar('$style_name[120]','TLPKT2N4')
+
+          CASE (3):  -- Stand # 3 for Dual Stand setup
+            IF (LPT =FALSE) THEN
+              Set_S_sVar('$style_name[109]','TLDRT3N1')
+              Set_S_sVar('$style_name[110]','TLDRT3N2')
+              Set_S_sVar('$style_name[111]','TLPKT3N1')
+              Set_S_sVar('$style_name[112]','TLPKT3N2')
+              Set_S_sVar('$style_name[121]','TLDRT3N3')
+              Set_S_sVar('$style_name[122]','TLDRT3N4')
+              Set_S_sVar('$style_name[123]','TLPKT3N3')
+              Set_S_sVar('$style_name[124]','TLPKT3N4')
+            ENDIF
+        ELSE :
+          WriteLog('Tool Stand Automatic, Stand#'+int2Str(i)+' is Unknown',FALSE)
+          ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + 1
+        ENDSELECT --
+      ENDFOR
+
+        writeLog('  Automatic Tool Stand Programs Complete', FALSE)
+
+    ELSE: -- No Tool Stand type greater than 2 coded 3-3-16
+      WriteLog('  Tool Stand Type PresTLCHType is Unknown GMPRESPG',FALSE)
+      ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + 1
+  ENDSELECT --
+
+
+  IF fanuciR = TRUE THEN
+   Set_S_sVar('$style_name[125]','VICAL_RN')
+  ENDIF
+  IF (fanuc3dl = TRUE) THEN
+   Set_S_sVar('$style_name[125]','VECAL_RN')
+  ENDIF
+
+
+  IF (LPT = TRUE) THEN
+  --  Set_S_sVar('$style_name[100]', 'style100')
+  --  Set_B_sVar('$style_enab[100]', TRUE)
+    IF (PresLineType=1) THEN  -- this program only load in tandem apps
+      Set_S_sVar('$style_name[126]', 'clr_adc_lpt')
+    ENDIF
+    Set_S_sVar('$style_name[127]', 'repair_lpt')
+    Set_S_sVar('$style_name[128]', 'style128_LPT')
+    Set_S_sVar('$style_name[130]', 'lpt_zdtchk')
+  ELSE
+    IF (PresLineType=1) THEN  -- this program only load in tandem apps
+      Set_S_sVar('$style_name[126]', 'clr_adc')
+    ENDIF
+    Set_S_sVar('$style_name[127]', 'repair')
+   -- Set_S_sVar('$style_name[128]', 'style128')
+   -- Set_S_sVar('$style_name[130]', 'zdtchk')  -- 8-4 Steed cleared nothing to be here
+  ENDIF
+
+    Set_S_sVar('$style_name[129]', 'STYLE129')
+    Set_B_sVar('$style_enab[126]', TRUE)
+    Set_B_sVar('$style_enab[127]', TRUE)
+    Set_B_sVar('$style_enab[128]', TRUE)
+    Set_B_sVar('$style_enab[129]', TRUE)
+    Set_B_sVar('$style_enab[130]', TRUE)
+
+
+IF (PresLineType=4) AND (fanuc3dl = TRUE) THEN
+  Set_S_sVar('$style_name[126]','*******')
+ENDIF
+
+   WriteLog('  Press prs_sty_tbl setup Routine Completed', FALSE)
+
+END prs_sty_tbl
+---------------------------------------------------------------------------
+ROUTINE set_mac_tbl
+-- PURPOSE: to setup all macros for press specific applications
+
+--        P_Assign_type values are: 2= UK, 3=SU,4=MF,5=SP,6=DI,7=RI
+--
+-- INPUT: P_Mac_Number
+--        P_MacName
+--        P_ProgName
+--        P_Assign_type values are:1=nothing, 2= UK, 3=SU,4=MF,5=SP,6=DI,7=RI
+--        P_Assign_id
+--        Protect it :Boolean
+
+-----------------------------------------------------------------------------
+
+BEGIN
+IF UNINIT(VisSys_type) THEN
+  VisSys_type = 0
+ENDIF
+IF UNINIT(Use_Vision) THEN
+  Use_Vision = FALSE
+ENDIF
+
+   WriteLog('  Press Variable Routine set_mac_tbl Started', FALSE)
+
+IF LPT THEN
+           -- #, Name to display      program  ,Asgn,A ID, Protect
+  Setup_Macro(8, 'HOME FROM POUNCE', 'HOMFRPON_LPT', 4, 2,FALSE)
+  Setup_Macro(9, 'MOVE TO HOME'    , 'MOV_HOME_LPT', 4, 1,TRUE)
+
+  Setup_Macro(180, 'START SYNC'      , 'START_SYNC'  , 1, 3,TRUE)
+  Setup_Macro(181, 'STOP SYNC'       , 'STOP_SYNC'   , 1, 3,TRUE)
+  Setup_Macro(182, 'ENTER PREV PRESS', 'ENTER_PICK'  , 1, 3,TRUE)
+  Setup_Macro(183, 'EXIT PREV PRESS' , 'EXIT_PICK'   , 1, 3,TRUE)
+  Setup_Macro(184, 'ENTER NEXT PRESS', 'ENTER_DROP'  , 1, 3,TRUE)
+  Setup_Macro(185, 'EXIT NEXT PRESS' , 'EXIT_DROP'   , 1, 3,TRUE)
+  Setup_Macro(186, 'PICK PART OK'    , 'PICK_PART_OK', 1, 3,TRUE)
+  Setup_Macro(187, 'DROP PART OK'    , 'DROP_PART_OK', 1, 3,TRUE)
+  Setup_Macro(188, 'CHECK SYNC ENB'  , 'CHK_SYNC_ENB', 1, 3,TRUE)
+  Setup_Macro(189, 'CHECK SYNC MAN'  , 'CHK_SYNC_MAN', 1, 3,TRUE)
+
+ELSE
+           -- #, Name to display      program  ,Asgn,A ID, Protect
+  Setup_Macro(8, 'HOME FROM POUNCE', 'HOMFRPON', 4, 2,FALSE)
+  Setup_Macro(9, 'MOVE TO HOME'    , 'MOV_HOME', 4, 1,TRUE)
+ENDIF
+
+  Setup_Macro(10,'HOME I/O'        , 'HOME_IO' , 1, 0,TRUE) -- 12-5-16 RK 1 to 0
+
+-- CHeck if vision is being used
+IF (Use_Vision = TRUE) THEN
+
+  IF (fanuciR = TRUE) THEN
+    Setup_Macro(21,'IR VIS LIVE CAM1', 'VI_LIVE1', 4, 21,FALSE)
+    Setup_Macro(22,'IR VIS LIVE CAM2', 'VI_LIVE2', 4, 22,FALSE)
+    Setup_Macro(23,'IR VIS LIVE CAM3', 'VI_LIVE3', 4, 23,FALSE)
+    Setup_Macro(24,'IR VIS LIVE CAM4', 'VI_LIVE4', 4, 24,FALSE)
+    Setup_Macro(57,'INITIALIZ VISION'  , 'VI_INIT' , 1, 0,TRUE)
+    Setup_Macro(58,'REQ VISION CONT1'  , 'VI_REQ1' , 1, 0,TRUE)
+    Setup_Macro(61,'REQ VISION CONT4'  , 'VI_REQ4' , 1, 0,TRUE)
+    Setup_Macro(62,'GET V PICK OFFST'  , 'VI_PKOFF', 1, 0,TRUE)
+    Setup_Macro(63,'GET V DROP OFFST'  , 'VI_DROFF', 1, 0,TRUE)
+  ENDIF
+
+ -- LS had these 3 taken out 8-2-16
+ -- Setup_Macro(64,'MEASURE CAM CALB'  , 'VECAMEAS' , 1, 0,TRUE)
+ -- Setup_Macro(65,'CHECK CAMERA'      , 'VECAMCHK' , 1, 0,TRUE)
+ -- Setup_Macro(66,'CALIBRATE CAMERA'  , 'VECAMCAL' , 1, 0,TRUE)
+
+  Setup_Macro(96,'VISION FAULT'      , 'FLT_VISN' , 1, 0,TRUE)
+
+ENDIF
+
+
+   SELECT (PresLineType) OF --
+     CASE (1):  -- Tandem Press Line
+--       writeLog('User selected  ', FALSE)
+     CASE (2):  -- Robotic Destacking
+        Setup_Macro(49,'SEARCH STACK'      , 'DST_SRCH' , 1, 0,TRUE)
+        Setup_Macro(50,'UPDAT STACK PICK'  , 'DST_UPDT' , 1, 0,TRUE)
+        Setup_Macro(51,'LEAVE LAST SHEET'  , 'DST_LAST' , 1, 0,TRUE)
+        Setup_Macro(52,'AUTO STACK RETRY'  , 'DST_ATRY' , 1, 0,TRUE)
+        Setup_Macro(53,'AUTO STACK DROP'   , 'DST_ADRP' , 1, 0,TRUE)
+        Setup_Macro(54,'ACTUATE FANNERS'   , 'DST_FANR' , 1, 0,TRUE)
+        Setup_Macro(55,'MULTI STK OFFSET'  , 'DST_MSTK' , 1, 0,TRUE)
+        Setup_Macro(56,'PICK POS OFFSET'   , 'DST_POFF' , 1, 0,TRUE)
+--       writeLog('User selected  ', FALSE)
+    CASE (3):  --  EOL Transfer
+--       writeLog('User selected  Press Line', FALSE)
+    CASE (4):  -- Robotic Racking
+    --  Setup_Macro(45,'MATCH RACK TYPE'   , 'RK_CHKTP' , 1, 0,TRUE)
+      Setup_Macro(46,'MNL SET RCK UFRM'  , 'RK_UFRMM' , 4, 50,TRUE)
+      Setup_Macro(47,'CHECK NEW RACK'    , 'RK_CKNEW' , 1, 0,TRUE)
+      Setup_Macro(48,'CHECK RACK CLEAR'  , 'RK_CLEAR' , 1, 0,TRUE)
+
+      Setup_Macro(124,'FLIP RCK DUNNAGE', 'RK_DFLIP', 4, 9,TRUE)
+      Setup_Macro(126,'SET RACK UFRAME' , 'RK_UFRAM', 1, 0,TRUE)
+      Setup_Macro(129,'UPDATE RACK INFO', 'RK_UPDAT', 1, 0,TRUE)
+      Setup_Macro(68,'GET TOOL PRESENT' , 'TL_GETPT' , 1, 0,TRUE)
+      Setup_Macro(67,'CHECK TOOL RACK'   , 'TL_CHKRK' , 1, 0,TRUE)
+      Setup_Macro(98,'RACKING FAULT'     , 'FLT_RACK' , 1, 0,TRUE)
+   ELSE :
+--       writeLog('User selected ', FALSE)
+   ENDSELECT --
+
+
+-- 6-29-16 L Steed Identified this was no longer needed
+--  Setup_Macro(69,'SELECTEL NOZZLES'   , 'DST_SNOL' , 1, 0,TRUE)
+
+  Setup_Macro(75,'REQUEST CONTINUE'  , 'REQ_CONT' , 1, 0,TRUE)
+  Setup_Macro(76,'SET SEGMENT'       , 'SET_SEGM' , 1, 0,TRUE)
+  Setup_Macro(77,'REQUEST EARLY'     , 'REQ_ERLY' , 1, 0,TRUE) --Put back in 2/15/17 per gm pgs
+
+  Setup_Macro(94,'ENTER I-ZONE'      , 'ENTRIZON' , 1, 0,TRUE)
+  Setup_Macro(95,'EXIT I-ZONE'       , 'EXITIZON' , 1, 0,TRUE)
+
+  Setup_Macro(100,'AT PICK POUNCE'   , 'POUNC_PK' , 1, 0,TRUE)
+  Setup_Macro(101,'AT DROP POUNCE'   , 'POUNC_DR' , 1, 0,TRUE)
+  Setup_Macro(102,'AT SERV POUNCE'   , 'POUNC_SV' , 1, 0,TRUE)
+  Setup_Macro(103,'DIE AV RMT ACTN'  , 'PRT_AV'   , 1, 0,TRUE)
+  Setup_Macro(104,'PICK PART'        , 'PRT_PICK' , 4, 7,TRUE)
+  Setup_Macro(105,'DROP PART'        , 'PRT_DROP' , 4, 8,TRUE)
+  Setup_Macro(106,'CHK PART PRESENT' , 'PRT_CHK'  , 1, 0,TRUE)
+  Setup_Macro(107,'MH FAULT RECOVRY' , 'FLT_MH'  , 1, 0,TRUE)
+  Setup_Macro(108,'GET CYCLE RATE'   , 'PRT_RATE', 1, 0,TRUE)
+
+  Setup_Macro(115,'Promy Box Msg'   , 'PROMPTOK', 1, 0,TRUE)
+  Setup_Macro(116,'List Menu'       , 'LISTMENU', 1, 0,TRUE)
+
+  -- clr_macro_tb(141,198) -- clear the macro table for assingments about to set
+             -- #  , Mac Name     , ProgName ,Function,Func#,Protect)
+   setup_macro(141,'CLOSE VALVE 1','CLS_VLE1',4,30,TRUE)
+   setup_macro(142,'CLOSE VALVE 2','CLS_VLE2',1,31,TRUE)
+   setup_macro(143,'CLOSE VALVE 3','CLS_VLE3',1,32,TRUE)
+   setup_macro(144,'CLOSE VALVE 4','CLS_VLE4',1,33,TRUE)
+   setup_macro(145,'CLOSE VALVE 5','CLS_VLE5',1,34,TRUE)
+
+   setup_macro(146,'OPEN VALVE 1','OPN_VLE1',4,41,TRUE)
+   setup_macro(147,'OPEN VALVE 2','OPN_VLE2',1,42,TRUE)
+   setup_macro(148,'OPEN VALVE 3','OPN_VLE3',1,43,TRUE)
+   setup_macro(149,'OPEN VALVE 4','OPN_VLE4',1,44,TRUE)
+   setup_macro(150,'OPEN VALVE 5','OPN_VLE5',1,45,TRUE)
+
+   setup_macro(151,'VACUUM CAN 1 ON','VAC_ON1',1,50,TRUE)
+   setup_macro(152,'VACUUM CAN 2 ON','VAC_ON2',1,51,TRUE)
+
+   setup_macro(155,'VACUUM CAN 1 OFF','VAC_OFF1',1,52,TRUE)
+   setup_macro(156,'VACUUM CAN 2 OFF','VAC_OFF2',1,53,TRUE)
+
+   setup_macro(159,'BLOWOFF1OFF','BLOW_OF1',1,54,TRUE)
+   setup_macro(160,'BLOWOFF2OFF','BLOW_OF2',1,55,TRUE)
+
+   setup_macro(161,'HMI DROP PART','PRT_HDRP',6,474,TRUE)
+   setup_macro(162,'HMI DROP PART','PRT_HPCK',6,473,TRUE)
+   setup_macro(163,'GET CURR TL TYPE','TL_CURTP',1,0,TRUE)
+   setup_macro(164,'CHECK TOOL TYPE','TL_CHKTP' ,1,0,TRUE)
+   setup_macro(165,'MATCH TOOL DATA','TL_MATCH' ,1,0,TRUE)
+   setup_macro(166,'LATCH TOOL','TL_LATCH'  ,1,0,TRUE)
+   setup_macro(167,'UNLATCH TOOL','TL_UNLCH',1,0,TRUE)
+
+   setup_macro(169,'CHK TOOL PRESENT','TL_PRSNT',1,0,TRUE)
+
+   WriteLog('  Routine set_mac_tbl Completed', FALSE)
+
+  RETURN
+
+END set_mac_tbl
+-------------------------------------------------------------------
+ROUTINE clr_press						 --
+--  Clr programs press doesnt use that was loaded by the CELL programs                                           --
+-------------------------------------------------------------------
+BEGIN
+
+   WriteLog('  Press Prorgam setup routine Clr_Press Started', FALSE)
+
+  Set_S_sVar('$PLST_GRP1[1].$COMMENT','')
+  Set_S_sVar('$PLST_GRP1[2].$COMMENT','')
+
+  Use_Press = FALSE
+
+  IF ARRAY_LEN($style_name) > 32 THEN
+  WriteLog('  Clr_press clearing Style Name 101-124', FALSE)  --sms please uncomment
+    FOR i = 101 TO 124 DO
+      Set_S_sVar('$style_name['+int2str(i)+']','*******')
+    ENDFOR --
+  ENDIF
+-- CLear other Style Stuff setup by CELL programs
+
+  Set_S_sVar('$style_name[25]','')
+  Set_S_sVar('$style_comnt[27]','')
+  Set_S_sVar('$style_comnt[28]','')
+  Set_S_sVar('$style_name[31]','')
+  Set_S_sVar('$style_name[32]','')
+  Set_S_sVar('$style_name[33]','')
+  Set_S_sVar('$style_name[34]','')
+
+  -- Style name setup OR Other tool Selection
+
+  Set_S_sVar('$style_name[100]','')
+
+
+-- clear programs that are not needed and are loaded as part of the standard MH
+
+-- any programs that loaded by base system need to be unlock to can overwrite
+
+    Set_I_sVar('$MACROTABLE[71].$SYS_LEV_MSK',0)
+    prog_nam = 'ATPOUNCE'
+    SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+    Clear_Prog('ATPOUNCE')
+
+    Set_I_sVar('$MACROTABLE[73].$SYS_LEV_MSK',0)
+    prog_nam = 'DCD_DROP'
+    SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+
+    Set_I_sVar('$MACROTABLE[74].$SYS_LEV_MSK',0)
+    prog_nam = 'DCD_PICK'
+    SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+
+    prog_nam = 'HOMFRPON'
+    Set_I_sVar('$MACROTABLE[8].$SYS_LEV_MSK',0)
+    SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+
+    prog_nam = 'MOV_HOME'
+    Set_I_sVar('$MACROTABLE[9].$SYS_LEV_MSK',0)
+    SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+
+  WriteLog('  Clr_press clear BODY SHOP program', FALSE)
+
+    clear_prog('mov_repr')
+    clear_prog('style25')
+    clear_prog('clsv1t1')
+    clear_prog('clsv2t1')
+    clear_prog('clsv3t1')
+    clear_prog('clsv4t1')
+    clear_prog('clsv5t1')
+    clear_prog('opnv1t1')
+    clear_prog('opnv2t1')
+    clear_prog('opnv3t1')
+    clear_prog('opnv4t1')
+    clear_prog('opnv5t1')
+
+    clear_prog('mov_repr')
+    clear_prog('movrepr2')
+    clear_prog('movrepr3')
+    clear_prog('movrepr4')
+    clear_prog('move_pounce')
+    clear_prog('style25')
+    clear_prog('hometoprc')
+    clear_prog('prctohom')
+    clear_prog('ref_pos_flt')
+
+      -- Strategic/Global Macros Not Needed for Press
+    Clear_Prog('STYLE26') -- Global Body Tool Changer Macro
+    Clear_Prog('MOV_REPR')
+    Clear_Prog('MOVREPR2')
+    Clear_Prog('MOVREPR3')
+    Clear_Prog('MOVREPR4')
+    Clear_Prog('MOV_POUNCE')
+    Clear_Prog('PRE_REPAIR')
+    Clear_Prog('POSTREPR')
+    Clear_Prog('STYLE25')
+
+    Clear_Prog('HOMFRPON')
+    Clear_Prog('MOV_HOME')
+    Clear_Prog('DCD_PICK')
+    Clear_Prog('DCD_DROP')
+    Clear_Prog('REPAIR')
+    Clear_Prog('STYLE100')
+
+  WriteLog('  Clr_press clear Macro table 1-7', FALSE)
+  clr_macro_tb(1,7)
+  WriteLog('  Clr_press clear Macro table 11-20', FALSE)
+  clr_macro_tb(11,20)
+  WriteLog('  Clr_press clear Macro table 25-30', FALSE)
+  clr_macro_tb(25,30)
+  WriteLog('  Clr_press clear Macro table 70-74', FALSE)
+  clr_macro_tb(70,74)
+  WriteLog('  Clr_press clear Macro table 77-93', FALSE)
+  clr_macro_tb(77,93)
+  WriteLog('  Clr_press clear Macro table 108-114', FALSE)
+  clr_macro_tb(108,114)
+  WriteLog('  Clr_press clear Macro table 117-123', FALSE)
+  clr_macro_tb(117,123)
+  WriteLog('  Clr_press clear Macro table 130-140', FALSE)
+  clr_macro_tb(130,140)
+  WriteLog('  Clr_press clear Macro table 153-154', FALSE)
+  clr_macro_tb(153,154)
+  WriteLog('  Clr_press clear Macro table 157-158', FALSE)
+  clr_macro_tb(157,158)
+  WriteLog('  Clr_press clear Macro table 170-198', FALSE)
+  clr_macro_tb(170,198) -- RK 10-25-16 was to 200, Lloyd Steed said need 199,200
+
+   WriteLog('  Routine Clr_Press Completed', FALSE)
+
+END clr_press
+--*********************************************************************************
+ROUTINE Press_LPT   --
+--*********************************************************************************
+VAR
+  i,
+  j  : INTEGER
+  a  : STRING[8]
+  b  : STRING[8]
+  gm_status     : INTEGER
+
+  BEGIN
+
+   WriteLog('  PRESS_LPT setup Routine Started in GMPRESPG', FALSE)
+
+  IF NOT(Chk_Feature('R885')) THEN -- Make sure LPT option is Loaded
+    WriteLog('LPT option R885 is NOT loaded',FALSE)
+    POST_ERR(38000, 'LPT option R885 is NOT loaded', 0, 0) --
+    RETURN
+  ENDIF
+
+  SELECT (PresLineType) OF --
+    CASE (1):  ---- Tandem Press Line
+      writeLog('  Loading LPT Tandem Press Line Programs', FALSE)
+      Load_File('FRS:','templa03_lpt.tp',1)
+      Load_File('FRS:','templa07_lpt.tp',1)
+      Load_File('FRS:','templa08_lpt.tp',1)
+      Load_File('FRS:','templa09_lpt.tp',1)
+      Load_File('FRS:','templa10_lpt.tp',1)
+      Load_File('FRS:','templa11_lpt.tp',1)
+      Load_File('FRS:','Sync_mon.tp',1) --sms 3-26-18
+      writeLog('  LPT Tandem Press Line Programs Loaded', FALSE)
+    CASE (2):  -- Robotic Destacking
+      writeLog('  Loading LPT Robotic Destacking Programs', FALSE)
+      Load_File('FRS:','templa01_lpt.tp',1)
+      Load_File('FRS:','templa02_lpt.tp',1)
+      Load_File('FRS:','templa22_lpt.tp',1)
+      Load_File('FRS:','templa23_lpt.tp',1)
+      Load_File('FRS:','templa29_lpt.tp',1)
+      Load_File('FRS:','templa31_lpt.tp',1)
+      Load_File('FRS:','templa32_lpt.tp',1)
+      
+      --V8.33P08 9-11-2019 schoensm  
+      SPRUNCfile('FRS:\LPT_HEALTHD.TP', 'FR:\LPT_HEALTH.TP')
+      Load_File('FR:','LPT_HEALTH.TP',1) 
+      	      
+      writeLog('  LPT Robotic Destacking Programs Loaded', FALSE)
+    CASE (3):  -- EOL Transfer Press Line
+      writeLog('  Loading EOL LPT Transfer Press Line Programs', FALSE)
+      writeLog('  LPT EOL Transfer Press Line Programs Loaded', FALSE)
+    CASE (4):  -- Robotic Racking
+      writeLog('  Loading LPT Robotic Racking Programs', FALSE)
+      writeLog('  LPT Robotic Racking Programs Loaded', FALSE)
+   ENDSELECT --
+
+  Load_File('FRS:','lpt_health.tp',1)
+  Load_File('FRS:','lpt_master_position.tp',1)
+  Load_File('FRS:','lpt_mounting.tp',1)
+  Load_File('FRS:','lpt_removal.tp',1)
+  Load_File('FRS:','lpt_zdtchk.tp',1)
+  Load_File('FRS:','clr_adc_lpt.tp',1)
+  Load_File('FRS:','mov_home_lpt.tp',1)
+  Load_File('FRS:','homfrpon_lpt.tp',1)
+  Load_File('FRS:','repair_lpt.tp',1)
+  Load_File('FRS:','style128_lpt.tp',1)	--V8.33P09 added for LS
+
+  --V8.33P08 9-11-2019 schoensm  
+  IF (Chk_Feature('R886'))  THEN --Press Sync and LPT(routine)
+    SPRUNCfile('FRS:\FLT_MHSYNC.TP', 'FR:\FLT_MH.TP')
+    Load_File('FR:','FLT_MH.TP',1) 
+  ENDIF  	
+
+  WriteLog('  PRESS_LPT setup Routine Completed', FALSE)
+
+END Press_LPT
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE ld_Tndem_Prg
+-- PURPOSE: to load all prgrams assciated with the Tandem Press Line
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+   WriteLog('  Press ld_Tndem_Prg setup Routine Started', FALSE)
+
+
+  -- Load_File('FRS:','RK_UFRMM.TP',1)
+  -- RK move to below for NON LPT   Load_File('FRS:','CLR_ADC.TP',1)
+  Load_File('FRS:','gmpptav.tp',1)--PRT_AV.TP
+  Load_File('FRS:','Z_AV_EX.TP',1)
+
+  --  Load_File('FRS:','CLEAR_DR.TP',1)
+  --  Load_File('FRS:','CLEAR_PK.TP',1)
+
+  IF NOT LPT THEN -- LPT currently has seperate Template programs and loaded in the LPT routine
+    Load_File('FRS:','gmptmp03.tp',1)--TEMPLA03.TP
+    Load_File('FRS:','CLR_ADC.TP',1) -- RK 10-27-16 moved here from above
+
+    Load_File('FRS:','gmptmp06.tp',1)--TEMPLA06.TP
+    Load_File('FRS:','gmptmp07.tp',1)--TEMPLA07.TP
+    Load_File('FRS:','gmptmp08.tp',1)--TEMPLA08.TP
+    Load_File('FRS:','gmptmp09.tp',1)--TEMPLA09.TP
+    Load_File('FRS:','gmptmp10.tp',1)--TEMPLA10.TPIIC_DropPress
+    Load_File('FRS:','gmptmp11.tp',1)--TEMPLA11.TP
+
+    Load_File('FRS:','gmptmp26.tp',1)--TEMPLA26.TP
+    Load_File('FRS:','gmptmp27.tp',1)--TEMPLA27.TP
+    Load_File('FRS:','gmptmp28.tp',1)--TEMPLA28.TP
+    Load_File('FRS:','gmptmp30.tp',1)--TEMPLA30.TP
+  ENDIF
+
+  IF fanuciR THEN -- Unique files for Tandem Line with IrVision
+    Load_File('FRS:','gmptmp24.TP',1) -- templa04
+    Load_File('FRS:','gmptmp25.TP',1) -- templa05
+  ENDIF
+
+  IF (Chk_Feature('R886')) THEN -- Press Sync Option
+    -- RK Added 4-29-17
+    IF chk_loaded('ps_setup') THEN -- execute the press sync setup code
+      RUN_TASK('ps_setup', 1, FALSE, FALSE, 0, gm_status)
+      IF gm_status <> 0 THEN
+        WriteLog('PS_SETUP program failed to Run', FALSE)
+      ELSE
+        WriteLog('  Press Setup RAN PS_SETUP program',FALSE)
+      ENDIF  --gm_status <> 0
+    ENDIF --Chk_loaded
+    copyFile('FRS:PRFLT_MH.TP','FR:FLT_MH.TP')
+    -- need to clear macro so can load these
+    -- need to unlock macro because file cant be laoded under system macro
+    Unlck_Macro(107,107) -- clear FLT_MH macro or cant load
+    Load_File('FR:','FLT_MH.TP',1)
+    copyFile('FRS:DRP_ANG_MM.DAT','FR:\DRP_ANG_MM.DAT')
+    copyFile('FRS:PK_ANG_MM.DAT','FR:\PK_ANG_MM.DAT')
+  ELSE
+     WriteLog('  Press Sync option R886 not Loaded for Tandem use',FALSE)
+  ENDIF --(Chk_Feature('R886'))
+
+   WriteLog('  Press ld_Tndem_Prg setup Routine Completed', FALSE)
+
+END ld_Tndem_Prg
+-----------------------------------------------------------------------------
+ROUTINE ld_Dstck_Prg
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+   WriteLog('  Press ld_Dstck_Prg setup Routine Started', FALSE)
+
+  Load_File('FRS:','DST_ADRP.TP',1)
+  Load_File('FRS:','DST_ATRY.TP',1)
+  Load_File('FRS:','DST_DOFF.TP',1)
+  Load_File('FRS:','DST_FANR.TP',1)
+  Load_File('FRS:','DST_FMAG.TP',1)-- RK edit was DST_FFMAG.TP 12-5-16
+  Load_File('FRS:','DST_FNOZ.TP',1)
+  Load_File('FRS:','DST_LAST.TP',1)
+  Load_File('FRS:','DST_MSTK.TP',1)
+  Load_File('FRS:','DST_POFF.TP',1)
+
+  Load_File('FRS:','DST_SRCH.TP',1)
+  Load_File('FRS:','DST_UPDT.TP',1)
+
+  IF NOT LPT THEN -- LPT currently has seperate Template programs and loaded in the LPT routine
+    Load_File('FRS:','gmptmp01.TP',1) -- templa01
+    Load_File('FRS:','gmptmp02.TP',1) -- templa02
+    Load_File('FRS:','gmptmp22.TP',1) -- templa22
+    Load_File('FRS:','gmptmp23.TP',1) -- templa23
+    Load_File('FRS:','gmptmp29.TP',1) -- templa29
+    Load_File('FRS:','gmptmp31.TP',1) -- templa31
+    Load_File('FRS:','gmptmp32.TP',1) -- templa32
+  ENDIF
+
+   WriteLog('  Press ld_Dstck_Prg setup Routine Completed', FALSE)
+
+END ld_Dstck_Prg
+----------------------------------------------------------------------------
+ROUTINE ld_EOLTP_Prg
+-- PURPOSE: Load programs that are associated with End of Line Transfer Press
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  WriteLog('  Press ld_EOLTP_Prg setup Routine Started', FALSE)
+
+  IF NOT LPT THEN -- LPT currently has seperate Template programs and loaded in the LPT routine
+    Load_File('FRS:','gmptmp12.tp',1)  -- TEMPLA12.TP
+    Load_File('FRS:','gmptmp13.tp',1)  -- TEMPLA13.TP
+    Load_File('FRS:','gmptmp34.tp',1)  -- TEMPLA34.TP
+    Load_File('FRS:','gmptmp35.tp',1)  --TEMPLA35.TP
+  ENDIF
+
+  IF fanuciR = TRUE THEN -- unique to EOL and vision
+    Load_File('FRS:','gmptmp14.tp',1) -- TEMPLA14.TP
+    Load_File('FRS:','gmptmp15.tp',1) -- TEMPLA15.TP
+  ENDIF
+	
+  WriteLog('  Press ld_Dstck_Prg setup Routine Completed', FALSE)
+
+END ld_EOLTP_Prg
+-----------------------------------------------------------------------------
+ROUTINE ld_Rckin_Prg
+-- PURPOSE: to load racking program and set teh maacro table if required.
+--          If program cannot be loaded do not set teh Macro Table because will
+--          be difficult to trouble shoot.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  WriteLog('  Press ld_Rckin_Prg setup Routine Started', FALSE)
+
+  Load_File('FRS:','FLT_RACK.TP',1)
+  Load_File('FRS:','RK_CKNEW.TP',1)
+  Load_File('FRS:','RK_CLEAR.TP',1)
+  Load_File('FRS:','RK_DFLIP.TP',1)
+  Load_File('FRS:','RK_DROFF.TP',1)
+  Load_File('FRS:','RK_INIT.TP',1)
+  Load_File('FRS:','RK_UFRAM.TP',1)
+  Load_File('FRS:','RK_UFRMM.TP',1)
+  Load_File('FRS:','RK_UPDAT.TP',1)
+
+  IF NOT LPT THEN -- LPT currently has seperate Template programs and loaded in the LPT routine
+    Load_File('FRS:','gmptmp16.tp',1) -- templa16
+    Load_File('FRS:','gmptmp17.tp',1) -- templa17
+    Load_File('FRS:','gmptmp18.tp',1) -- templa18
+    Load_File('FRS:','gmptmp19.tp',1) -- templa19
+    Load_File('FRS:','gmptmp20.tp',1) -- templa20
+    Load_File('FRS:','gmptmp21.tp',1) -- templa21
+  ENDIF
+
+  Load_File('FRS:','tl_chkrk.tp',1)
+  Load_File('FRS:','tl_getpt.tp',1)
+  Load_File('FRS:','tlrkckrn.tp',1)
+
+  WriteLog('  Press ld_Rckin_Prg setup Routine Completed', FALSE)
+
+END ld_Rckin_Prg
+-----------------------------------------------------------------------------
+ROUTINE LdPrsTlCHPrg
+-- PURPOSE: Load programs that press uses for Tool Changing
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(prestlchtype) THEN -- if not set make auto
+    prestlchtype = 2
+  ENDIF
+  IF UNINIT(prsMantc_num) THEN
+    prsMantc_num = 1
+  ENDIF
+
+  WriteLog('  Press LdPrsTlCHPrg setup Routine Started', FALSE)
+
+  Load_File('FRS:','TCRESET.TP',1)
+
+  writeLog('  Setting Tool Stand Programs TYPE#'+int2str(prestlchtype), FALSE)
+
+  SELECT (PresTLCHType) OF --
+    CASE (1):  --        -- Manual Tool Change
+      WriteLog('  Press loading Manual Tool Change Programs', FALSE)
+      WriteLog('  **NO Manual Tool Change loaded PER L.Steed 6-30-16**', FALSE)
+      WriteLog('  Press Manual Tool Change Programs Completed', FALSE)
+
+    CASE (2):   -- Automatic Tool Change
+      WriteLog('  Press loading Auto Tool Change Programs', FALSE)
+      Load_File('FRS:','gmptlckt.TP',1)
+      Load_File('FRS:','gmptlctp.TP',1)
+      Load_File('FRS:','gmptldv.TP',1)
+      Load_File('FRS:','gmptllch.TP',1)
+      Load_File('FRS:','gmptlmch.TP',1)
+      Load_File('FRS:','gmptlprs.TP',1)
+      Load_File('FRS:','gmptluch.TP',1)
+
+      SPRUNCMD ('COPY FRS:GMPTLPRS.TP FR:\TL_PRSNT.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLPRS.TP to FR:', gm_status,0)
+	WriteLog('Failed to copy GMPTLPRS.TP to FR:',FALSE)
+      ENDIF
+      SPRUNCMD ('COPY FRS:GMPTLCKT.TP FR:\TL_CHKTP.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLCKT.TP to FR:', gm_status,0)
+        WriteLog('Failed to copy GMPTLCKT.TP to FR:',FALSE)
+      ENDIF
+      SPRUNCMD ('COPY FRS:GMPTLCTP.TP FR:\TL_CURTP.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLCTP.TP to FR:', gm_status,0)
+        WriteLog('Failed to copy GMPTLCTP.TP to FR:',FALSE)
+      ENDIF
+      SPRUNCMD ('COPY FRS:GMPTLLCH.TP FR:\TL_LATCH.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLLCH.TP to FR:', gm_status,0)
+        WriteLog('Failed to copy GMPTLLCH.TP to FR:',FALSE)
+      ENDIF
+      SPRUNCMD ('COPY FRS:GMPTLMCH.TP FR:\TL_MATCH.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLMCH.TP to FR:',gm_status,0)
+        WriteLog('Failed to copy GMPTLMCH.TP to FR:',FALSE)
+      ENDIF
+      SPRUNCMD ('COPY FRS:GMPTLUCH.TP FR:\TL_UNLCH.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy GMPTLUCH.TP to FR:', gm_status,0)
+        WriteLog('Failed to copy GMPTLUCH.TP to FR:',FALSE)
+      ENDIF
+
+      -- these files get loaded for all tool changer applications in Press
+      Load_File('FRS:','TLDRT1N1.TP',1)
+      Load_File('FRS:','TLDRT1N2.TP',1)
+      Load_File('FRS:','TLDRT1N3.TP',1)
+      Load_File('FRS:','TLDRT1N4.TP',1)
+      Load_File('FRS:','TLPKT1N1.TP',1)
+      Load_File('FRS:','TLPKT1N2.TP',1)
+      Load_File('FRS:','TLPKT1N3.TP',1)
+      Load_File('FRS:','TLPKT1N4.TP',1)
+
+      IF (fanuc3dl = TRUE) THEN -- if Auto tool changer and has vision
+        Load_File('FRS:','TL_CHKRK.TP',1)
+        Load_File('FRS:','TL_GETPT.TP',1)
+        Load_File('FRS:','TLRKCKRN.TP',1)
+      ENDIF
+
+      IF (LPT = FALSE) THEN
+        Load_File('FRS:','TLDRT2N1.TP',1)
+	Load_File('FRS:','TLDRT2N2.TP',1)
+	Load_File('FRS:','TLDRT2N3.TP',1)
+	Load_File('FRS:','TLDRT2N4.TP',1)
+	Load_File('FRS:','TLDRT3N1.TP',1)
+	Load_File('FRS:','TLDRT3N2.TP',1)
+	Load_File('FRS:','TLDRT3N3.TP',1)
+	Load_File('FRS:','TLDRT3N4.TP',1)
+	Load_File('FRS:','TLDRT4N1.TP',1)
+	Load_File('FRS:','TLDRT4N2.TP',1)
+	Load_File('FRS:','TLDRT5N1.TP',1)
+        Load_File('FRS:','TLDRT5N2.TP',1)
+	Load_File('FRS:','TLDRT6N1.TP',1)
+        Load_File('FRS:','TLDRT6N2.TP',1)
+
+	Load_File('FRS:','TLPKT2N1.TP',1)
+	Load_File('FRS:','TLPKT2N2.TP',1)
+	Load_File('FRS:','TLPKT2N3.TP',1)
+        Load_File('FRS:','TLPKT2N4.TP',1)
+	Load_File('FRS:','TLPKT3N1.TP',1)
+	Load_File('FRS:','TLPKT3N2.TP',1)
+	Load_File('FRS:','TLPKT3N3.TP',1)
+	Load_File('FRS:','TLPKT3N4.TP',1)
+	Load_File('FRS:','TLPKT4N1.TP',1)
+	Load_File('FRS:','TLPKT4N2.TP',1)
+	Load_File('FRS:','TLPKT5N1.TP',1)
+	Load_File('FRS:','TLPKT5N2.TP',1)
+	Load_File('FRS:','TLPKT6N1.TP',1)
+	Load_File('FRS:','TLPKT6N2.TP',1)
+      ENDIF
+
+      WriteLog('  Press Auto Tool Change Programs Completed', FALSE)
+	    
+    ELSE: --
+      POST_ERR(38000, 'PRESTLCHTYPE ='+int2str(PresTLCHType)+' is Unknown', 0, 0) --
+      ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + 1
+  ENDSELECT --
+
+  WriteLog('  Press LdPrsTlCHPrg setup Routine Completed', FALSE)
+
+END LdPrsTlCHPrg
+-----------------------------------------------------------------------------
+ROUTINE LoadPresTmpl
+-- PURPOSE: to load all the standard press template programs based on the user
+--          selected configuration
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  WriteLog('  Loading All standard press templates started', FALSE)
+
+  Set_S_sVar('$style_comnt[26]','Tool Change')
+
+  -- load all the common for every press robot
+  -- Press Cell I/O page Load ....Overwrite stragetic or legacy page
+  SPRUNCMD ('COPY FRS:sw22rpeg.dt FRSU:\io22r4eg.dt', gm_status)
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Failed to copy io22r4eg.dt to FRSU', 0,0)
+  ENDIF
+
+  Set_S_Svar( '$TP_DEFPROG', '')
+
+  DELAY 50
+
+  -- need to unlock macro because file cant be laoded under system macro
+  Unlck_Macro(9,10)
+  Unlck_Macro(75,77) -- unlock REQ_CONT,SET_SEGM,REQ_ERLY to be able to load
+
+  IF NOT LPT THEN  --Not LPT
+    Load_File('FRS:','MOV_HOME.TP',1)
+    SPRUNCMD ('COPY FRS:GMP_REP.TP FR:\REPAIR.TP', gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy GMP_REP.TP to FR:', 0,0)
+    ENDIF
+    Load_File('FR:','repair.tp',1)
+    Load_File('FRS:','CLR_ADC.TP',1) --10-27-16 added here before was only in Tandem code
+    IF (PresLineType <> PresTandem) THEN --Not Tandem
+      Load_File('FRS:','LPT_HEALTH.TP',1) --Load if Not LPT and Not Tandem
+    ENDIF 
+  ENDIF -- NOT LPT
+
+  Load_File('FRS:','BLOWPOF1.TP',1)
+  Load_File('FRS:','BLOWPOF2.TP',1)
+  Load_File('FRS:','CLSPVLE1.TP',1)
+  Load_File('FRS:','CLSPVLE2.TP',1)
+  Load_File('FRS:','CLSPVLE3.TP',1)
+  Load_File('FRS:','CLSPVLE4.TP',1)
+  Load_File('FRS:','CLSPVLE5.TP',1)
+  Load_File('FRS:','CLSPVLE6.TP',1)
+  Load_File('FRS:','CLSPAVLE.TP',1) -- RK added 11/21/16
+
+  IF (LPT = FALSE) THEN -- LPT get HOMFRPON_LPT loaded in LPT routine
+    Load_File('FRS:','GMPHMPNC.TP',1) --HOMFRPON.TP
+  ENDIF
+
+  Load_File('FRS:','TCRESET.TP',1)
+  Load_File('FRS:','OPNPAVLE.TP',1) --RK was OPNPAVLOPE.TP 11-21-16
+  Load_File('FRS:','OPNPVLE1.TP',1)
+  Load_File('FRS:','OPNPVLE2.TP',1)
+  Load_File('FRS:','OPNPVLE3.TP',1)
+  Load_File('FRS:','OPNPVLE4.TP',1)
+  Load_File('FRS:','OPNPVLE5.TP',1)
+  Load_File('FRS:','OPNPVLE6.TP',1)
+  Load_File('FRS:','PBRK_CHK.TP',1)
+  Load_File('FRS:','POUNC_DR.TP',1)
+  Load_File('FRS:','POUNC_PK.TP',1)
+  Load_File('FRS:','POUNC_SV.TP',1)
+  Load_File('FRS:','gmpptchk.tp',1)
+  Load_File('FRS:','gmpptdrp.tp',1)
+  Load_File('FRS:','gmpptrte.tp',1)
+  Load_File('FRS:','PRT_HDRP.TP',1)
+  Load_File('FRS:','PRT_HPCK.TP',1)
+  Load_File('FRS:','SEND_OVR.TP',1)
+  Load_File('FRS:','SHIP_POS.TP',1)
+  Load_File('FRS:','STYLE129.TP',1)
+  Load_File('FRS:','VACPOFF1.TP',1)
+  Load_File('FRS:','VACPOFF2.TP',1)
+  Load_File('FRS:','VACPON1.TP',1)
+  Load_File('FRS:','VACPON2.TP',1)
+
+  --RK added below 10-31-16 per Lloyd Steed adding to ALL press applications
+  Load_File('FRS:','PRT_INIT.TP',1)
+  Load_File('FRS:','CLEAR_DR.TP',1) -- added 12-5-16
+  Load_File('FRS:','CLEAR_PK.TP',1) -- added 12-5-16
+
+  --4-4-2018 Schoenberg     
+  SPRUNCfile('FRS:\gmptlckt.tp', 'FR:\tl_chktp.tp')
+  Load_File('FR:','tl_chktp.tp',1)
+  SPRUNCfile('FRS:\gmptlctp.tp', 'FR:\tl_curtp.tp')
+  Load_File('FR:','tl_curtp.tp',1)  
+  SPRUNCfile('FRS:\gmptldv.tp', 'FR:\tl_dvlch.tp')
+  Load_File('FR:','tl_dvlch.tp',1)  
+  SPRUNCfile('FRS:\gmptllch.tp', 'FR:\tl_latch.tp')
+  Load_File('FR:','tl_latch.tp',1)   
+  SPRUNCfile('FRS:\gmptlmch.tp', 'FR:\tl_match.tp')
+  Load_File('FR:','tl_match.tp',1) 
+  SPRUNCfile('FRS:\gmptlprs.tp', 'FR:\tl_prsnt.tp')
+  Load_File('FR:','tl_prsnt.tp',1)   
+  SPRUNCfile('FRS:\gmptluch.tp', 'FR:\tl_unlch.tp')
+  Load_File('FR:','tl_unlch.tp',1)   
+  Load_File('FRS:','tldrt1n1.tp',1)
+  Load_File('FRS:','tldrt1n2.tp',1)  
+  Load_File('FRS:','tlpkt1n1.tp',1)  
+  Load_File('FRS:','tlpkt1n2.tp',1)  
+  SPRUNCfile('FRS:\prflt_mh.tp', 'FR:\flt_mh.tp')
+  Load_File('FR:','flt_mh.tp',1)    
+  Load_File('FRS:','flt_visn.tp',1) 
+  SPRUNCfile('FRS:\gmpptav.tp', 'FR:\prt_av.tp')
+  Load_File('FR:','prt_av.tp',1)     
+  Load_File('FRS:','prt_hdrp.tp',1)
+  Load_File('FRS:','prt_hpck.tp',1)
+  Load_File('FRS:','prt_init.tp',1)
+  SPRUNCfile('FRS:\gmpptpk.tp', 'FR:\prt_chk.tp')
+  Load_File('FR:','prt_chk.tp',1)  
+  SPRUNCfile('FRS:\gmpptdrp.tp', 'FR:\prt_drop.tp')
+  Load_File('FR:','prt_drop.tp',1) 
+  SPRUNCfile('FRS:\gmpptrte.tp', 'FR:\prt_rate.tp')
+  Load_File('FR:','prt_rate.tp',1) 
+  SPRUNCfile('FRS:\gmpptpk.tp', 'FR:\prt_pick.tp')
+  Load_File('FR:','prt_pick.tp',1)
+  
+  IF (Chk_Feature('R886')) AND (LPT = TRUE) AND (PresLineType = PresTandem) THEN -- Press Sync Option, LPT, and Tandem
+    SPRUNCfile('FRS:\synclpt1plr.tp', 'FR:\synclpt01_plr.tp')
+    Load_File('FR:','synclpt01_plr.tp',1) 
+    SPRUNCfile('FRS:\synclpt2p2p.tp', 'FR:\synclpt02_p2p.tp')
+    Load_File('FR:','synclpt02_p2p.tp',1)
+    SPRUNCfile('FRS:\synclpt3pur.tp', 'FR:\synclpt03_pur.tp')
+    Load_File('FR:','synclpt03_pur.tp',1) 
+  ENDIF
+
+  IF (Chk_Feature('R886')) AND (PresLineType = 1) THEN -- Press Sync Option and Tandem Press Line
+    -- these files below are loaded in ld_Tndem_Prg routine when tandem and has press sync (R886)
+  ELSE  --Load for all except LPT Press Sync Option
+    --V8.33P08 schoensm 9-11-2019
+    Load_File('FRS:','FLT_MH.TP',1)        
+    WriteLog('Press Sync option R886 not Loaded',FALSE)
+  ENDIF
+
+  Load_File('FRS:','PHIOCST.TP',1) -- HMIOCST.TP -- has change for Press Sync
+  Load_File('FRS:','PHIOCST2.TP',1) -- HMIOCST2.TP
+	--V8.33P08 schoensm 9-11-2019  
+  Load_File('FRS:','PROFILER.TP',1) -- found out this was in product, but Lloyd wants it in our build too.
+
+  WriteLog('  All standard press templates completed', FALSE)
+
+  -- load the line type programs
+  SELECT (PresLineType) OF --
+    CASE (1):  ---- Tandem Press Line
+      writeLog('  Loading Tandem Press Line Programs', FALSE)
+      ld_Tndem_Prg
+      writeLog('  Tandem Press Line Programs Loaded', FALSE)
+
+    CASE (2):  -- Robotic Destacking
+      writeLog('  Loading Robotic Destacking Programs', FALSE)
+      ld_Dstck_Prg
+      writeLog('  Robotic Destacking Programs Loaded', FALSE)
+
+    CASE (3):  -- EOL Transfer Press Line
+      writeLog('  Loading EOL Transfer Press Line Programs', FALSE)
+      ld_EOLTP_Prg
+      writeLog('  EOL Transfer Press Line Programs Loaded', FALSE)
+
+    CASE (4):  -- Robotic Racking
+      writeLog('  Loading Robotic Racking Programs', FALSE)
+      ld_Rckin_Prg
+      writeLog('  Robotic Racking Programs Loaded', FALSE)
+  ENDSELECT --
+
+  RETURN
+END LoadPresTmpl
+-----------------------------------------------------------------------------
+ROUTINE LoadPresVisn
+-- PURPOSE: load vision programs specific to Press only
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  writeLog('  Loading Press Vision Programs', FALSE)
+ 
+  IF(fanuciR = TRUE) THEN -- Vision Programs for iR Vision
+    Load_File('FRS:','FLT_VISN.TP',1)
+    Load_File('FRS:','VI_DROFF.TP',1)
+    Load_File('FRS:','VI_INIT.TP',1)
+    Load_File('FRS:','VI_LIVE1.TP',1)
+    Load_File('FRS:','VI_LIVE2.TP',1)
+    Load_File('FRS:','VI_LIVE3.TP',1)
+    Load_File('FRS:','VI_LIVE4.TP',1)
+    Load_File('FRS:','VI_PKOFF.TP',1)
+    Load_File('FRS:','VI_REQ1.TP',1)
+    Load_File('FRS:','VI_REQ4.TP',1)
+    Load_File('FRS:','VICAL_RN.TP',1)
+    Load_File('FRS:','TEMPLA04_RCR.TP',1)
+    Load_File('FRS:','VICAL_RCR.TP',1)
+     
+		--V8.33P08 schoensm 9-11-2019
+    Load_File('FRS:','VI_HEALTH_CHK.TP',1)  
+    --V8.33P08 Camera Check Files
+    SPRUNCfile('FRS:\CAM1_HE_CK.VD', 'MD:\CAM1_HEALTH_CHECK.VD')
+    SPRUNCfile('FRS:\CAM2_HE_CK.VD', 'MD:\CAM2_HEALTH_CHECK.VD')
+    SPRUNCfile('FRS:\CAM3_HE_CK.VD', 'MD:\CAM3_HEALTH_CHECK.VD')
+    SPRUNCfile('FRS:\CAM4_HE_CK.VD', 'MD:\CAM4_HEALTH_CHECK.VD')
+  ENDIF  --fanuciR=TRUE
+
+  IF (fanuc3dl = TRUE) THEN -- Vision Programs
+    Load_File('FRS:','FLT_VISN.TP',1)
+  ENDIF -- Vision Programs
+
+  writeLog('  Press Vision Programs Load Completed', FALSE)
+
+END LoadPresVisn
+---------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(fanuciR) THEN
+    fanuciR = FALSE
+  ENDIF
+  IF UNINIT(fanuc3dl) THEN
+    fanuc3dl = FALSE
+  ENDIF
+
+  IF UNINIT(UseToolChngr) THEN
+    UseToolChngr = FALSE
+  ENDIF
+  -- Check these here instead of a routine so can return to calling routine
+  IF UNINIT(Use_Press) THEN
+    POST_ERR(38000, 'Use_Press not setup in GMPRESPG program', 0, 0) --
+    RETURN
+  ENDIF
+  IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+    ErrsInShop.ErrorsPrgrms = 0
+  ENDIF
+
+  IF UNINIT(PresPrgsDone) THEN
+    PresPrgsDone = FALSE
+  ENDIF
+
+  WriteLog(' Press Programs setup Started', FALSE)
+
+  IF (PresPrgsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('Press Programs Already Setup', FALSE)
+    IF ExecSetupAgn('Press PROGRAMS') THEN -- ask user if they want to setup again
+      PresPrgsDone = FALSE
+    ELSE
+      WriteLog('Press Program already Complete', FALSE)
+      WriteLog('GMPRESPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  -- log how many errors starting with
+  StrtinErs = ErrsInShop.ErrorsPrgrms
+  ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+  Unlck_Macro(1,200) -- unlock macros so files can load again
+
+  clr_press -- clear old program and macros
+
+  -- Start executing the setup routines
+  LoadPresTmpl -- load press template programs common for all Press robots
+  set_mac_tbl -- setup the press macros pack
+  prs_sty_tbl  -- setup press Style Table
+
+  LdPrsTlCHPrg
+
+  IF LPT = TRUE THEN  -- if is a LPT press robot, setup the programs
+    Press_LPT
+  ELSE
+     WriteLog('  No LPT used for Press Setup', FALSE)
+  ENDIF
+
+  IF Use_Vision THEN
+    LoadPresVisn
+  ELSE
+     WriteLog('  No Vision for Press selected', FALSE)
+  ENDIF
+
+  -- Get all errors in utility program that was used to any program errors
+  ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + (AddUtltyErrs)
+
+  IF (ErrsInShop.ErrorsPrgrms-StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Press Program setup GMPRESPG had ' + int2str((ErrsInShop.ErrorsPrgrms - StrtinErs))+'  Errors while executing', TRUE)
+  ELSE
+    WriteLog(' Press programs setup Program completed', FALSE)
+    PresPrgsDone = TRUE
+  ENDIF
+
+END GMPRESPG

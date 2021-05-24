@@ -1,0 +1,473 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   2000
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:   quiksqrt - 'Quick Squirt' program 
+--       
+--		 This program is called by a user defined macro.
+--               This macro passes in three parameters:
+--
+--               Equipment Number 
+--               Gun Number 
+--               Squirt Duration (ms)
+--              
+--    Description:
+--          
+--               This program checks the input parameters for validity and
+--               pulses the requested guns, provided that the following steps
+--               are followed in the correct order:
+--
+--               1. This program is intended to be run using the SHIFT-UK
+--                  macro method.  The TP should be enabled and no faults.
+--		         2. The calling macro is run with one deadman switch held.
+--               3. Provided setup is correct, this program posts a 'Decimal
+--                  Key Squirts E(x) Gun (y) (z)' message.
+--               4. If the operator presses the decimal key within the 
+--                  timeout period, the quick squirt occurs.  
+--
+--               If the quick squirt cannot occur, a warning is posted.
+--                 
+--    
+--    Language: KAREL
+--    
+--    Source File:   
+--    
+--    Author: David R. Friedeman                 
+--            Fanuc Robotics Corporation
+--            2000 South Adams Road
+--            Auburn Hills, Michigan    48326-2800
+--    
+--    Modification history:
+--
+--   11-MAY-01 FRIEDEMAN Created.
+--
+--   12-Sep-16 FRIEDEMAN 833/01 Modified for RS4 G4 interface to SCA.  
+--
+------------------------------------------------------------------
+PROGRAM quiksqrt
+----------------------------------------------------------------------
+%ENVIRONMENT ioblt 
+%environment sysdef
+%environment regope
+%environment multi
+%ENVIRONMENT STRNG
+%environment errs
+%environment iosetup
+%environment sldef
+%environment uif
+
+%COMMENT='QuickSquirt V4.0'
+%system
+%nopause = ERROR + COMMAND + TPENABLE
+%noabort = ERROR + COMMAND
+%nobusylamp
+%nolockgroup
+--%include etcust
+%include sledef
+
+CONST
+ 
+  ER_WARN      = 0
+  ER_PAUSE     = 1
+  ER_ABORT     = 2
+ 
+  PARM_INTEGER =  1
+  PARM_REAL    =  2
+  PARM_STRING  =  3
+
+  TPO_FAULT    = 1    -- TP fault LED index number for TPOUT[FAULT] calls  
+
+  CH_SQRTTMOUT = 801  -- Kill the prompt box if there is a timeout
+
+  -- Temporary constants for circulation
+  DI_RECIRC_ON = 1054
+  
+%include klevkeys
+%include kliotyps
+--%include slevshll
+--%include customvr
+
+VAR
+  status       : INTEGER
+  prmpt_stat   : INTEGER
+  data_type    : INTEGER
+  real_value   : REAL
+  string_value : STRING[16]
+  gun_str      : STRING[18]
+  usr_info_str : STRING[64]
+
+  pulse_time   : INTEGER 
+  gun_code     : INTEGER
+  equip_num    : INTEGER
+  quiksqrt_tmr : INTEGER
+  quiksqrt_tmt : INTEGER 
+
+  equip_num_ok : BOOLEAN
+  gun_code_ok  : BOOLEAN
+  pulse_tim_ok : BOOLEAN
+  add_comma    : BOOLEAN
+   
+  gun_1_enbl   : BOOLEAN
+  gun_2_enbl   : BOOLEAN
+  gun_3_enbl   : BOOLEAN
+  gun_4_enbl   : BOOLEAN
+  gun_5_enbl   : BOOLEAN
+  gun_6_enbl   : BOOLEAN
+  
+  circ_status  : INTEGER
+  disp_ready   : INTEGER
+  proc_ready   : INTEGER
+  
+ %include klrdutil
+
+-----------------------------------------------------------------------------
+ROUTINE check_port(p_io_type, p_index:INTEGER): BOOLEAN
+--
+-- Checks if a logical port is assigned.
+--
+-- Inputs:
+--   INTEGER - p_index   - logical port number
+--   INTEGER - p_io_type - logical port type (ex: io_din,io_dout,etc.)
+-- Outputs:
+--   BOOLEAN - check_port- returned value, TRUE if port defined OK, else FALSE
+-- Called By:
+--   ROUTINE init_shell - To check many IO points
+-----------------------------------------------------------------------
+VAR
+  l_i         : INTEGER
+  l_status    : INTEGER
+
+BEGIN
+  IF NOT UNINIT(p_index) AND NOT UNINIT(p_io_type) THEN
+    IF (p_index <> 0) THEN     --Cut out early
+      GET_PORT_MOD(p_io_type, p_index, l_i, l_status)
+      IF (l_status = 0) THEN
+        RETURN(TRUE)           --Port assigned
+      ENDIF --GET_PORT_MOD status good?
+    ENDIF --Index not 0
+  ENDIF
+  RETURN(FALSE)                --Port not assigned
+END check_port
+
+-----------------------------------------------------------------------------
+ROUTINE exit_message(p_string :STRING)
+--
+-- Shows a prompt box indicating why Quick Squirt will abort.
+--
+-- Inputs:
+--   STRING - p_string - The reason for the abort.
+-----------------------------------------------------------------------
+VAR
+
+  l_mess_str    : STRING[128]
+
+BEGIN
+  l_mess_str = 'Unable to Quick Squirt! \n \n' + p_string
+
+  -- Show the Prompt Box. 
+  -- Parameter 1 is the box type.  In this case no choice is available.
+  -- Parameter 2 is the box title.
+  -- Parameter 3 is the text message.
+  -- Parameter 4 is the auto-close time, in tenths of a second.  
+  status = DB_PROMPT(DB_PS_NONE, 'Quick Squirt', l_mess_str, 40) 
+  RETURN
+END exit_message
+
+
+BEGIN -- Main program
+  equip_num_ok = FALSE
+  gun_code_ok  = FALSE
+  pulse_tim_ok = FALSE
+  quiksqrt_tmt = 5000
+  quiksqrt_tmr = 0
+  gun_1_enbl   = FALSE
+  gun_2_enbl   = FALSE
+  gun_3_enbl   = FALSE
+  gun_4_enbl   = FALSE
+  gun_5_enbl   = FALSE
+  gun_6_enbl   = FALSE
+  gun_str      = ''
+  add_comma    = FALSE
+
+  circ_status = 0   
+  status = IOVALRD(IO_DIN, DI_RECIRC_ON, circ_status)
+  IF (status <> 0) THEN
+    exit_message('EIP Rack Error - Cannot Quick Squirt')
+    RETURN -- Leave early
+  ENDIF
+  
+  IF (circ_status <> 0) THEN
+    exit_message('Stop Circulation For Quick Squirt')
+    RETURN -- Leave early
+  ENDIF
+  
+  CONDITION[CH_SQRTTMOUT]: WITH $SCAN_TIME = 40
+    WHEN (quiksqrt_tmr > quiksqrt_tmt) DO
+       ABORT
+      ENABLE CONDITION[CH_SQRTTMOUT]
+    ENDCONDITION
+  ENABLE CONDITION[CH_SQRTTMOUT]
+
+  GET_TPE_PRM(1, data_type, equip_num,real_value,string_value,status)
+  IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+    exit_message('TP Parameter #1 Error')  
+  ELSE
+    IF data_type <> PARM_INTEGER THEN
+	  exit_message('Equip Num Must Be An Integer')
+    ELSE
+      IF (equip_num > $SLEQNUM) THEN
+        exit_message('Equip Num > Maximum')	  
+      ELSE -- The equipment number is okay
+	    equip_num_ok = TRUE
+        -- Get Gun Code
+        GET_TPE_PRM(2, data_type, gun_code,real_value,string_value,status)
+        IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+          exit_message('TP Parameter #2 Error')
+        ELSE
+          IF data_type <> PARM_INTEGER THEN
+		    exit_message('Gun Code Must Be An Integer')
+          ELSE
+	        gun_code_ok	= TRUE
+            -- Get Pulse Duration
+            GET_TPE_PRM(3, data_type, pulse_time,real_value,string_value,status)
+            IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+              exit_message('TP Parameter #3 Error')
+            ELSE
+              IF data_type <> PARM_INTEGER THEN
+			    exit_message('Pulse Time Must Be An Integer')
+              ELSE
+	            pulse_tim_ok = TRUE  
+	          ENDIF
+	        ENDIF -- Pulse Duration 
+	      ENDIF
+	    ENDIF -- Gun Code
+      ENDIF -- Equip Num Valid
+    ENDIF
+  ENDIF -- Equip Number
+  IF ((equip_num_ok=FALSE) OR (gun_code_ok=FALSE) OR (pulse_tim_ok=FALSE)) THEN
+    RETURN -- The MACRO call is incorrect
+  ENDIF
+
+  status = IOVALRD(IO_DIN, $SLIOMAP[equip_num].DI_DISP_RDYI, disp_ready)
+  IF (disp_ready <> 1) THEN
+    exit_message('Dispenser Is Not Ready')	
+    RETURN -- Leave early
+  ENDIF
+
+  -- Use 'Brute Force' method... (sorry)
+  IF (gun_code > 31) THEN -- Gun #6 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUN6T, $SLIOMAP[equip_num].DO_ONGUN6I)) THEN
+      gun_6_enbl = TRUE
+    ELSE
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code - 32
+  ENDIF
+  IF (gun_code > 15) THEN -- Gun #5 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUN5T, $SLIOMAP[equip_num].DO_ONGUN5I)) THEN
+      gun_5_enbl = TRUE
+    ELSE
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code - 16
+  ENDIF
+  IF (gun_code >  7) THEN -- Gun #4 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUN4T, $SLIOMAP[equip_num].DO_ONGUN4I)) THEN
+      gun_4_enbl = TRUE
+    ELSE 
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code -  8
+  ENDIF
+  IF (gun_code >  3) THEN -- Gun #3 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUN3T, $SLIOMAP[equip_num].DO_ONGUN3I)) THEN
+      gun_3_enbl = TRUE
+    ELSE
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code -  4
+  ENDIF
+  IF (gun_code >  1) THEN -- Gun #2 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUN2T, $SLIOMAP[equip_num].DO_ONGUN2I)) THEN
+      gun_2_enbl = TRUE
+    ELSE
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code -  2
+  ENDIF
+  IF (gun_code >  0) THEN -- Gun #1 selected
+    IF (check_port($SLIOMAP[equip_num].DO_ONGUNT, $SLIOMAP[equip_num].DO_ONGUNI)) THEN
+      gun_1_enbl = TRUE
+    ELSE
+      gun_code_ok = FALSE
+    ENDIF
+    gun_code = gun_code -  1
+  ENDIF
+
+  -- If the user selected an unmapped gun or too big of a number, return.
+  IF (gun_code_ok = FALSE) OR (gun_code > 0) THEN
+    exit_message('Invalid Gun Code')
+    RETURN
+  ENDIF
+
+  IF NOT (gun_1_enbl) AND NOT (gun_2_enbl) AND NOT (gun_3_enbl) AND
+    NOT (gun_4_enbl) AND NOT (gun_5_enbl) AND NOT (gun_6_enbl) THEN
+    -- No guns selected AND mapped... post error and return
+    exit_message('No Guns Selected Or Mapped')	
+    RETURN
+  ENDIF
+  IF NOT (TPIN[tpi_enable]) THEN
+    -- TP is not ON.
+    exit_message('Enable TP To Select RESUME Program')	
+    RETURN
+  ENDIF  
+  -- Check for 'Not Faulted' and one (only one) deadman pressed.
+  IF (tpout[tpo_fault] = TRUE) THEN
+    exit_message('Reset Fault To Quick Squirt')	
+    RETURN
+  ENDIF
+  -- Deadman key stuff is backwards... FALSE is pressed.
+  IF (($MOR.$SAFETY_STAT AND 4) = 4) THEN  -- If Deadman Released
+    exit_message('Press Deadman To Quick Squirt')  
+    RETURN
+  ENDIF
+ 
+  -- If we made it this far, everything is fine.  Inform the user
+  -- that we are about to pulse the gun(s)
+  -- Build a string to indicate what is to be done
+
+  IF (gun_1_enbl = TRUE) THEN
+    gun_str = gun_str + 'G' + int_to_strg(1)
+    add_comma = TRUE
+  ENDIF
+  IF (gun_2_enbl = TRUE) THEN
+    IF (add_comma = TRUE) THEN
+      gun_str = gun_str + ', '
+    ENDIF
+    add_comma = TRUE 
+    gun_str = gun_str + 'G' + int_to_strg(2)
+  ENDIF
+  IF (gun_3_enbl = TRUE) THEN
+    IF (add_comma = TRUE) THEN
+      gun_str = gun_str + ', '
+    ENDIF
+    add_comma = TRUE 
+    gun_str = gun_str + 'G' + int_to_strg(3)
+  ENDIF
+  IF (gun_4_enbl = TRUE) THEN
+    IF (add_comma = TRUE) THEN
+      gun_str = gun_str + ', '
+    ENDIF
+    add_comma = TRUE 
+    gun_str = gun_str + 'G' + int_to_strg(4)
+  ENDIF
+  IF (gun_5_enbl = TRUE) THEN
+    IF (add_comma = TRUE) THEN
+      gun_str = gun_str + ', '
+    ENDIF
+    add_comma = TRUE 
+    gun_str = gun_str + 'G' + int_to_strg(5)
+  ENDIF
+  IF (gun_6_enbl = TRUE) THEN
+    IF (add_comma = TRUE) THEN
+      gun_str = gun_str + ', '
+    ENDIF
+    add_comma = TRUE 
+    gun_str = gun_str + 'G' + int_to_strg(6)
+  ENDIF
+
+  -- Start a timer, as a way to force Quick Squirt to end if the user
+  -- doesn't make a choice within 5 seconds.
+
+  prmpt_stat = 0
+  CONNECT TIMER to quiksqrt_tmr  
+  
+  usr_info_str = (' Squirt E' + int_to_strg(equip_num) + ': ' + gun_str)
+  usr_info_str = usr_info_str + '? \n \n Timeout In 5 Seconds'
+  prmpt_stat = DB_PROMPT(DB_PS_OKCN,'Quick Squirt', usr_info_str, 50)                
+
+  DISCONNECT TIMER quiksqrt_tmr
+  quiksqrt_tmr = 0
+
+  IF (prmpt_stat <> 1) THEN -- User canceled the squirt
+    RETURN -- Do nothing
+  ENDIF
+
+  -- If we're here, the user wants to squirt material.  YAY!
+  
+  -- If the "Process ON" input is ON, then we don't have to send a style to the SCA.
+  -- If the "Process ON" input is OFF, then we have to send it a Style #255.
+  status = IOVALRD(IO_DIN, $SLIOMAP[equip_num].DI_IN_PROCI, proc_ready)
+  IF (proc_ready = 0) THEN -- Send the bogus style
+    status = IOVALSET(IO_GPOUT, $SLIOMAP[equip_num].GO_PRT_IDI,255)
+	DELAY 100
+	status = IOVALSET(IO_DOUT, $SLIOMAP[equip_num].DO_PRTSTRBI,1)
+	DELAY 200
+  ENDIF
+  
+  IF (gun_1_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongunt = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_onguni] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_onguni] FOR pulse_time
+    ENDIF
+  ENDIF
+  IF (gun_2_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongun2t = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_ongun2i] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_ongun2i] FOR pulse_time
+    ENDIF
+  ENDIF
+  IF (gun_3_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongun3t = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_ongun3i] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_ongun3i] FOR pulse_time
+    ENDIF
+  ENDIF
+  IF (gun_4_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongun4t = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_ongun4i] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_ongun4i] FOR pulse_time
+    ENDIF
+  ENDIF
+  IF (gun_5_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongun5t = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_ongun5i] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_ongun5i] FOR pulse_time
+    ENDIF
+  ENDIF
+  IF (gun_6_enbl = TRUE) THEN
+    IF ($sliomap[equip_num].do_ongun6t = io_dout) THEN
+      PULSE DOUT[$sliomap[equip_num].do_ongun6i] FOR pulse_time
+    ELSE -- Must be an RDO
+      PULSE RDO [$sliomap[equip_num].do_ongun6i] FOR pulse_time
+    ENDIF
+  ENDIF
+  
+  IF (proc_ready = 0) THEN -- If we sent a bogus style, we have to clear it.
+	status = IOVALSET(IO_DOUT, $SLIOMAP[equip_num].DO_PRTSTRBI,0)
+	DELAY 100
+    status = IOVALSET(IO_GPOUT, $SLIOMAP[equip_num].GO_PRT_IDI,0)
+	DELAY 100
+	-- Also, we have to reset any potential volume fault.]
+	status = IOVALSET(IO_DOUT, $SLIOMAP[equip_num].DO_CLR_FLTI,1)
+	  DELAY 100
+	status = IOVALSET(IO_DOUT, $SLIOMAP[equip_num].DO_CLR_FLTI,0)	  
+  ENDIF
+
+END quiksqrt

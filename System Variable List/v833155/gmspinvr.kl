@@ -1,0 +1,450 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMSPINVR
+--
+--    Description: Set up all variables asscosiated with GM SpinTop Application
+--
+--    GMSPINVR: Configures Press specific variables Variables.
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+--
+--    Other Application files:
+--    GMSPINIO -- program to setup and comment the SpinTop I/O GMCELLIO is also required to setup workcell interface
+--    GMSPINPG -- program for loading all unique program that are specific to SpinTop applications
+--    GMSPINRG -- program for setting registers and position registers comments and default values
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: --
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--
+--          V4.1      2018/24/07 R.Kosaski        Modified code for New SpinTop Interface
+--
+--
+-----------------------------------------------------------------------------
+PROGRAM GMSPINVR
+-----------------------------------------------------------------------------
+%ENVIRONMENT ATCLDEF -- needed for the $Style variables
+%ENVIRONMENT mnmcdef -- required for the macro table vars
+%ENVIRONMENT REGOPE -- Required for the register settings
+
+%COMMENT = 'SpinTopVars V4.1'
+
+%NOLOCKGROUP
+--%INVISIBLE
+%RWACCESS		-- free to read/write
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+
+Version = '2018-9-22 RK'
+
+%INCLUDE gmcnstnt -- used for all GM constants
+
+VAR
+  i,h,
+  gm_status    : INTEGER
+  psve         : INTEGER
+  prog_nam     : STRING[12]
+  l_stat       : INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  entry,        -- used for the GET_VAR command
+  StrtinErs  : INTEGER  -- How many errors I/O error counter had when the program started
+
+  STEnetPortPC,                             -- which Eip port to set comm for SpinTop Pc
+  STEnetPortGW IN CMOS FROM GMPSINVR :INTEGER-- which Eip port to set comm for SpinTop Gateway
+
+  ST_Mnt_Angle IN CMOS FROM GMSPINVR:REAL -- the rotation angle of the Mounting of spintop relative to Default Tool zero
+
+  SpinVarsDone IN SHADOW FROM GMSPINVR: BOOLEAN -- if the variables has ran completly
+
+--  EqptStrtPnt, -- the Start point for the Equipment communications (to SpinTop PC)
+    ProcStrtPnt IN CMOS FROM GMSPINVR:INTEGER -- the Start point for the Process Reporting to the PLC
+--  ST_OStrt_Pnt, -- the SpinTop Output from Robot Start point, all are added to this
+--  ST_IStrt_Pnt, -- the SpinTop Input to Robot Start point, all are added to this
+--  ST_ROStrtPnt, -- the SpinTop Output from Robot to PLC for Reporting Start point
+--  ST_RIStrtPnt IN CMOS FROM GMSPINVR:INTEGER -- the SpinTop Input to Robot from PLC for PUN or Process data
+--
+--  -- Set SPINTOP OUTPUT to the PC FROM the Robot
+--  ST_Angl_Strt, -- The angle Start input to SpinTop
+--  ST_Angl_NumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_SyncAStrt, -- The Synconization A start number
+--  ST_SyncANumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_X_OutStrt, -- The X output start number
+--  ST_X_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_Y_OutStrt, -- The X output start number
+--  ST_Y_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_Z_OutStrt, -- The X output start number
+--  ST_Z_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_W_OutStrt, -- The X output start number
+--  ST_W_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_P_OutStrt, -- The X output start number
+--  ST_P_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_R_OutStrt, -- The X output start number
+--  ST_R_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_SyncBStrt, -- The Synconization B start number
+--  ST_SyncBNumP, -- The angle Start Number of point for the Output to SPintop
+--  STCntPlnStrt, -- The Start point for the Control Plan to SpinTop PC
+--  STCntPlnNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_StartBit,  -- The Start Bit to PC for SPinTop
+--  ST_SetCnrlPn, -- The SET CONTROL PLAN out to SpinTop PC
+--  ST_Trigger,   -- The TRIGGER output to the SPinTop PC
+--  ST_PLCPUNSnt, -- The PUN NUM Send to SpinTop PC
+--  ST_ClrPUN,    -- Signal to SPinTop PC to Clear the PUN number
+--  ST_PUN_Error, -- Signal to SpinTop PUN has an Error.
+--  ST_RstResult, -- The output to the SPinTop to Reset the Results
+--  ST_Reserved1, -- A spare output to spintop
+--  temp_str,
+--  BCD_Num,
+--  SetCnrlPn,
+--
+  -- Set Inputs from the SpinTop TO ROBOT
+--  SpnTp_StrtPt,
+--  ST_NumSgmnts,
+--  ST_AutoActiv,
+--  ST_CntrlPnOK,
+--  ST_CntrlPSet,
+--  ST_RsltPassd,
+--  ST_RsltFaild,
+--  ST_PUNRecved,
+--  ST_PUNCleard,
+--  ST_PUNErrorT,
+--  ST_SegIDStrt,
+--  ST_SegIDNumP IN CMOS FROM GMSPINVR:INTEGER
+--
+ -- From other programs
+ -- Variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- Variables declared for Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications -- Needed for USE_SPIN_TOP
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE RunOnce FROM SPINTOP -- Setup the I/O and default values for spinTop
+ROUTINE SPINTOP_INIT FROM SPINTOP -- setup initialzation
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has the builtins for common routines
+--------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE init_st_vars
+-- PURPOSE: initialize the spintop variables for the I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+
+--IF UNINIT(EqptStrtPnt) THEN -- this is where I/O start TO spinTop PC
+--  EqptStrtPnt = 1153 -- Process Controller #2 is communication to/from SpinTop PC
+--ENDIF
+IF UNINIT(ProcStrtPnt) THEN -- this is where I/O start TO PLC
+  ProcStrtPnt = 129 -- process #2 start to/from PLC for 64 bits
+ENDIF
+
+--IF UNINIT(SpnTp_StrtPt) THEN  -- 1153-1408 is start point of the 2nd Process equiptment
+--  SpnTp_StrtPt = EqptStrtPnt         -- Spin-Top takes 2nd and third process equipment
+--ENDIF
+--
+--IF UNINIT(ST_ROStrtPnt) THEN -- Setup the Communication to the PLC Start Point
+--  ST_ROStrtPnt = ProcStrtPnt
+--ENDIF
+--
+--IF UNINIT(ST_RIStrtPnt) THEN -- Setup the Communication to the PLC Start Point
+--  ST_ROStrtPnt = ProcStrtPnt
+--ENDIF
+
+IF UNINIT(ST_Mnt_Angle) THEN -- Set the mount angle that get set relative to the angle of mounting on face plate
+  ST_Mnt_Angle = 0
+ENDIF
+
+-- Set outputs TO Spin-Top Controller 16 words back and forth
+                          --- 1
+--ST_Angl_Strt = (SpnTp_StrtPt)  -- the number of start of Spintop Outputs, this is added to Equipment Start Point
+--ST_Angl_NumP = 16 -- the number of Angle outputs to SpinTop Controller
+--STCntPlnStrt = (ST_Angl_Strt + ST_Angl_NumP)
+--STCntPlnNumP = 8
+
+--ST_SyncAStrt = (STCntPlnStrt + STCntPlnNumP) -- the number of Sync A bits, this is added to the end of Angle
+--ST_SyncANumP = 8  -- the number of Sync A bits, this is added to the end of Angle
+--ST_X_OutStrt = (ST_SyncAStrt + ST_SyncANumP) -- make sure i/o is sequencial order
+--ST_X_OutNumP = 32
+--ST_Y_OutStrt = (ST_X_OutStrt + ST_X_OutNumP) -- make sure i/o is sequencial order
+--ST_Y_OutNumP = 32
+--ST_Z_OutStrt = (ST_Y_OutStrt + ST_Y_OutNumP) -- make sure i/o is sequencial order
+--ST_Z_OutNumP = 32
+--ST_W_OutStrt = (ST_Z_OutStrt + ST_Z_OutNumP) -- make sure i/o is sequencial order
+--ST_W_OutNumP = 32
+--ST_P_OutStrt = (ST_W_OutStrt + ST_W_OutNumP) -- make sure i/o is sequencial order
+--ST_P_OutNumP = 32
+--ST_R_OutStrt = (ST_P_OutStrt + ST_P_OutNumP) -- make sure i/o is sequencial order
+--ST_R_OutNumP = 32
+--ST_SyncBStrt = (ST_R_OutStrt + ST_R_OutNumP) -- the number of Sync B bits, this is added to the end of Angle
+--ST_SyncBNumP = 8  -- the number of Sync B bits, this is added to the end of Angle
+
+--ST_StartBit  = (ST_SyncBStrt + ST_SyncBNumP)
+--ST_SetCnrlPn = (ST_StartBit + 1)
+--ST_Trigger   = (ST_SetCnrlPn + 1)
+--ST_PLCPUNSnt = (ST_Trigger + 1)-- PLC sent new Pun
+--ST_ClrPUN    = (ST_PLCPUNSnt + 1)-- PLC sent new Pun
+--ST_PUN_Error = (ST_ClrPUN + 1)-- PLC sent new Pun
+--ST_RstResult = (ST_PUN_Error + 1)-- Results reset sent to PLC
+--ST_Reserved1 = (ST_RstResult + 1)-- Reserved Bit
+
+-- Set Inputs FROM Spin-Top Controller 16 words back and forth
+
+--ST_AutoActiv = (SpnTp_StrtPt - 1)
+--ST_CntrlPnOK = (ST_AutoActiv +1)
+--ST_CntrlPSet = (ST_CntrlPnOK +1)
+--ST_RsltPassd = (ST_CntrlPSet +1)
+--ST_RsltFaild = (ST_RsltPassd +1)
+--ST_PUNRecved = (ST_RsltFaild +1)
+--ST_PUNCleard = (ST_PUNRecved +1)
+--ST_PUNErrorT = (ST_PUNCleard +1)
+--ST_SegIDStrt = (ST_PUNErrorT +1)
+--ST_SegIDNumP = 48 -- was 56
+
+IF UNINIT(STEnetPortPC) THEN
+  STEnetPortPC = 63
+ENDIF
+IF UNINIT(STEnetPortGW) THEN
+  STEnetPortGW = 64
+ENDIF
+
+END init_st_vars
+
+-------------------------------------------------------------------------------
+ROUTINE SetSpinVars
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-------------------------------------------------------------------------------
+
+  BEGIN
+
+  init_st_vars
+
+     -- FFR Configuration
+   WriteLog('  SpinTop Variable setup routine SetSpinVars Started', FALSE)
+
+    IF chk_loaded('SPINTOP') THEN -- verify program is loaded
+
+      -- PC configuration Rack 63,8 bytes Input,2 bytes Output
+      Set_I_Pvar('SpinTop' , 'OUT_OFFSETPC', 1153)-- to spinTop PC
+      Set_I_Pvar('SpinTop' , 'IN_OFFSETPC', 1153) --
+      Set_I_Pvar('SpinTop' , 'CntrlPlnGOUT', 27) -- the Control Plan Gout Start point
+
+      -- Gateway to head configuration Rack 64,2 bytes Input,32 bytes Output
+      Set_I_Pvar('SpinTop' , 'OUT_OFFSETGW', 1169) -- to spinTop Gateway to Sensor
+      Set_I_Pvar('SpinTop' , 'IN_OFFSETGW', 1217) --
+      Set_I_Pvar('SpinTop' , 'ANGLE_GOUT', 28) -- the group output to use for the angle to Gateway to head
+      Set_I_Pvar('SpinTop' , 'POSE_GOUT', 29)-- 12 Gout's starting at 29 for robots position
+
+      Set_I_Pvar('SpinTop' , 'EnetPortPC', 63)-- Setup the SpinTop PC comm port
+      Set_I_Pvar('SpinTop' , 'EnetPortGW', 64)-- Setup the SpinTop Head through gateway
+
+      Set_B_Pvar('SpinTop' , 'UsePoseGOUTS', TRUE)-- Setup to use Group Outputs to SpinTop Head through gateway
+                                                  -- so propmt does not come up.
+    -- set the OFFLINE signal to G4 Proc2BypassReq = 130 (130 - 1153) = -1023
+    -- SET_VAR(entry, 'SpinTop' , 'ST_OFFLINE.Offset', -1023, gm_status)
+     -- Set_I_Pvar('SpinTop' , 'PLCBypass_DI', 130)
+      Set_I_Pvar('SpinTop' , 'ST_OFFLINEIN', 130) -- input for telling DO NOT Operate from PLC
+
+  --    Set_R_Pvar('SpinTop' , 'st_ctool.w', 180.0)  -- SET IN SPINTOP program now
+      Set_I_Svar('$Distbf_Ver',1) -- Set distance before so program setting doesnt have to end
+
+      Set_R_Pvar('SpinTop' , 'OFFANGLEPAR',St_Mnt_Angle) -- set the mounting angle
+
+       SET_REAL_REG(41,ST_Mnt_Angle,gm_status)
+       writeLog('  Setting SpinTop Auto Angle to R[41] '+real2str(ST_Mnt_Angle), FALSE)
+
+      RunOnce -- setup defaults for the spinTop this should also setup ALL I/O using the
+              -- the latest SPINTOPUTIL program called from RunOnce routine in spintop
+
+    --  SPINTOP_INIT -- initialize the setup
+
+    ELSE-- program is not loaded
+      WriteLog('  SPINTOP program not loaded', TRUE)
+    ENDIF
+
+   WriteLog('  Routine SetSpinVars Completed', FALSE)
+
+ END SetSpinVars
+-----------------------------------------------------------------------------
+ROUTINE Miscell_Vars
+-- PURPOSE: Stuff not sure about and ne
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+-- VAR
+
+BEGIN
+
+init_st_vars
+
+   WriteLog('  SpinTop Variable setup routine Miscell_Vars Started', FALSE)
+
+    -- Setup interconnects for SpinTop
+   WriteLog('  SpinTop Interconnects setup Started', FALSE)
+
+    Set_B_Svar('$THRSDITABLE[10].$THR_ENB',TRUE)-- Set echo for Enable Process
+    Set_I_Svar('$THRSDITABLE[10].$DI_NO',129)
+    Set_I_Svar('$THRSDITABLE[10].$DO_NO',129)
+
+    Set_B_Svar('$THRSDITABLE[11].$THR_ENB',TRUE)-- Set echo for ByPass process
+    Set_I_Svar('$THRSDITABLE[11].$DI_NO',130)
+    Set_I_Svar('$THRSDITABLE[11].$DO_NO',130)
+
+    Set_B_Svar('$THRSDITABLE[12].$THR_ENB',TRUE)-- Echo SpinTop Auto as Ready
+    Set_I_Svar('$THRSDITABLE[12].$DI_NO',1153)
+    Set_I_Svar('$THRSDITABLE[12].$DO_NO',185)
+
+   WriteLog('  SpinTop Interconnects setup Completed', FALSE)
+
+
+    -- Setup SPINTOPBGR to run in background
+  --7-24-18 RK removed because ST software will start the task when Enable is done
+    Set_S_PVar('atcustom','PRGS2RUNGMPT[1].PROG_NAME','')
+    Set_B_PVar('atcustom','PRGS2RUNGMPT[1].NEEDTORUN',FALSE)
+
+  --  Set_S_PVar('atcustom','PRGS2RUNGMPT[1].PROG_NAME','spintopbgr')
+  --  Set_B_PVar('atcustom','PRGS2RUNGMPT[1].NEEDTORUN',TRUE)
+  --  WriteLog('    SpinTopBGR was setup to use ATCUSTOM to run', FALSE)
+
+   WriteLog('  Routine Miscell_Vars Completed', FALSE)
+
+  RETURN
+END Miscell_Vars
+-------------------------------------------------------------------
+
+-----------------------------------------------------------------------------
+ROUTINE set_mac_tbl
+-- PURPOSE: to setup all macros for SpinTop specific applications
+
+--        P_Assign_type values are: 2= UK, 3=SU,4=MF,5=SP,6=DI,7=RI
+--
+-- INPUT: P_Mac_Number
+--        P_MacName
+--        P_ProgName
+--        P_Assign_type values are:1=nothing, 2= UK, 3=SU,4=MF,5=SP,6=DI,7=RI
+--        P_Assign_id
+--        Protect it :Boolean
+
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  Unlck_Macro(80,90) -- unlock macros so files can load again
+
+         -- Setup the macro table for spin-Top   80-90
+         -- Table#, Macro Comment, MacroName,
+--    Setup_Macro(80,'SPINTOP ENABLE'   , 'ST_ENABLE' , 1, 0,FALSE)
+--    Setup_Macro(81,'SPINTOP START'    , 'ST_START' , 4, 31,FALSE)
+--    Setup_Macro(82,'SPINTOP STOP'     , 'ST_STOP' , 4, 32,FALSE)
+--    Setup_Macro(83,'ST START ANGLE'   , 'ST_STROTA' , 4, 33,FALSE)
+--    Setup_Macro(84,'SPINTOP STOP ROT' , 'ST_STOPROT' , 4, 34,FALSE)
+--    Setup_Macro(85,'SPINTOP FREEZE'   , 'ST_FREZANG' , 4, 35,FALSE)
+--    Setup_Macro(86,'ST OVERRIDE ANGLE', 'ST_OVRANG' , 4, 36,FALSE)
+--    Setup_Macro(87,'ST OVERRIDE OFF'  , 'ST_OVROFF' , 4, 37,FALSE)
+--    Setup_Macro(88,'ST READ RESULTS'  , 'ST_DATAREAD' , 1, 0,FALSE)
+ --   Setup_Macro(89,'ST SEND RESULTS'  , 'ST_DATASEND' , 1, 0,FALSE)
+ --   Setup_Macro(90,'ST RESET RESULTS'  , 'ST_DATARESET' , 1, 0,FALSE)
+
+  RETURN
+
+END set_mac_tbl
+--*********************************************************************************
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+IF UNINIT(Use_Spin_Top) THEN
+  POST_ERR(38000, 'Use_Spin_Top not setup in GMSPINVR program', 0, 0) --
+  RETURN
+ENDIF
+IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+  ErrsInShop.ErrorsVarbls = 0
+ENDIF
+IF UNINIT(SpinVarsDone) THEN
+  SpinVarsDone = FALSE
+ENDIF
+
+StrtinErs = ErrsInShop.ErrorsVarbls
+
+ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+   WriteLog(' SpinTop Program GMSPINVR has been Started', FALSE)
+
+  IF (SpinVarsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('  SpinTop Variables Already Setup', FALSE)
+    IF ExecSetupAgn('SpinTop VARIABLES') THEN -- ask user if they want to setup again
+     SpinVarsDone = FALSE
+    ELSE
+      WriteLog('  SpinTop VARIABLES already Complete', FALSE)
+      WriteLog('  GMSPINVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  set_mac_tbl -- setup the SpinTop macros pack
+  SetSpinVars
+  Miscell_Vars
+
+  -- Get all errors in utility program that was used to any program errors
+ ErrsInShop.ErrorsVarbls = ErrsInShop.ErrorsVarbls +  (AddUtltyErrs)
+
+ IF (ErrsInShop.ErrorsVarbls - StrtinErs) > 0 THEN -- check for I/O setup errors
+   POST_ERR(38000, 'GMSPINVR had '+int2str((ErrsInShop.ErrorsVarbls - StrtinErs))+' Errors while executing',0, 0) --
+   WriteLog('  SpinTop Variable setup,GMSPINVR had ' + int2str((ErrsInShop.ErrorsVarbls-StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog(' SpinTop Variable setup Program completed', FALSE)
+   SpinVarsDone = TRUE
+ ENDIF
+
+END GMSPINVR

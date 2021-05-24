@@ -1,0 +1,46 @@
+program tpsetvar
+
+%nolockgroup
+
+var
+  var_name  : string[40]
+  status    : integer
+  data_type : integer
+  entry     : integer
+  int_val   : integer
+  real_val  : real
+  str_val   : string[40]
+
+begin
+
+  GET_TPE_PRM(1,data_type,int_val,real_val,var_name,status)
+  
+  IF (data_type <> 3) THEN
+    RETURN
+  ENDIF
+  
+  GET_TPE_PRM(2,data_type,int_val,real_val,str_val,status)
+
+  
+
+  IF (STATUS = 0) THEN
+    SELECT (data_type) OF
+	  CASE (1): 
+		SET_VAR( entry, '*SYSTEM*', var_name, int_val,  status )
+	  CASE (2): 
+		SET_VAR( entry, '*SYSTEM*', var_name, real_val,  status )
+	  CASE (3): 
+            IF str_val = 'TRUE' THEN
+		SET_VAR( entry, '*SYSTEM*', var_name, TRUE,  status )
+            ELSE 
+              IF str_val = 'FALSE' THEN
+	        SET_VAR( entry, '*SYSTEM*', var_name, FALSE,  status )
+              ELSE
+	        SET_VAR( entry, '*SYSTEM*', var_name, str_val,  status )
+              ENDIF
+            ENDIF
+		
+	ENDSELECT
+  ENDIF
+
+end tpsetvar

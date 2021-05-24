@@ -1,0 +1,411 @@
+PROGRAM SpinTopPath
+
+%COMMENT = 'P5 L600'
+%CMOSVARS -- Make sure variables are stored in CMOS
+%NOPAUSESHFT
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOLOCKGROUP
+%NOBUSYLAMP
+
+--VISIONSYSTEM VMT SpinTop 3D
+--****************************************
+-- Paket:    VMT SpinTop3D
+-- Function: Glue bead inspection, Path storage arrays 
+--Details: Config B: 5 paths, all 6 meters long
+-- Version:  Fanuc/Karel
+-- Name:     M.Fiedler
+-- Date:     11.04.2018
+-- Changes: 
+-- 23.05.2018 MF: changed limit check. Running to end of path caused an error
+-- 31.07.2018 MF: Added error messages for better user-feedback
+
+
+CONST
+
+NumPaths = 5
+LenPaths = 600
+
+VAR
+
+Nullframe : XYZWPR
+
+ST_PathPos1 : ARRAY[LenPaths] OF XYZWPR
+ST_PathPos2 : ARRAY[LenPaths] OF XYZWPR
+ST_PathPos3 : ARRAY[LenPaths] OF XYZWPR
+ST_PathPos4 : ARRAY[LenPaths] OF XYZWPR
+ST_PathPos5 : ARRAY[LenPaths] OF XYZWPR
+
+---------------------------------------------
+-- Declarations
+---------------------------------------------
+ROUTINE InitPaths FROM SpinTopPath
+ROUTINE ClrPaths(PathID : INTEGER) FROM SpinTopPath
+ROUTINE GetPosAtIdx(PathID : INTEGER; Index : REAL ) : XYZWPR FROM SpinTopPath
+ROUTINE SetPosAtIdx(PathID : INTEGER; Index : REAL ; C_POS : XYZWPR) FROM SpinTopPath
+ROUTINE FinalizePath(PathID : INTEGER ) FROM SpinTopPath
+ROUTINE CompareFrame(frame1, frame2 : XYZWPR) : BOOLEAN FROM SpinTopPath
+
+-----------------------------------------------------------------------------
+ROUTINE real2str(p_real:REAL):STRING
+--
+-- PURPOSE:  to convert Reals to string variables
+--
+ ----------------------------------------------------------------------------
+
+VAR
+  l_string: STRING[14]
+
+BEGIN
+   l_string = ''
+IF UNINIT(p_real) THEN
+  p_real = 0
+ENDIF
+
+   CNV_REAL_STR(p_real, 4, 2, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+
+IF UNINIT(l_string) THEN
+  l_string = '??.??'
+ENDIF
+
+  RETURN(l_string)
+
+END real2str
+
+-----------------------------------------------------------
+ROUTINE int2str (p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[9]
+BEGIN
+  l_string = ''
+IF UNINIT(p_integer) THEN
+  p_integer = 0
+ENDIF
+
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int2str
+
+--============================================================
+--ROUTINE InitPaths FROM SpinTopPath
+ROUTINE InitPaths
+
+VAR
+i : INTEGER
+
+BEGIN
+
+--init arrays
+Nullframe.X = 0
+Nullframe.Y = 0
+Nullframe.Z = 0
+Nullframe.W = 0
+Nullframe.P = 0
+Nullframe.R = 0
+
+FOR i = 1 TO LenPaths DO
+    ST_PathPos1[i] = Nullframe
+	ST_PathPos2[i] = Nullframe
+	ST_PathPos3[i] = Nullframe
+	ST_PathPos4[i] = Nullframe
+	ST_PathPos5[i] = Nullframe	
+ENDFOR
+
+END InitPaths
+
+--============================================================
+--ROUTINE GetPosAtIdx(PathID : INTEGER; Index : REAL ) : XYZWPR FROM SpinTopPath
+ROUTINE GetPosAtIdx
+
+VAR
+roundedIndex,TMP,i : INTEGER --rounded to floor, decimals cut - TRUNC!
+decimal : REAL
+toReturn, lowerFrame, upperFrame : XYZWPR
+
+BEGIN
+
+IF (PathID > NumPaths) THEN
+    POST_ERR(38000,'Path ' + int2str(PathID) + ' not valid. Use 1 to ' + int2str(NumPaths),0,1)
+	PathID = 1
+ENDIF
+
+IF (Index < 1) THEN
+    Index = 1
+ENDIF
+
+roundedIndex = TRUNC(Index)
+IF (Index > LenPaths-1) THEN
+    POST_ERR(38000,'Path Index ' + int2str(roundedIndex) + ' not valid. Max length is ' + int2str(LenPaths),0,1)
+    Index = LenPaths-1
+ENDIF
+
+
+decimal = Index - roundedIndex
+
+SELECT PathID OF
+  CASE (1):
+    lowerFrame = ST_PathPos1[roundedIndex]
+    upperFrame = ST_PathPos1[roundedIndex+1] 
+  CASE (2):
+    lowerFrame = ST_PathPos2[roundedIndex]
+    upperFrame = ST_PathPos2[roundedIndex+1] 
+  CASE (3):
+    lowerFrame = ST_PathPos3[roundedIndex]
+    upperFrame = ST_PathPos3[roundedIndex+1] 
+  CASE (4):
+    lowerFrame = ST_PathPos4[roundedIndex]
+    upperFrame = ST_PathPos4[roundedIndex+1] 
+  CASE (5):
+   lowerFrame = ST_PathPos5[roundedIndex]
+   upperFrame = ST_PathPos5[roundedIndex+1] 
+ENDSELECT
+
+--lin. interpolate between 2 positions given by the real index
+toReturn.X = lowerFrame.X + ((upperFrame.X - lowerFrame.X)*decimal)
+toReturn.Y = lowerFrame.Y + ((upperFrame.Y - lowerFrame.Y)*decimal)
+toReturn.Z = lowerFrame.Z + ((upperFrame.Z - lowerFrame.Z)*decimal)
+toReturn.R = lowerFrame.R
+toReturn.P = lowerFrame.P
+toReturn.W = lowerFrame.W
+
+RETURN (toReturn)
+
+END GetPosAtIdx
+
+--============================================================
+--ROUTINE SetPosAtIdx(PathID : INTEGER; Index : REAL ; C_POS : XYZWPR) FROM SpinTopPath
+ROUTINE SetPosAtIdx
+
+VAR
+RoundedIndex : INTEGER--rounded to floor, decimals cut
+
+BEGIN
+
+
+IF (PathID > NumPaths) THEN
+      POST_ERR(38000,'Path ' + int2str(PathID) + ' not valid. Use 1 to ' + int2str(NumPaths),0,1)
+  PathID = 1
+ENDIF
+
+RoundedIndex = TRUNC(Index)
+
+IF (Index < 1) THEN
+  POST_ERR(38000,'Path index ' + int2str(roundedIndex)+ ' not valid',0,1)
+	Index = 1
+ENDIF
+
+IF (Index > LenPaths) THEN
+    POST_ERR(38000,'Path Index ' + int2str(roundedIndex) + ' not valid. Max length is ' + int2str(LenPaths),0,1)
+      Index = LenPaths
+ENDIF
+SELECT PathID OF
+  CASE (1):
+   ST_PathPos1[roundedIndex] = C_POS 
+  CASE (2):
+   ST_PathPos2[roundedIndex] = C_POS 
+  CASE (3):
+   ST_PathPos3[roundedIndex] = C_POS 
+  CASE (4):
+   ST_PathPos4[roundedIndex] = C_POS 
+  CASE (5):
+   ST_PathPos5[roundedIndex] = C_POS 
+ENDSELECT
+  
+  
+END SetPosAtIdx
+
+--============================================================
+--ROUTINE FinalizePath(PathID : INTEGER ) FROM SpinTopPath
+ROUTINE FinalizePath
+
+VAR
+I : INTEGER
+LASTVALIDFRM : XYZWPR
+LASTVALID : BOOLEAN
+
+BEGIN
+
+IF (PathID > NumPaths) THEN
+  POST_ERR(38000,'Path ' + int2str(PathID) + ' not valid. Use 1 to ' + int2str(NumPaths),0,1)
+  PathID = 1
+ENDIF
+
+
+LASTVALID = FALSE
+LASTVALIDFRM = Nullframe
+
+SELECT PathID OF
+          CASE (1):         
+                FOR I = 1 TO LenPaths DO 
+                  IF CompareFrame(ST_PathPos1[I], Nullframe) = TRUE THEN
+                        ST_PathPos1[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos1[I]          
+                  ENDIF
+                ENDFOR
+        
+                FOR I = LenPaths DOWNTO 1 DO
+                  IF CompareFrame(ST_PathPos1[I], Nullframe) = TRUE THEN
+                        ST_PathPos1[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos1[I]          
+                  ENDIF
+                ENDFOR
+        
+          CASE (2):               
+                FOR I = 1 TO LenPaths DO
+				  IF CompareFrame(ST_PathPos2[I], Nullframe) = TRUE THEN
+					ST_PathPos2[I] = LASTVALIDFRM
+				  ELSE
+					LASTVALIDFRM = ST_PathPos2[I]			  
+				  ENDIF
+				ENDFOR
+					
+				FOR I = LenPaths DOWNTO 1 DO
+				  IF CompareFrame(ST_PathPos2[I], Nullframe) = TRUE THEN
+					ST_PathPos2[I] = LASTVALIDFRM
+				  ELSE
+					LASTVALIDFRM = ST_PathPos2[I]			  
+				  ENDIF
+				ENDFOR
+                
+          CASE (3):           
+                FOR I = 1 TO LenPaths DO
+                  IF CompareFrame(ST_PathPos3[I], Nullframe) = TRUE THEN
+                        ST_PathPos3[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos3[I]          
+                  ENDIF
+                ENDFOR
+        
+                FOR I = LenPaths DOWNTO 1 DO
+                  IF CompareFrame(ST_PathPos3[I], Nullframe) = TRUE THEN
+                        ST_PathPos3[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos3[I]          
+                  ENDIF
+                ENDFOR
+                
+          CASE (4):           
+                FOR I = 1 TO LenPaths DO
+                  IF CompareFrame(ST_PathPos4[I], Nullframe) = TRUE THEN
+                        ST_PathPos4[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos4[I]          
+                  ENDIF
+                ENDFOR
+        
+                FOR I = LenPaths DOWNTO 1 DO
+                  IF CompareFrame(ST_PathPos4[I], Nullframe) = TRUE THEN
+                        ST_PathPos4[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos4[I]          
+                  ENDIF
+                ENDFOR
+                
+          CASE (5):    
+                FOR I = 1 TO LenPaths DO
+                  IF CompareFrame(ST_PathPos5[I], Nullframe) = TRUE THEN
+                        ST_PathPos5[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos5[I]          
+                  ENDIF
+                ENDFOR
+        
+                FOR I = LenPaths DOWNTO 1 DO
+                  IF CompareFrame(ST_PathPos5[I], Nullframe) = TRUE THEN
+                        ST_PathPos5[I] = LASTVALIDFRM
+                  ELSE
+                        LASTVALIDFRM = ST_PathPos5[I]          
+                  ENDIF
+                ENDFOR
+         	
+          ENDSELECT  
+
+END FinalizePath
+
+
+--============================================================
+-- ROUTINE BOOL CompareFrame(frame1 : IN, frame2 : IN)
+ROUTINE CompareFrame
+
+VAR
+isEqual : BOOLEAN
+
+BEGIN
+
+isEqual = (frame1.X = frame2.X) AND (frame1.Y = frame2.Y) AND (frame1.Z = frame2.Z) AND (frame1.W = frame2.W) AND (frame1.P = frame2.P) AND (frame1.R = frame2.R)
+	
+RETURN (isEqual)
+
+END CompareFrame
+
+
+
+--============================================================
+--ROUTINE ClrPaths(PathID : INTEGER) FROM SpinTopPath
+ROUTINE ClrPaths
+
+VAR
+I : INTEGER
+
+BEGIN
+
+IF (PathID > NumPaths) THEN
+  PathID = 1
+    POST_ERR(38000,'Path ' + int2str(PathID) + ' not valid. Use 1 to ' + int2str(NumPaths),0,1)
+	RETURN
+ENDIF
+
+
+IF UNINIT(ST_PathPos1[1]) THEN
+	Write('++Initializing path arrays++')
+	InitPaths
+ENDIF
+
+SELECT PathID OF
+          CASE (1):
+                FOR I = 1 TO LenPaths DO
+                  ST_PathPos1[I] = Nullframe      
+                ENDFOR
+          CASE (2):
+                FOR I = 1 TO LenPaths DO     
+				  ST_PathPos2[I] = Nullframe  
+				ENDFOR
+          CASE (3):
+				FOR I = 1 TO LenPaths DO    
+                  ST_PathPos3[I] = Nullframe
+                ENDFOR
+          CASE (4):
+				FOR I = 1 TO LenPaths DO       
+                  ST_PathPos4[I] = Nullframe
+                ENDFOR
+          CASE (5):
+				FOR I = 1 TO LenPaths DO       
+                  ST_PathPos5[I] =Nullframe
+                ENDFOR		 
+          ENDSELECT
+
+END ClrPaths
+		
+		
+---ENTRY POINT----
+
+BEGIN
+
+
+IF UNINIT(ST_PathPos1[1]) THEN
+	InitPaths
+ENDIF
+
+
+END SpinTopPath
+
+
+
+
+
+
+

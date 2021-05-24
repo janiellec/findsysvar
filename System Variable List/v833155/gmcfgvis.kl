@@ -1,0 +1,13 @@
+-- Used for GM Vision Application specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+  Use_Vision   IN SHADOW FROM GMCFGVIS : BOOLEAN -- If a cell Has vision
+  VisnCommType IN SHADOW FROM GMCFGVIS : INTEGER -- Communication  Type Device Ethernet 89, DeviceNet 82
+  VisSys_Type  IN SHADOW FROM GMCFGVIS : INTEGER  -- Vision SYstem Type iRvision = 1, Cognex =2 , Spin-Top =3
+  iRType       IN SHADOW FROM GMCFGVIS : INTEGER  -- Vision iRvision Type
+  FanuciR      IN SHADOW FROM GMCFGVIS : BOOLEAN --
+  Fanuc3dl     IN SHADOW FROM GMCFGVIS : BOOLEAN --
+
+  VisLghtType  IN SHADOW FROM GMCFGVIS : INTEGER -- What Type of Vision Lighting Rbt=1 Fix=2 Rbt&Fix=3
+  Use_Spin_Top IN SHADOW FROM GMCFGVIS  : BOOLEAN -- If a cell Has Spin top for Vision
+
+

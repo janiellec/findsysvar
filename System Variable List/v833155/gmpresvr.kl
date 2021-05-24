@@ -1,0 +1,1311 @@
+
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMPRESVR
+--
+--    Description: Set up all variables asscosiated with GM Press Application
+--
+--    GMPRESVR: Configures Press specific variables Variables.
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+--
+--    Other Application files:
+--    GMPRESIO -- program to setup and comment the press I/O GMCELLIO is also required to setup workcell interface
+--    GMPRESPG -- program for loading all unique program that are specific to Press applications
+--    GMPRESRG -- program for setting registers and position registers comments and default values
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: modified swwpress    11-NOVEMBER-31 01:11PM
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--
+--       16-07-04 RKosaski  Edited for Press Release
+--       16-10-27 RKosaski  Changes from Lloyds Press Build 31 issues list
+--                          Added setting Prompt to open to false because Lloyd said is being set????
+--       16-10-30 RKosaski  Added the code for the IIC and Signiture from Matt DeNio and Jerrod Zimmerman
+--
+--     2016-12-5 Kosaski   Changes to file for P02 release
+--     2017-05-03 Kosaski  Changed order of routine calls for maintenance reminder because values being overwritten
+--                         because 1st run had to initialize system varaiables???
+--     2017-06-23 Kosaski  Added I/O comments per Leo Keselman for PressSync
+--     2017-06-24 marchaka Moved web screen setup to SetWebScreen in gmcellvr
+--     2017-07-13 Kosaski  Moved the Press sync variables to a single routine
+--     2018-04-04 Schoenberg V8.33P05 updates
+--     2018-06-26 Baker      Removed prs_sty_tbl, set_mac_tbl
+--                           Added initpressdcs, initpressiic, init_mtrem
+--     2018-07-18 Baker      Checked for r2000iC_100p robot and set system variable based 
+--                           on press application selected in the wizard
+-----------------------------------------------------------------------------
+PROGRAM GMPRESVR
+-----------------------------------------------------------------------------
+%ENVIRONMENT ATCLDEF -- needed for the $Style variables
+%ENVIRONMENT mnmcdef -- required for the macro table vars
+%ENVIRONMENT sysdef
+
+%COMMENT = 'Press Vars V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS		-- free to read/write
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+
+Version = '2018-07-18'
+
+%INCLUDE gmcnstnt -- used for all GM constants
+
+VAR
+  i,h,
+  gm_status    : INTEGER
+  psve         : INTEGER
+  prog_nam     : STRING[12]
+  l_stat       : INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  entry,        -- used for the GET_VAR command
+  StrtinErs  : INTEGER  -- How many errors I/O error counter had when the program started
+
+  r2000ic_100p IN SHADOW FROM GMCUSTO: BOOLEAN
+
+  PresVarsDone IN SHADOW FROM GMPRESVR: BOOLEAN -- if the variables has ran completly
+  -- From other programs
+ -- Variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- Variables declares for Shop specifics
+%INCLUDE gmcfgprs  -- GM wizard variables for press Applications
+
+-- Variables declared for Applications
+%INCLUDE gmcfgmh   -- GM wizard variables for MH Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications
+%INCLUDE gmcfgtlc  -- GM wizard variables for tool changer Applications
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-- Blow routines added and moved to press register file because size is too large
+--ROUTINE initpressdcs FROM GMPRESRG -- had to move here to translate offline
+--ROUTINE initpressiic FROM GMPRESRG -- had to move here to translate offline
+--ROUTINE init_mtrem FROM GMPRESRG -- had to move here to translate offline
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has the builtins for common routines
+--------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE ChkPrsVrInit
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  RETURN
+END ChkPrsVrInit
+-------------------------------------------------------------------
+--------------------------------------------------------------------------
+ROUTINE initpressiic
+-- PURPOSE: Iniitalize the IIC settings, this code is called from GMPRESVR
+--          moved here because code in GMPRESVR became to large.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+VAR
+  entry : INTEGER
+
+  hostname    : STRING[50]
+
+BEGIN
+
+
+WriteLog('  Setting IIC Variables', FALSE)
+
+   LPT_IIC = FALSE -- set iiC to false then check for option to set true
+
+-- go see if IIC is loaded if so then go setup so it can run
+   IF (Chk_Feature('R557')) THEN
+     LPT_IIC = TRUE
+   ENDIF
+   IF (Chk_Feature('R759')) THEN
+     LPT_IIC = TRUE
+   ENDIF
+   IF (Chk_Feature('R761')) THEN
+     LPT_IIC = TRUE
+   ENDIF
+  
+   
+   IF LPT_IIC THEN  -- run for 200P and 100P w/wo lpt
+     IF chk_loaded('iic_sig') THEN -- verify program is loaded
+       WriteLog('  Setup IIC_SIG in prgs2runprs[1] in ATCUSTOM', FALSE)
+       Set_S_PVar('atcustom','PRGS2RUNPRS[1].PROG_NAME','iic_sig')
+       Set_B_PVar('atcustom','PRGS2RUNPRS[1].NEEDTORUN',TRUE)
+     ELSE
+       POST_ERR(38000, 'IIC_SIG program not loaded', 0, 0) --
+       WriteLog('  IIC_SIG program not loaded', TRUE)
+     ENDIF
+   ELSE
+     WriteLog('  No R557,R759,or R761 loaded for IIC', FALSE)
+   ENDIF
+
+  -- go get the host name
+  GET_VAR(entry, '*system*', '$HOSTNAME', hostname, gm_status)
+
+  IF UNINIT(hostname) THEN
+    hostname = 'unknown'
+  ENDIF
+  -- Initialize calibration
+
+  Set_S_sVar('$IC_AZ_CALIB[1].$ROB1_NAME',hostname)
+  Set_S_sVar('$IC_AZ_CALIB[1].$ROB2_NAME',hostname)
+  Set_S_sVar('$IC_AZ_MEMBR[1].$ZMGR_NAME',hostname)
+  Set_S_sVar('$IC_AZ_MEMBR[1].$MEMBER_NAME',hostname)
+  Set_B_sVar('$IC_AZ_CALIB[1].$CALIB_DONE',TRUE)
+
+  -- Enable Signature
+--  sysv_name = 'lpto_enbl'
+--  SET_VAR(entry, 'swcusto', sysv_name, TRUE, stat)
+--  set_var_stat(stat,sysv_name)
+
+  -- Setup number of checks
+  Set_I_sVar('$IA_NUM_CHK',4)
+  Set_I_sVar('$IA_NUM_FOBJ',4)
+--  Set_I_sVar('$IA_NUM_HAND',4)
+
+IF (chk_feature('R885')) THEN  --LPT
+
+-- Setup models
+  Set_I_sVar('$IA_GRP[1].$UT_HAND[1]',1)
+  Set_I_sVar('$IA_GRP[1].$UT_HAND[2]',2)
+
+  -- Set tool 1
+  Set_S_sVar('$IA_HAND[1].$COMMENT','With Part')
+  -- Set tool 1, element 1
+  Set_B_sVar('$IA_HAND[1].$ELEM[1].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[1].$ELEM[1].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[1].$ELEM[1].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[1].$ELEM[1].$SIZE',50)
+  Set_I_sVar('$IA_HAND[1].$ELEM[1].$SHAPE',2)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[1]',-2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[2]',1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[4]',2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[5]',1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[1].$DATA[6]',100.0)
+  -- Set tool 1, element 2
+  Set_B_sVar('$IA_HAND[1].$ELEM[2].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[1].$ELEM[2].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[1].$ELEM[2].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[1].$ELEM[2].$SIZE',50)
+  Set_I_sVar('$IA_HAND[1].$ELEM[2].$SHAPE',2)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[1]',2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[2]',-1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[4]',-2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[5]',-1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[2].$DATA[6]',100.0)
+  -- Set tool 1, element 3
+  Set_B_sVar('$IA_HAND[1].$ELEM[3].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[1].$ELEM[3].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[1].$ELEM[3].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[1].$ELEM[3].$SIZE',50)
+  Set_I_sVar('$IA_HAND[1].$ELEM[3].$SHAPE',2)
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[1]',2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[2]',1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[4]',2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[5]',-1000.0)-- Changed from 1000 to -1000 11/21/16 P.M.
+  Set_R_sVar('$IA_HAND[1].$ELEM[3].$DATA[6]',100.0)
+
+  -- Set tool 1, element 4
+  Set_B_sVar('$IA_HAND[1].$ELEM[4].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[1].$ELEM[4].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[1].$ELEM[4].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[1].$ELEM[4].$SIZE',50)
+  Set_I_sVar('$IA_HAND[1].$ELEM[4].$SHAPE',2)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[1]',-2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[2]',1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[4]',-2000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[5]',-1000.0)
+  Set_R_sVar('$IA_HAND[1].$ELEM[4].$DATA[6]',100.0)
+
+  -- Set tool 2
+  Set_S_sVar('$IA_HAND[2].$COMMENT','Without Part')
+  -- Set tool 2, element 1
+  Set_B_sVar('$IA_HAND[2].$ELEM[1].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[2].$ELEM[1].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[2].$ELEM[1].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[2].$ELEM[1].$SHAPE',2)
+  Set_I_sVar('$IA_HAND[2].$ELEM[1].$SIZE',50)
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[1]',(-2000.0))
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[2]',1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[4]',2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[5]',1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[1].$DATA[6]',100.0)
+
+  -- Set tool 2, element 2
+  Set_B_sVar('$IA_HAND[2].$ELEM[2].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[2].$ELEM[2].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[2].$ELEM[2].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[2].$ELEM[2].$SHAPE',2)
+  Set_I_sVar('$IA_HAND[2].$ELEM[2].$SIZE',50)
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[1]',2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[2]',(-1000.0))
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[4]',-2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[5]',-1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[2].$DATA[6]',100.0)
+
+  -- Set tool 2, element 3
+  Set_B_sVar('$IA_HAND[2].$ELEM[3].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[2].$ELEM[3].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[2].$ELEM[3].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[2].$ELEM[3].$SHAPE',2)
+  Set_I_sVar('$IA_HAND[2].$ELEM[3].$SIZE',50)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[1]',-2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[2]',1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[4]',-2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[5]',-1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[3].$DATA[6]',100.0)
+
+  -- Set tool 2, element 4
+  Set_B_sVar('$IA_HAND[2].$ELEM[4].$USE',TRUE)
+  Set_I_sVar('$IA_HAND[2].$ELEM[4].$LINK_NO',98)
+  Set_I_sVar('$IA_HAND[2].$ELEM[4].$LINK_TYPE',1)
+  Set_I_sVar('$IA_HAND[2].$ELEM[4].$SHAPE',2)
+  Set_I_sVar('$IA_HAND[2].$ELEM[4].$SIZE',50)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[1]',2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[2]',-1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[3]',100.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[4]',2000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[5]',1000.0)
+  Set_R_sVar('$IA_HAND[2].$ELEM[4].$DATA[6]',100.0)
+
+ ENDIF  --blue rectangle for LPT only
+
+  -- Set Press Fixtures
+  -- Set Pick Press
+  Set_S_sVar('$IA_FOBJ[1].$COMMENT','Pick Press')
+  Set_B_sVar('$IA_FOBJ[1].$ELEM[1].$USE',TRUE)
+  Set_I_sVar('$IA_FOBJ[1].$ELEM[1].$SHAPE',3)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[1]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[2]',2150.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[3]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[4]',100.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[5]',2150.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[6]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[7]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[8]',2150.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[9]',100.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[10]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[11]',0.0)
+  Set_R_sVar('$IA_FOBJ[1].$ELEM[1].$DATA[12]',0.0)
+
+  -- Set Drop Press
+  Set_S_sVar('$IA_FOBJ[2].$COMMENT','Drop Press')
+  Set_B_sVar('$IA_FOBJ[2].$ELEM[1].$USE',TRUE)
+  Set_I_sVar('$IA_FOBJ[2].$ELEM[1].$SHAPE',3)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[1]',100.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[2]',-2150.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[3]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[4]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[5]',-2150.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[6]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[7]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[8]',-2150.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[9]',100.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[10]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[11]',0.0)
+  Set_R_sVar('$IA_FOBJ[2].$ELEM[1].$DATA[12]',0.0)
+
+  -- Set Check Combinations
+  -- Set Pick Press Combo
+  Set_B_sVar('$IA_CHKCMB[1].$ENBL',TRUE)
+  Set_S_sVar('$IA_CHKCMB[1].$R_CNTLR',hostname)
+  Set_I_sVar('$IA_CHKCMB[1].$R_TYPE',5)
+  Set_I_sVar('$IA_CHKCMB[1].$R_INDEX',1)
+  Set_I_sVar('$IA_CHKCMB[1].$DEC_DO_IDX',377)
+  Set_I_sVar('$IA_CHKCMB[1].$OTHER_NO',1)
+
+  -- Set Drop Press Combo
+  Set_B_sVar('$IA_CHKCMB[2].$ENBL',TRUE)
+  Set_S_sVar('$IA_CHKCMB[2].$R_CNTLR',hostname)
+  Set_I_sVar('$IA_CHKCMB[2].$R_TYPE',5)
+  Set_I_sVar('$IA_CHKCMB[2].$R_INDEX',2)
+  Set_I_sVar('$IA_CHKCMB[2].$DEC_DO_IDX',378)
+  Set_I_sVar('$IA_CHKCMB[2].$OTHER_NO',1)
+  -- Set Check Combinations
+
+  -- Set Pick Press Combo
+  Set_B_sVar('$IB_CHKCMB[1].$ENBL',TRUE)
+  Set_S_sVar('$IB_CHKCMB[1].$R_CNTLR',hostname)
+  Set_I_sVar('$IB_CHKCMB[1].$R_TYPE',5)
+  Set_I_sVar('$IB_CHKCMB[1].$R_INDEX',1)
+  Set_I_sVar('$IB_CHKCMB[1].$DEC_DO_IDX',377)
+  Set_I_sVar('$IB_CHKCMB[1].$OTHER_NO',1)
+  -- Set Drop Press Combo
+  Set_B_sVar('$IB_CHKCMB[2].$ENBL',TRUE)
+  Set_S_sVar('$IB_CHKCMB[2].$R_CNTLR',hostname)
+  Set_I_sVar('$IB_CHKCMB[2].$R_TYPE',5)
+  Set_I_sVar('$IB_CHKCMB[2].$R_INDEX',2)
+  Set_I_sVar('$IB_CHKCMB[2].$DEC_DO_IDX',378)
+  Set_I_sVar('$IB_CHKCMB[2].$OTHER_NO',1)
+
+  Set_B_sVar('$IA_GRP[1].$CALIB.$DONE',TRUE)
+
+      WriteLog('  IIC Variables Completed', FALSE)
+
+END initpressiic
+
+-----------------------------------------------------------------------------
+ROUTINE initpressdcs
+-- PURPOSE: Iniitalize the DCS settings, this code is called from GMPRESVR
+--          moved here because code in GMPRESVR became to large.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+   WriteLog('  Press init_dcs setup Routine Started', FALSE)
+
+  -- Setup tool
+  Set_S_sVar('$DCSS_MODEL[1].$COMMENT','Max Part Size W/LPT')
+  Set_I_sVar('$DCSS_MODEL[1].$ELEM[1].$USE',1)
+  Set_I_sVar('$DCSS_MODEL[1].$ELEM[1].$LINK_NO',99)
+  Set_I_sVar('$DCSS_MODEL[1].$ELEM[1].$SHAPE',4)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[1]',0.0)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[2]',0.0)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[3]',350.0)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[4]',4100.0)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[5]',5300.0)
+  Set_R_sVar('$DCSS_MODEL[1].$ELEM[1].$DATA[6]',100.0)
+
+  -- Setup perimeter
+
+  Set_S_sVar('$DCSS_CPC[5].$COMMENT','Robot Perimeter')
+  Set_I_sVar('$DCSS_CPC[5].$ENABLE',1)
+  Set_I_sVar('$DCSS_CPC[5].$MODE',0)
+  Set_I_sVar('$DCSS_CPC[5].$GRP_NUM',1)
+  Set_I_sVar('$DCSS_CPC[5].$MODEL_NUM[1]',(-1))
+  Set_I_sVar('$DCSS_CPC[5].$MODEL_NUM[2]',1)
+  Set_I_sVar('$DCSS_CPC[5].$UFRM_NUM',0)
+  Set_I_sVar('$DCSS_CPC[5].$NUM_VTX',8)
+  Set_R_sVar('$DCSS_CPC[5].$X[1]',5250.0)
+  Set_R_sVar('$DCSS_CPC[5].$X[2]',-1050.0)
+  Set_R_sVar('$DCSS_CPC[5].$Y[1]',-4750.0)
+  Set_R_sVar('$DCSS_CPC[5].$Y[2]',4750.0)
+  Set_R_sVar('$DCSS_CPC[5].$Z1',2900.0)
+  Set_R_sVar('$DCSS_CPC[5].$Z2',-3100.0)
+  Set_I_sVar('$DCSS_CPC[5].$STOP_TYP',1)
+
+   WriteLog('  Press init_dcs setup Routine Completed', FALSE)
+
+END initpressdcs
+
+-----------------------------------------------------------------------------
+ROUTINE init_mtrem
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  grp_str      : STRING[3]
+  item         : INTEGER
+  item_str     : STRING[3]
+  sysv_name    : STRING[50]
+  init_bool    : BOOLEAN
+  entry        : INTEGER
+  item_meter   : REAL
+  serv_output  : INTEGER
+
+CONST
+  NUM_ITEMS = 10
+
+BEGIN
+         WriteLog('  Routine init_mtrem Started for Press', FALSE)
+-- go see if variables have ever been setup
+  GET_VAR(entry, '*system*', '$MAINT_REM.$INIT', init_bool, gm_status)
+    IF (gm_status <>0) AND (gm_status <> 12311) THEN
+      POST_ERR(38000, 'GET_VAR on $MAINT_REM.$INIT FAILED', gm_status, 0) --
+       WriteLog('  GET_VAR on $MAINT_REM.$INIT FAILED, Status='+int2str(gm_status), TRUE)
+    ENDIF
+    IF (gm_status = 12311) THEN -- if variable has neever been setup, set flag to have code setup
+      init_bool = FALSE
+    ENDIF
+
+  IF (init_bool = FALSE) THEN --if uninitialized setup defaults
+    Set_B_sVar('$MAINT_REM.$INIT',TRUE)
+
+
+
+    Set_I_sVar('$MAINT_REM.$REG_START',0)
+    FOR item = 1 TO NUM_ITEMS DO
+
+      Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$NAME','')
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$GROUP',0)
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$AXIS',0)
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$DO_NUM',0)
+      Set_B_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$DUE',FALSE)
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$INTERVAL',0)
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$FIRST_WARN',0)
+      Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$WARN_INTVL',0)
+      Set_B_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$RESET',FALSE)
+      Set_R_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$LAST_METER',0.0)
+      Set_R_sVar('$MAINT_REM.$MAINT_ITEMS[' + int2str(item) + '].$LAST_WARN',0.0)
+
+      -- whether output counter is count up from last maint or count down
+      -- to next one
+      IF (item <= 6) THEN
+        Set_B_pVar('lpt_task','count_up[' + int2str(item) + ']',TRUE)
+      ELSE
+        Set_B_pVar('lpt_task','count_up[' + int2str(item) + ']',FALSE)
+      ENDIF
+          -- set all intervals to be odometer based, by default
+    --     sysv_name = 'odom_based[' + item_str + ']'
+    --     SET_VAR(entry,'lpt_task', sysv_name, TRUE, stat)
+    --     set_var_stat(stat,sysv_name)
+
+    ENDFOR
+  ENDIF  -- end of original initialization of variables
+
+  -- Retrieve current odometer reading for this item axis (in km)
+  sysv_name = '$AXIS_METER[1].$ODOMETER[1]'
+  GET_VAR(entry, '*system*', sysv_name, item_meter,gm_status)
+    IF gm_status<>0 THEN
+       WriteLog('  GET_VAR $AXIS_METER[1].$ODOMETER[1] Failed, Status='+int2str(gm_status), TRUE)
+      POST_ERR(38000, 'GET_VAR $AXIS_METER[1].$ODOMETER[1] Failed', gm_status, 0) --
+    ELSE
+
+      IF UNINIT(item_meter) THEN
+        WriteLog('  $AXIS_METER[1].$ODOMETER[1] NO ITEM METER', TRUE)
+        POST_ERR(38000, '$AXIS_METER[1].$ODOMETER[1] NO ITEM METER', 0, 0) --
+        item_meter = -1
+      ENDIF
+
+      IF(item_meter = 0) THEN
+
+        GET_VAR(entry, '*system*', '$SERV_OUTPUT', serv_output, gm_status)
+          IF gm_status <> 0 THEN
+            WriteLog('  GET_VAR $SERV_OUTPUT FAILED, Status='+int2str(gm_status), TRUE)
+            POST_ERR(38000, 'GET_VAR $SERV_OUTPUT FAILED', gm_status, 0) --
+          ELSE
+            IF UNINIT(serv_output) THEN
+              serv_output = 0
+            WriteLog('  SET SERV_OUPUT to ZERO', FALSE)
+              POST_ERR(38000, 'SET SERV_OUPUT to ZERO', 0, 0) --
+            ENDIF
+            serv_output = serv_output OR 64
+            Set_I_sVar('$SERV_OUTPUT',serv_output)
+          ENDIF
+
+        -- Customize specific LPT maintenance items
+
+        -- set all the common setting in this for loop
+        FOR i = 1 TO 10 DO
+          Set_I_sVar('$MAINT_REM.$MAINT_ITEMS['+int2str(i)+'].$GROUP',1)
+          Set_I_sVar('$MAINT_REM.$MAINT_ITEMS['+int2str(i)+'].$AXIS',7)
+        ENDFOR --
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[1].$NAME','2.4cc grs rbt crg brngs')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[1].$INTERVAL',10000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[1].$FIRST_WARN',500)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[1].$WARN_INTVL',20)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[2].$NAME','1.2cc grs pld crg brngs')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[2].$INTERVAL',1000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[2].$FIRST_WARN',500)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[2].$WARN_INTVL',20)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[3].$NAME','6cc grease rack')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[3].$INTERVAL',600)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[3].$FIRST_WARN',50)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[3].$WARN_INTVL',5)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[4].$NAME','inspect belt tension')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[4].$INTERVAL',600)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[4].$FIRST_WARN',50)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[4].$WARN_INTVL',5)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[5].$NAME','inspect rack backlash')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[5].$INTERVAL',2500)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[5].$FIRST_WARN',300)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[5].$WARN_INTVL',15)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[6].$NAME','inspect cable carrier')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[6].$INTERVAL',600)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[6].$FIRST_WARN',50)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[6].$WARN_INTVL',5)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[7].$NAME', 'reach belt life')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[7].$INTERVAL',30000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[7].$FIRST_WARN',4000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[7].$WARN_INTVL',250)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[8].$NAME','reach bearing life')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[8].$INTERVAL',150000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[8].$FIRST_WARN',4000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[8].$WARN_INTVL',250)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[9].$NAME','reach reducer lube life')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[9].$INTERVAL',30000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[9].$FIRST_WARN',4000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[9].$WARN_INTVL',250)
+
+        Set_S_sVar('$MAINT_REM.$MAINT_ITEMS[10].$NAME','reach pinion life')
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[10].$INTERVAL',150000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[10].$FIRST_WARN',4000)
+        Set_I_sVar('$MAINT_REM.$MAINT_ITEMS[10].$WARN_INTVL',250)
+
+      ENDIF --endif for if (item_meter = 0)
+  ENDIF -- endif for if the m
+
+         WriteLog('  Completed routine init_mtrem for Press', FALSE)
+
+END init_mtrem
+--*********************************************************************************
+ROUTINE SetPressVars   --jja R30iB Update03
+--
+--*********************************************************************************
+  VAR
+
+  l_i : INTEGER
+
+  BEGIN
+
+  ChkPrsVrInit
+     -- FFR Configuration
+   WriteLog('  Press Variable setup routine SetPressVars Started', FALSE)
+
+     Set_B_sVar('$RSMFST_SV.$FFAST_ENBL',FALSE)
+     Set_I_sVar('$RSMFST_SV.$FFAST_DO.$PORT_NUM',0)
+     Set_I_sVar('$RSMPRG_SV.$SVPRG_ENBLE',0)
+     Set_B_sVar('$SVPRG_ENB',FALSE)
+     Set_S_sVar('$RSMFST_SV.$DEF_MAINT','********')
+
+     Set_B_sVar('$group[1].$use_turns',FALSE) --
+
+     Set_B_sVar('$hscdmngrp[1].$coll_mode',TRUE)--RK 12/12/16
+     Set_I_sVar('$hscdmngrp[1].$macro_reg',14) --RK 12/12/16 was not same as general motors
+
+     -- 4/7/17 per Llloyd
+     Set_B_sVar('$tcpp_cfg.$warning_enb',FALSE) --
+
+-- Below needs to be changed per Matt DeNio 7-1-15 ZDT has differant maintiance vars
+-- but are not defined yet so cant enter
+
+   IF (LPT =TRUE) THEN
+     Set_I_sVar('$MAINT_REM.$REG_START',300)
+     FOR i = 1 TO 10 DO -- setup 358-367
+       Set_I_sVar('$MAINT_REM.$MAINT_ITEMS['+int2str(i)+'].$DO_NUM',(i+357))
+     ENDFOR --
+		 IF (PresLineType=1) THEN  -- this program only load in tandem apps
+       Set_S_sVar('$MIX_BG[8].$PROG_NAME', 'sync_mon')   --4-4-18 sms
+       Set_I_sVar('$MIX_BG[8].$MODE', 2)   
+       Set_I_sVar('$MIX_BG[8].$STATUS', 2)
+     ENDIF     
+   ENDIF  --LPT true
+
+--Set menu favorites to LPT stuff for web screens
+	--moved to SetWebScreen in gmcellvr
+
+ IF (LPT = TRUE) THEN
+    WriteLog('  Setting Monitoring Data', FALSE)
+   -- LPT Monitor warning outputs
+    Set_I_PVar('LPT_MON', 'warn_do_idx',353)
+    Set_I_PVar('LPT_MON', 'ewarn_do_idx',353) --LPT Torque Alert
+    Set_I_PVar('LPT_MON', 'min_num_warn',2)
+
+    Set_B_PVar('LPT_MON', 'auto_save',FALSE) -- 12-7-16 RK changed to menu llyod complaned about
+
+    WriteLog('  Setup LPT_TASK in prgs2runprs[2] in ATCUSTOM', FALSE)
+    Set_B_Pvar('atcustom','Prgs2RunPRS[2].needtorun',TRUE)
+    Set_S_Pvar('atcustom','Prgs2RunPRS[2].prog_name','LPT_TASK')
+
+ ENDIF
+
+   WriteLog('  Press Setting Interconnects', FALSE)
+
+    Set_B_sVar('$PLMR_GRP[1].$WMR_ENB',TRUE)
+    Set_R_sVar('$PLMR_GRP[1].$ANGLE',18.00)
+    Set_I_sVar('$SHFTOV_ENB',1) --Allow SHIFT and % to bump speed
+
+    Set_B_sVar('$THRSDITABLE[16].$THR_ENB',FALSE)
+    Set_I_sVar('$THRSDITABLE[16].$DI_NO',0)
+    Set_I_sVar('$THRSDITABLE[16].$DO_NO',0)
+
+    Set_B_sVar('$THRSDITABLE[17].$THR_ENB',FALSE)
+    Set_I_sVar('$THRSDITABLE[17].$DI_NO',0)
+    Set_I_sVar('$THRSDITABLE[17].$DO_NO',0)
+
+ -- Press Interconnects
+-- other I/O points are done in GMMHGPIO , so only need to commment these
+
+--  Set Tool Latched Interconnect
+    Set_B_sVar('$THRSDITABLE[18].$THR_ENB',TRUE)
+    Set_I_sVar('$THRSDITABLE[18].$DI_NO',905)
+    Set_I_sVar('$THRSDITABLE[18].$DO_NO',338)
+
+--  Set Part Present F1 Interconnect
+    Set_B_sVar('$THRSDITABLE[19].$THR_ENB',TRUE)
+    Set_I_sVar('$THRSDITABLE[19].$DI_NO',801)
+    Set_I_sVar('$THRSDITABLE[19].$DO_NO',269)
+
+--  Set Part Present R1 Interconnect
+    Set_B_sVar('$THRSDITABLE[20].$THR_ENB',TRUE)
+    Set_I_sVar('$THRSDITABLE[20].$DI_NO',802)
+    Set_I_sVar('$THRSDITABLE[20].$DO_NO',270)
+
+--  Set Part Present F2 Interconnect
+    Set_B_sVar('$THRSDITABLE[21].$THR_ENB',TRUE)
+    Set_I_sVar('$THRSDITABLE[21].$DI_NO',803)
+    Set_I_sVar('$THRSDITABLE[21].$DO_NO',271)
+
+--  Set Part Present R2 Interconnect
+    Set_B_sVar('$THRSDITABLE[22].$THR_ENB',TRUE)
+    Set_I_sVar('$THRSDITABLE[22].$DI_NO',804)
+    Set_I_sVar('$THRSDITABLE[22].$DO_NO',272)
+
+   WriteLog('  Press Interconnects Completed', FALSE)
+
+
+   WriteLog('  Routine SetPressVars Completed', FALSE)
+
+  IF LPT THEN
+    Set_I_sVar('$error_table[1]' , 35127307)
+    Set_I_sVar('$error_table[2]' , 1075314707)
+    Set_I_sVar('$error_table[3]' , 1075314781)
+    Set_I_sVar('$error_table[4]' , 17498435)
+    Set_I_sVar('$error_table[5]' , 537854122)
+  ELSE
+    Set_I_sVar('$error_table[1]' , 35127307)
+    Set_I_sVar('$error_table[2]' , 1075314707)
+    Set_I_sVar('$error_table[3]' , 1075314781)
+    Set_I_sVar('$error_table[4]' , 537854122)
+  ENDIF
+
+  r2000iC_100p = FALSE -- VAR for R2000iC/100p robot arm
+  IF Chk_Feature('H730') THEN
+    r2000iC_100p = TRUE
+  ENDIF
+
+  IF r2000iC_100p = TRUE THEN -- R2000iC/100p arm
+    IF ((PresLineType = PresTandem) OR (PresLineType = PresDestack)) THEN -- setting for tandem or destacking applications
+      Set_R_sVar('$TBJ_GRP[1].$FLEX[5]', 1)
+    ENDIF
+    IF ((PresLineType = PresTransfer) OR (PresLineType = PresRoboRack)) THEN -- setting for end of line transfer or robot racking applications
+      Set_R_sVar('$TBJ_GRP[1].$FLEX[5]', 0)
+    ENDIF
+  ENDIF -- R2000iC/100p arm
+
+ END SetPressVars
+-----------------------------------------------------------------------------
+ROUTINE SetSyncVars
+-- PURPOSE: to set vars specifically associated with teh press sync option
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+-- IF Chk_Feature('R886') THEN
+
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$TIME_MS',0)
+     Set_B_sVar('$TMSN_VARS.$TIMERS[1].$ENABLE',TRUE)
+     Set_B_sVar('$TMSN_VARS.$TIMERS[1].$START',FALSE)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$GOUT_NUM',0)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$GIN_NUM',83)-- GI count down to enter angle 1
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$DIN_NUM',329)-- DI open early Ack
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$DOUT_NUM',356) --DO Early Open Recieved1
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$DOUT_TIME',999)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$DUMMY8',255)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[1].$DUMMY9',255)
+
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$TIME_MS',0)
+     Set_B_sVar('$TMSN_VARS.$TIMERS[2].$ENABLE',FALSE)
+     Set_B_sVar('$TMSN_VARS.$TIMERS[2].$START',FALSE)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$GOUT_NUM',0)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$GIN_NUM',85)   -- GI count down to enter angle 1
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$DIN_NUM',331)  -- DI open early Ack
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$DOUT_NUM',357) --DO Early Open Recieved1
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$DOUT_TIME',999)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$DUMMY8',255)
+     Set_I_sVar('$TMSN_VARS.$TIMERS[2].$DUMMY9',255)
+
+
+     Set_I_sVar('$prsn_vars.$pck_entr_do',377)
+     Set_I_sVar('$prsn_vars.$drp_entr_do',378)
+     Set_I_sVar('$prsn_vars.$pck_stat_go', 36)
+     Set_I_sVar('$prsn_vars.$pck_time_go', 35)
+     Set_I_sVar('$prsn_vars.$pck_stat_gi', 36)
+     Set_I_sVar('$prsn_vars.$pck_time_gi', 35)
+     Set_I_sVar('$prsn_vars.$drp_stat_go', 34)
+     Set_I_sVar('$prsn_vars.$drp_stat_gi', 34)
+     Set_I_sVar('$prsn_vars.$pck_mode_gi', 37)
+     Set_I_sVar('$prsn_vars.$drp_mode_gi', 31)
+     Set_I_sVar('$prsn_vars.$pck_mode_go', 31)
+     Set_I_sVar('$prsn_vars.$drp_mode_go', 37)
+     Set_I_sVar('$prsn_vars.$pck_enc_gi' , 32)
+     Set_I_sVar('$prsn_vars.$drp_enc_gi' , 38)
+     Set_I_sVar('$prsn_vars.$pck_enc_go' , 38)
+     Set_I_sVar('$prsn_vars.$drp_enc_go' , 32)
+     Set_I_sVar('$prsn_vars.$pck_ang_gi' , 87)
+     Set_I_sVar('$prsn_vars.$drp_ang_gi' , 88)
+     Set_R_sVar('$prsn_vars.$plc_scn_tm' , 120)
+     Set_I_sVar('$prsn_vars.$drp_sig_do' , 375)
+     Set_I_sVar('$prsn_vars.$gen_ovr_go' , 39)
+     Set_I_sVar('$prsn_vars.$dwn_bnd_go' , 33)
+     Set_I_sVar('$prsn_vars.$up_bnd_go'  , 40)
+     Set_I_sVar('$prsn_vars.$dwn_bnd_gi' , 40)
+     Set_I_sVar('$prsn_vars.$up_bnd_gi'  , 33)
+     Set_I_sVar('$prsn_vars.$plc_inpt_di', 343)
+     Set_I_sVar('$prsn_vars.$plc_otpt_do', 369)
+     Set_I_sVar('$prsn_vars.$prs_tim_dif', 80)
+     Set_R_sVar('$prsn_vars.$zer_spd_lim',  1)
+     Set_I_sVar('$prsn_vars.$mov_itp_lim', 15)
+     Set_I_sVar('$prsn_vars.$stp_itp_lim', 15)
+     Set_I_sVar('$prsn_vars.$comp_sw'    ,  4)
+     Set_S_sVar('$prsn_vars.$dbg_path'   , 'UT1:')
+     Set_I_sVar('$prsn_vars.$hld_ovr_di' , 430)
+     Set_I_sVar('$prsn_vars.$prs_stp_dst', 25)
+     Set_I_sVar('$prsn_vars.$init_prs_di', 426)
+     Set_I_sVar('$prsn_vars.$pck_sadj_gi', 86)
+     Set_I_sVar('$prsn_vars.$drp_sadj_gi', 89)
+     Set_I_sVar('$prsn_vars.$drp_estp_do', 376)
+
+--  ENDIF
+
+    Set_I_sVar('$prsn_vars.$pck_estp_do',329)-- RK Added 6-23-17 per Leo Keselman
+    Set_I_sVar('$prsn_vars.$pck_flt_di',328) -- RK Added 6-23-17 per Leo Keselman
+    Set_I_sVar('$prsn_vars.$gen_ovr_gi',39)  -- RK Added 6-23-17 per Leo Keselman
+
+END SetSyncVars
+--*********************************************************************************
+-----------------------------------------------------------------------------
+ROUTINE Miscell_Vars
+-- PURPOSE: Stuff not sure about and ne
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+-- VAR
+
+BEGIN
+
+ChkPrsVrInit
+
+   WriteLog('  Press Variable setup routine Miscell_Vars Started', FALSE)
+
+-- IF (LPT = TRUE) THEN
+--    l_open_index = 0
+--    wiz_in_list = FALSE
+   -- See if swwizard is in the list already
+--   For l_i = 1 to ARRAY_LEN($FILE_APPBCK) DO
+ --     IF UNINIT($FILE_APPBCK[l_i].$FILE_NAME) THEN
+--        l_open_index = l_i
+ --       l_i = (ARRAY_LEN($FILE_APPBCK))+1
+--jja R30iB Update03      ELSE -- NOT uninit
+--jja R30iB Update03        IF $FILE_APPBCK[l_i].$FILE_NAME = 'LPT_MON.CSV' THEN
+--jja R30iB Update03          wiz_in_list = TRUE
+--jja R30iB Update03          l_i = (ARRAY_LEN($FILE_APPBCK))+1
+--jja R30iB Update03        ENDIF
+--      ENDIF
+--    ENDFOR
+    -- IF LPT_MON in NOT in the list then find open spot and
+    -- place in the backup list.
+--jja R30iB Update03    IF (NOT wiz_in_list) AND (l_open_index > 0) THEN
+--    IF (l_open_index > 0) THEN
+      -- Set up fileapback to save LPT_MON vars because some dump S&^T
+      -- put them in different programs.This must be done so that when
+      -- performing a restore ALL the relivant wizard vars will be resroted.
+--      $FILE_APPBCK[l_open_index].$FILE_NAME = '*.CSV'
+--      $FILE_APPBCK[l_open_index].$PROG_NAME = 'FRS:*.CSV'
+--      $FILE_APPBCK[l_open_index].$FUNC_CODE = 0
+--      $FILE_APPBCK[l_open_index].$MODIFIER = 0
+--      $FILE_APPBCK[l_open_index].$COMMENT = ''
+--    ENDIF
+--  ENDIF
+
+-- RK 10-27-16 Make SURE Press has NO prompt for Operator next 2 lines
+  Set_B_PVar('DMSTAT','Prmpt_open',FALSE)
+  Set_B_PVar( 'GMCFGPWR' , 'PromptToOpen', FALSE)
+
+   WriteLog('  Routine Miscell_Vars Completed', FALSE)
+
+  RETURN
+END Miscell_Vars
+-------------------------------------------------------------------
+
+-------------------------------------------------------------------
+ROUTINE  PRS_PAYLOAD
+--  Setup Payload Information per Hazen                          --
+-------------------------------------------------------------------
+BEGIN
+   WriteLog('  Press Variable setup routine Prs_Payload Started', FALSE)
+
+IF UNINIT(PresLineType) THEN
+  POST_ERR(38000, 'PRESLINETYPE in PRS_PAYLOAD routine UNIN', 0, 0) --
+  writeLog('PRESLINETYPE in PRS_PAYLOAD routine UNINIT', TRUE)
+  RETURN
+ENDIF
+
+SELECT (PresLineType) OF -- set payload based on line type selected by the user
+  CASE (PresTandem):  -- 1) Tandem Press Line
+   WriteLog('  Prs_Payload Routine Setting Tandem Press Payloads', FALSE)
+
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD', 58.600)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Y', 67.400)  --Center Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Z', 16.000) --Center Z
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IX', 252742.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IY', 280770.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IZ', 522046.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD', 85.600)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Y', 86.100)  --Center Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Z', 23.700) --Center Z
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IX', 374556.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IY', 539882.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IZ', 882098.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD', 54.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Y', 63.200)  --Center Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Z', 15.500) --Center Z
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IX', 226772.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IY', 100548.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IZ', 316442.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD', 74.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Y', 79.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Z', 21.700) --Center Z
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IX', 308896.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IY', 252153.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IZ', 535374.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD', 50.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Y', 58.400)  --Center Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Z', 14.800) --Center Z
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IX', 199332.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IY', 52626.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IZ', 242158.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD', 66.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Y', 74.200)  --Center Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Z', 18.900) --Center Z
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IX', 263130.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IY', 118188.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IZ', 364560.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD', 54.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Y', 63.200)  --Center Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Z', 15.400) --Center Z
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IX', 232064.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IY', 180516.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IZ', 401996.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD', 70.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Y', 77.000)  --Center Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Z', 20.400) --Center Z
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IX', 309582.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IY', 347704.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IZ', 634844.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD', 48.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Y', 55.700)  --Center Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Z', 14.200) --Center Z
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IX', 194824.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IY', 98490.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IZ', 284494.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD', 60.500)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Y', 69.200)  --Center Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Z', 17.700) --Center Z
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IX', 250292.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IY', 189140.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IZ', 424732.000) -- Inertia Z
+
+  CASE (PresDestack): --2 -- Destack Press Line
+   WriteLog('  Prs_Payload Routine Setting Destack Press Payloads', FALSE)
+
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD', 73.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Y', 38.300)  --Center Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Z', 16.500) --Center Z
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IX', 144452.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IY', 288120.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IZ', 417872.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD', 100.200)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Y', 45.900)  --Center Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Z', 22.900) --Center Z
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IX', 219226.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IY', 547624.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IZ', 730786.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD', 72.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Y', 38.300)  --Center Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Z', 16.400) --Center Z
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IX', 131712.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IY', 132104.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IZ', 249410.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD', 92.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Y', 43.800)  --Center Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Z', 21.200) --Center Z
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IX', 171990.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IY', 283710.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IZ', 426496.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD', 67.200)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Y', 36.400)  --Center Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Z', 15.900) --Center Z
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IX', 113974.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IY', 63308.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IZ', 163856.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD', 83.200)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Y', 41.600)  --Center Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Z', 19.000) --Center Z
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IX', 137004.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IY', 128674.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IZ', 245588.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD', 72.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Y', 38.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Z', 16.500) --Center Z
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IX', 137298.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IY', 257053.984) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IZ', 379652.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD', 88.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Y', 43.100)  --Center Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Z', 20.300) --Center Z
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IX', 178654.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IY', 423948.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IZ', 576632.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD', 64.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Y', 35.100)  --Center Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Z', 15.100) --Center Z
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IX', 115444.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IY', 128870.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IZ', 232260.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD', 76.100)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_X', 0.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Y', 39.600)  --Center Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Z', 17.800) --Center Z
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IX', 135926.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IY', 219324.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IZ', 337512.000) -- Inertia Z
+
+  CASE (PresTransfer,PresRoboRack):-- Transfer Press Line &Robo Racking Pres Metal Forming
+    IF (PresLineType=PresTransfer) THEN
+      WriteLog('  Prs_Payload Routine Setting Transfer Press Payloads', FALSE)
+    ENDIF
+    IF (PresLineType=PresRoboRack) THEN
+      WriteLog('  Prs_Payload Routine Setting Robo Racking Press Payloads', FALSE)
+    ENDIF
+
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD', 68.900)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_Z', 16.600) --Center Z
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IX', 67522.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IY', 377104.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[1].$PAYLOAD_IZ', 431984.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD', 96.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_X', 1.500)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_Z', 23.300) --Center Z
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IX', 127106.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IY', 636314.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[2].$PAYLOAD_IZ', 729904.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD', 61.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_Z', 16.300) --Center Z
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IX', 44786.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IY', 217462.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[3].$PAYLOAD_IZ', 249998.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD', 81.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_Z', 21.800) --Center Z
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IX', 75068.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IY', 368774.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[4].$PAYLOAD_IZ', 417382.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD', 54.900)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_Z', 15.100) --Center Z
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IX', 29596.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IY', 155428.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[5].$PAYLOAD_IZ', 174538.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD', 71.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Y', 2.500)  --Center Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_Z', 19.000) --Center Z
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IX', 43512.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IY', 220892.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[6].$PAYLOAD_IZ', 247156.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD', 56.700)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Y', 2.000)  --Center Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_Z', 16.300) --Center Z
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IX', 42140.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IY', 286944.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[7].$PAYLOAD_IZ', 316540.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD', 72.700)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Y', 2.000)  --Center Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_Z', 21.000) --Center Z
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IX', 75068.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IY', 453642.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[8].$PAYLOAD_IZ', 505190.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD', 54.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Y', 2.000)  --Center Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_Z', 15.600) --Center Z
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IX', 33026.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IY', 184828.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[9].$PAYLOAD_IZ', 206584.000) -- Inertia Z
+
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD', 66.000)   --Mass (kg)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_X', 1.000)  --Center X (cm)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Y', 2.000)  --Center Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_Z', 18.600) --Center Z
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IX', 45276.000) -- Inertia X (kgfcms^2)
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IY', 274988.000) -- Inertia Y
+    Set_R_sVar('$PLST_GRP1[10].$PAYLOAD_IZ', 303996.000) -- Inertia Z
+
+  --CASE ():-- Robo Racking Pres Metal Forming
+
+  ELSE: --
+    POST_ERR(38000, 'PRESLINETYPE is '+int2str(PresLineType)+' and is INVALID',0, 0) --
+ENDSELECT --
+
+  IF (PresLineType = PresDestack) THEN
+    WriteLog('  Prs_Payload Routine Setting Destack Arm Loading ', FALSE)
+    Set_R_sVar('$PARAM_GROUP[1].$ARMLOAD[2]', 0.00) --Arm Load Axis#1
+    Set_R_sVar('$PARAM_GROUP[1].$ARMLOAD[1]', 35.00) --Arm Load Axis#3
+  ELSE
+    WriteLog('  Prs_Payload Routine Setting Default Arm Loading ', FALSE)
+    Set_R_sVar('$PARAM_GROUP[1].$ARMLOAD[2]', 0.00) --Arm Load Axis#1
+    Set_R_sVar('$PARAM_GROUP[1].$ARMLOAD[1]', 30.00) --Arm Load Axis#3
+  ENDIF
+
+IF NOT LPT THEN  -- place comments for all standard press stuff
+  WriteLog('  Prs_Payload Routine Setting Payload comments to Default', FALSE)
+  Set_S_sVar('$PLST_GRP1[1].$COMMENT', 'XL Tool Only')
+  Set_S_sVar('$PLST_GRP1[2].$COMMENT', 'XL Tool & Part')
+  Set_S_sVar('$PLST_GRP1[3].$COMMENT', 'L Tool Only')
+  Set_S_sVar('$PLST_GRP1[4].$COMMENT', 'L Tool & Part')
+  Set_S_sVar('$PLST_GRP1[5].$COMMENT', 'M Tool Only')
+  Set_S_sVar('$PLST_GRP1[6].$COMMENT', 'M Tool & Part')
+  Set_S_sVar('$PLST_GRP1[7].$COMMENT', 'M Dbl Tool Only')
+  Set_S_sVar('$PLST_GRP1[8].$COMMENT', 'M Dbl Tool&Parts')
+  Set_S_sVar('$PLST_GRP1[9].$COMMENT', 'S Dbl Tool Only')
+  Set_S_sVar('$PLST_GRP1[10].$COMMENT','S Dbl Tool&Parts')
+ELSE --LPT = TRUE
+  WriteLog('  Prs_Payload Routine Setting Payload comments to LPT', FALSE)
+  Set_S_sVar('$PLST_GRP1[1].$COMMENT', 'LPT WT Tool Only')
+  Set_R_sVar('$PLST_GRP1[1].$PAYLOAD', 33.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[2].$COMMENT', 'LPT W/XL Part')
+  Set_R_sVar('$PLST_GRP1[2].$PAYLOAD', 90.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[3].$COMMENT', 'Not used by LPT')
+  Set_R_sVar('$PLST_GRP1[3].$PAYLOAD', 0.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[4].$COMMENT', 'LPT W/L Part')
+  Set_R_sVar('$PLST_GRP1[4].$PAYLOAD', 80.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[5].$COMMENT', 'Not used by LPT')
+  Set_R_sVar('$PLST_GRP1[5].$PAYLOAD', 0.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[6].$COMMENT', 'LPT W/M Part')
+  Set_R_sVar('$PLST_GRP1[6].$PAYLOAD', 70.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[7].$COMMENT', 'Not used by LPT')
+  Set_R_sVar('$PLST_GRP1[7].$PAYLOAD', 0.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[8].$COMMENT', 'LPT W/M DblPart')
+  Set_R_sVar('$PLST_GRP1[8].$PAYLOAD', 72.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[9].$COMMENT', 'Not used by LPT')
+  Set_R_sVar('$PLST_GRP1[9].$PAYLOAD', 0.000)   --Mass (kg)
+
+  Set_S_sVar('$PLST_GRP1[10].$COMMENT', 'LPT W/S DblPart')
+  Set_R_sVar('$PLST_GRP1[10].$PAYLOAD', 66.000)   --Mass (kg)
+
+ENDIF
+
+   WriteLog('  Routine Prs_Payload Completed', FALSE)
+
+END PRS_PAYLOAD
+
+-----------------------------------------------------------------------------
+ROUTINE SetupRefPos
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+FOR i = 2 TO 10 DO
+   Set_S_sVar('$REFPOS1['+int2str(i)+'].$COMMENT','Ref/Pounce Pos#'+int2str(i))
+ENDFOR --
+
+END SetupRefPos
+--*********************************************************************************
+BEGIN
+Current_Ver = Version -- Set the version for reference
+IF UNINIT(Use_Press) THEN
+  POST_ERR(38000, 'Use_Press not setup in GMPRESRG program', 0, 0) --
+  RETURN
+ENDIF
+IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+  ErrsInShop.ErrorsVarbls = 0
+ENDIF
+IF UNINIT(PresVarsDone) THEN
+  PresVarsDone = FALSE
+ENDIF
+
+StrtinErs = ErrsInShop.ErrorsVarbls
+
+ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+   WriteLog(' Press Program GMPRESVR has been Started', FALSE)
+
+  IF (PresVarsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('  Press Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Press VARIABLES') THEN -- ask user if they want to setup again
+     PresVarsDone = FALSE
+    ELSE
+      WriteLog('  Press Variables already Complete', FALSE)
+      WriteLog('  GMPRESVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+-- If LPT then setup the IIC
+  IF (LPT = TRUE) THEN
+    initpressdcs
+    init_mtrem -- MUST call this before SETPRESVAR routine because otherwise this will overwrite
+  ENDIF
+
+  PRS_PAYLOAD
+  SetPressVars
+  Miscell_Vars
+  SetupRefPos
+
+  initpressiic
+
+  IF (Chk_Feature('R886')) THEN -- Press Sync Option
+    SetSyncVars -- routine to setup sync specific var
+  ENDIF
+
+
+  -- Get all errors in utility program that was used to any program errors
+ ErrsInShop.ErrorsVarbls = ErrsInShop.ErrorsVarbls +  (AddUtltyErrs)
+
+ IF (ErrsInShop.ErrorsVarbls - StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('  Press Variable setup,GMPRESVR had ' + int2str((ErrsInShop.ErrorsVarbls-StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog(' Press Variable setup Program completed', FALSE)
+   PresVarsDone = TRUE
+ ENDIF
+
+
+END GMPRESVR

@@ -1,0 +1,84 @@
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: swwiz2
+--
+--    Description: This a utility program used at controlled start to load 
+--                 specific programs; and set specific variables without
+--                 running the wizzard. It shall be
+--                 included as a utility option in the FD program for updates.
+-------------------------------------------------------------------------------------------------------------
+--    ROUTINES INCLUDED
+--      gm_fil_rld
+-------------------------------------------------------------------------------------------------------------
+--
+--    gmtpld2
+--
+--    Language: KAREL
+--
+--    Source File: gmtpld2    1-AUG-03   03:33PM
+--
+--    Author: Bernie Herder
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--       8-1-03   Herderbr original creation for Update #3 GM Strategic 640-1 software
+--
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmtpld2
+-------------------------------------------------------------------------------------------------------------
+%ENVIRONMENT MNMCDEF
+%ENVIRONMENT TPE
+%ENVIRONMENT SWGBLT
+%ENVIRONMENT SYSDEF
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+VAR
+  gm_status:INTEGER
+
+-- From other programs
+  g_servog_opt IN CMOS FROM SWWIZARD : BOOLEAN
+
+%INCLUDE klrdutil
+
+------------------------------------------------------------------------------
+ROUTINE gm_fil_rld
+--
+-- This Routine re-loads macro's/tp programs for the GM RS4 customization
+--
+------------------------------------------------------------------------------
+VAR
+  l_reload	   : INTEGER
+  l_status	   : INTEGER
+
+BEGIN
+    
+  IF g_servog_opt THEN
+    LOAD('FRS:swwizsg.pc',0,gm_status)
+  ENDIF
+
+END gm_fil_rld
+------------------------------------------------------------------------------
+------------------------------------------------------------------------------
+BEGIN -- 
+
+  gm_fil_rld
+
+END gmtpld2

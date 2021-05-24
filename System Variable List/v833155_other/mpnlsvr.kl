@@ -1,0 +1,230 @@
+PROGRAM mpnlsvr
+
+%NOLOCKGROUP
+%NOBUSYLAMP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%COMMENT = 'WebServ V4.0'
+%NOPAUSESHFT
+
+
+VAR
+-- Declare HTML parameter names and value
+object : string[12]
+pname : string[12]
+operate : string[12]
+index : string[12]
+value : string[12]
+URL : string[128]
+vname : string[128]
+-- These are duplicates that will be used to
+-- convert the input parameters to Upper case
+uobject : string[12]
+uoperate: string[12]
+uindex : string[12]
+uvalue : string[12]
+upname : string[12]
+uvname : string[128]
+Copy_done IN CMOS : BOOLEAN -- Used for for know when the copy has been completed
+-- Misc Variables
+  kcommand,action : string[126]
+
+  value_i : integer
+  value_r : real
+  index_i : integer
+  status  : integer
+  i       : integer
+  index_p : integer
+  entry   : integer
+
+  file1   : file
+  return_code : integer
+
+ROUTINE GMSAVMAN FROM GMSAVMAN
+--****************************************************************
+-- Convert input string to Uppercase FOR consistent comparison
+ROUTINE toupper(p_char: integer): string
+--****************************************************************
+BEGIN
+IF (p_char > 96) and (p_char < 123) THEN
+p_char = p_char - 32
+ENDIF
+return (chr(p_char))
+end toupper
+--****************************************************************
+
+-- --------------------------------------------------------------------
+ROUTINE ch_tasks (task_name:string;group_number:INTEGER)
+-- --------------------------------------------------------------------
+
+VAR
+task_status,task_num	:INTEGER
+value_str	:STRING[100]
+
+BEGIN
+  task_status = 0 -- if task was not ever ran task_status is uninit.
+
+        POST_ERR(38000,  task_name + ' Started' , 0,0) --
+
+--IF $MOR_GRP[group_number].$SERVO_READY THEN   -- if drives are energized,
+REPEAT --
+
+    task_num = 0
+
+  GET_TSK_INFO(task_name,task_num,TSK_STATUS,task_status,value_str,status) --
+    IF status <> 0 THEN
+      IF status = 3016 THEN -- task was not ran
+--        RUN_TASK(task_name,0,FALSE,FALSE,0,status)
+      ELSE
+        POST_ERR(20000,'FAILED GET TASK INFO ' + task_name, status,0) --
+        RETURN
+      ENDIF
+    ELSE -- when program not running abort it and restart it
+      IF task_status = PG_RUNNING THEN
+--        RETURN
+--		action = action + '.'
+		Delay 500
+      ENDIF
+        IF task_status = PG_PAUSED THEN -- Ferris wheel programs should be aborted
+          ABORT_TASK(task_name,TRUE,TRUE,status)
+          IF status <> 0 THEN
+            POST_ERR(20000, task_name +' FAILED TO ABORT', status, 0) --
+            DELAY 2000
+          ENDIF
+        ENDIF
+    ENDIF
+
+UNTIL (task_status = PG_ABORTED) OR (status = 3016) --
+
+        POST_ERR(38000,  task_name + ' Complete' , 0,0) --
+
+--  RUN_TASK(task_name,0,FALSE,FALSE,0,status)
+--    IF status <> 0 THEN
+--      POST_ERR(20000,task_name +' FAILED TO START', status,0) --
+--      DELAY 2000
+--    ENDIF
+-- --------------------------------------------------------------------
+END ch_tasks
+-- --------------------------------------------------------------------
+
+BEGIN
+
+-- Good practice to check FOR uninitialized variables beFORe using them
+  IF uninit(object)  then object  = ''; ENDIF
+  IF uninit(operate) then operate = ''; ENDIF
+  IF uninit(index)   then index   = ''; ENDIF
+  IF uninit(value)   then value   = ''; ENDIF
+  IF uninit(pname)   then pname   = ''; ENDIF
+  IF uninit(vname)   then vname   = ''; ENDIF
+  IF uninit(action)   then action   = ''; ENDIF
+  action = ''
+
+-- Change all character of input parameters to uppercase FOR string comparison
+  uobject = ''
+  FOR i = 1 to str_len(object) do
+    uobject = uobject + toupper(ord(object, i))
+  ENDFOR
+
+  uoperate = ''
+  FOR i = 1 to str_len(operate) do
+    uoperate = uoperate + toupper(ord(operate, i))
+  ENDFOR
+
+  uindex = ''
+  FOR i = 1 to str_len(index) do
+    uindex = uindex + toupper(ord(index, i))
+  ENDFOR
+
+  uvalue = ''
+  FOR i = 1 to str_len(value) do
+    uvalue = uvalue + toupper(ord(value, i))
+  ENDFOR
+
+  upname = ''
+  FOR i = 1 to str_len(pname) do
+    upname = upname + toupper(ord(pname, i))
+  ENDFOR
+
+  uvname = ''
+  FOR i = 1 to str_len(vname) do
+    uvname = uvname + toupper(ord(vname, i))
+  ENDFOR
+
+
+-- Handle setting DOUTs
+IF (uobject = 'DOUT') THEN
+	IF (uoperate = 'SET') THEN
+	cnv_str_int(uindex, index_i)
+		IF (uvalue = 'ON') THEN
+		DOUT[index_i] = ON
+		ENDIF
+		IF (uvalue = 'OFF') THEN
+		DOUT[index_i] = OFF
+		ENDIF
+	ENDIF
+ENDIF
+
+-- Handle Setting Numreg values
+IF (uobject = 'NUMREG') THEN
+  cnv_str_int(uindex, index_i)
+	IF (uoperate = 'SETINT') THEN
+	cnv_str_int(uvalue, value_i)
+	set_int_reg(index_i, value_i, status)
+	ENDIF
+	IF (uoperate = 'SETREAL') THEN
+	cnv_str_real(uvalue, value_r)
+	set_real_reg(index_i, value_r, status)
+	ENDIF
+ENDIF
+
+-- Handle Running and Aborting a program
+IF (uobject = 'PROG') THEN
+	IF (uoperate = 'RUN') THEN
+--	kcommand = 'RUN '+ upname
+--	KCL_no_wait (kcommand, status)
+	set_var(entry, '*SYSTEM*', uvname, uvalue, status)
+	action = 'Saving Files'
+	delay 1000
+	FORCE_LINK(tp_panel, 'refresh=prim')
+--	ch_tasks(upname,0)
+
+  Copy_done= FALSE
+
+  RUN_TASK(upname,1,False,False,0,status)
+
+ IF status <> 0 THEN
+       POST_ERR(38000, upname+ ' FAILED TO START', status, 0)
+     action = 'Save Not Started'
+ ENDIF
+ Delay 1000
+ WAIT FOR (Copy_done=TRUE) -- set by GMSAVMAN when it finishes
+
+--  action = 'Save Complete'
+  FORCE_LINK(tp_panel, 'refresh=prim')
+  delay 4000
+  action = ''
+  FORCE_LINK(tp_panel, 'refresh=prim')
+  ELSE
+	kcommand = 'ABORT ' + upname
+	KCL_no_wait (kcommand, status)
+	ENDIF
+ENDIF
+
+-- Handle Setting a System Variable
+IF (uobject = 'SYSVAR') THEN
+	IF (uoperate = 'SETINT') THEN
+	cnv_str_int(uvalue, value_i)
+	set_var(entry, '*SYSTEM*', uvname, value_i, status)
+	ENDIF
+	IF (uoperate = 'SETREAL') THEN
+	cnv_str_real(uvalue, value_r)
+	set_var(entry, '*SYSTEM*', uvname, value_r, status)
+	ENDIF
+	IF (uoperate = 'SETSTR') THEN
+	set_var(entry, '*SYSTEM*', uvname, uvalue, status)
+	ENDIF
+ENDIF
+
+-- Return a NO RESPONSE Required code
+return_code = 204
+
+END mpnlsvr

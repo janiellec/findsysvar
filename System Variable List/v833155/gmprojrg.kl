@@ -1,0 +1,161 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPROJRG.KL
+--   TITLE:          GMPROJRG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Projection Weld Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--              4.1   2017/02/05 marchaka         Modify prompts for wizard rerun
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMPROJRG
+
+%COMMENT = 'GM PROJ V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- body shop variables
+%INCLUDE gmcfgspt  -- spot application variables
+%INCLUDE gmcfgpjw  -- projection weld variables
+
+CONST
+
+Version = '2017-02-05'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  ProjRG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE initPROJREGS
+-- PURPOSE: to initialize Registers associated with projction weld
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(ProjRG_Setup) THEN
+    ProjRG_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numprojctrl) THEN
+    numprojctrl = 0
+  ENDIF
+
+END initPROJREGS
+-----------------------------------------------------------------------------
+ROUTINE set_proj_rg
+-- PURPOSE: set projection welder registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numprojctrl <> 0) THEN --application has projection weld
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(ProjRG_Setup) OR (Reset_Cell) THEN
+    ProjRG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Projection Program GMPROJRG', FALSE)
+
+  IF (ProjRG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Projection Registers Already Setup', FALSE)
+    IF ExecSetupAgn('PROJ REGS') THEN -- ask user if they want to setup again
+      ProjRG_Setup = FALSE
+    ELSE
+      WriteLog('  Projection Registers already Complete', FALSE)
+      WriteLog('  GMPROJRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initPROJregs
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Projection Program Setup GMPROJRG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Projection Register Setup completed', FALSE)
+    ProjRG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numprojctrl
+
+END set_proj_rg
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMPROJRG

@@ -1,0 +1,439 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMARCVR.KL
+--   TITLE:          GMARCVR PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 ArcTool Variable Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--              4.1   2018/01/29 marchaka         Add gmaspd for programs to run on powerup
+--                                                Set program select to style. Clear 'Spot' user alarms
+--             v4.1   2018/03/24 marchaka         Clear additional spot user alarms
+--             v4.1   2018/04/09 marchaka         Set menu favourites 2 to the arc enable page
+--             v4.2   2020/11/03 schoensm         added reamer web screen during v8.33p10              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmarcvr
+
+%COMMENT = 'GM ARC VAR V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT iosetup --get_port_val
+%ENVIRONMENT ioblt  --iovalset
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps --I/O types
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas  --GM laser wizard variables
+%INCLUDE gmcfgmig  --GM Mig-Wizard variables
+
+CONST
+
+  Version = '2020-11-03'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn --all GM arc constants for wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  ArcVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup arc tool variable setup at least first time
+
+  gm_status,
+  gm_value: INTEGER
+
+  prd_spd,rsm_spd,cont_proc IN SHADOW FROM GMASPD     :INTEGER  --GM speed control
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_arc_var
+-- PURPOSE: to initialize variables for arc variable setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  
+
+END init_arc_var
+-----------------------------------------------------------------------------
+ROUTINE arctool_var
+-- PURPOSE: set arc variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --set program select to style
+  Set_I_sVar('$shell_cfg.$sel_type',2)
+
+  --gmaspd robot speed variabls
+  prd_spd = 0
+  rsm_spd = 0
+  cont_proc  = 1
+
+  Set_I_sVar('$AWSCUSTOM.$AW_CUSTOM[3]', 1)
+
+  --setup cell programs to run from gmawcust
+  --production run speed
+  Set_B_PVar('ATSHCUST' , 'Prgs2RunAT[1].NeedToRun',TRUE)
+  Set_B_PVar('ATSHCUST' , 'Prgs2RunAT[1].NeedForProd',TRUE)
+  Set_S_PVar('ATSHCUST' , 'Prgs2RunAT[1].Prog_Name','gmaspd')
+
+END arctool_var
+-----------------------------------------------------------------------------
+ROUTINE set_arc_ulrm
+-- PURPOSE: set arc user alarms
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  --clear out SPOT user alarms
+  FOR i = 4 TO 21 DO
+    Set_S_sVar('$UALRM_MSG[' + int2str(i) + ']','')
+  ENDFOR
+  FOR i = 23 TO 49 DO
+    Set_S_sVar('$UALRM_MSG[' + int2str(i) + ']','')
+  ENDFOR
+  FOR i = 71 TO 81 DO
+    Set_S_sVar('$UALRM_MSG[' + int2str(i) + ']','')
+  ENDFOR
+
+END set_arc_ulrm
+-----------------------------------------------------------------------------
+ROUTINE arc_app_bit
+-- PURPOSE: set PMC application bits
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  run during transition from controlled start to cold start
+--             set_arc_cold FROM gmamain
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  app_count,  
+  reserved_cnt  : INTEGER
+
+BEGIN
+
+
+-- ROBOT GROUP
+-- OUTPUT 	    BIT WORTH	Description
+------------------------------------------
+-- 10001		1	IPG Laser Laser Controller
+-- 10001		2       LaserLine Laser Controller
+-- 10001		4	Trumpf Laser Controller
+-- 10001		8	RLSK Laser Head
+-- 10001		16	RSK Laser Head
+-- 10001		32	ScanSonic Laser Head
+-- 10001		64	Binzel Wire Feeder
+-- 10001		128	LessMuller Process Monitor
+-- 10001		248	Plasmo Process Monitor
+-- 10001		512	Gas Box
+-- 10001		1024	Reserved App
+-- 10001		2048	Reserved App
+-- 10001		4096	Reserved App
+-- 10001		8192	Reserved App
+-- 10001		16384	Reserved App
+-- 10001		32768	Reserved App
+
+
+-- 10003		1	Reserved
+-- 10003		2	Reserved
+-- 10003		4	Reserved
+-- 10003		8	Reserved
+-- 10003		16	Reserved
+-- 10003		32	Reserved
+-- 10003		64	Reserved
+-- 10003		128	Reserved
+-- 10003		256	Reserved
+-- 10003		512	Reserved
+-- 10003		1024	Reserved
+-- 10003		2048	Reserved
+-- 10003		4096	Reserved
+-- 10003		8192	Reserved
+-- 10003		16384	Reserved
+-- 10003		32768	Reserved
+
+  app_count = 0
+
+  --IF (laser_ctrl = TBD) THEN --not used
+    --app_count = app_count + 1
+  --ENDIF
+  IF (laser_ctrl = lasctrl_lsln) THEN  --LaserLine Laser Controller
+    app_count = app_count + 2
+  ENDIF
+  IF (laser_ctrl = lasctrl_trmp) THEN  --Trumpf Laser Controller
+    app_count = app_count + 4
+  ENDIF
+  --IF (laser_head = TBD) THEN  --not used
+   --app_count = app_count + 8
+  --ENDIF
+  IF (laser_head = lashd_ipfo) THEN  --IPFO head
+    app_count = app_count + 16
+  ENDIF
+  IF (laser_head = lashd_scsn) THEN  --ScanSonic Laser Head
+   app_count = app_count + 32
+  ENDIF
+  IF (laser_wire = wizans_yes) THEN  --Binzel Wire Feeder 
+    app_count = app_count + 64
+  ENDIF
+  IF (procmontype = procm_lesm) THEN  --LessMuller Process Monitor
+   app_count = app_count + 128
+  ENDIF
+  IF (procmontype = procm_plwm) THEN  --Precitec LWM Proess Monitor
+    app_count = app_count + 256
+  ENDIF
+  --IF (procmontype = TBD) THEN  --not used
+   --app_count = app_count + 512
+  --ENDIF
+  IF (gasboxtype = gasbox_gmstd) THEN  --GM Standard GasBox
+   app_count = app_count + 1024
+  ENDIF
+  --IF (TBD = TBD) THEN  --not used
+   --app_count = app_count + 2048
+  --ENDIF
+  --IF (TBD = TBD) THEN  --not used
+   --app_count = app_count + 4096
+  --ENDIF
+  --IF (TBD = TBD) THEN  --not used
+   --app_count = app_count + 8192
+  --ENDIF
+  --IF (TBD = TBD) THEN  --not used
+   --app_count = app_count + 16384
+  --ENDIF
+  IF (laser_app = wizans_no) THEN --mig welding
+   app_count = app_count + 32768
+  ENDIF
+
+  GET_PORT_VAL(io_gpout, 10001, gm_value, gm_status)
+  IF (gm_status = 0) THEN --0=success
+    gm_value = app_count  --Robot Application Bits
+    gm_status = iovalset(io_gpout, 10001, gm_value)
+  ENDIF
+
+  reserved_cnt = 0
+
+  GET_PORT_VAL(io_gpout, 10003, gm_value, gm_status)
+  IF (gm_status = 0) THEN --0=success
+    gm_value = reserved_cnt --reserved for now
+    gm_status = iovalset(io_gpout, 10003, gm_value)
+  ENDIF
+
+END arc_app_bit
+-----------------------------------------------------------------------------
+ROUTINE set_webscrn
+-- PURPOSE: set arc web screense
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set arc enable as menu favourite in slot 2
+  Set_S_sVar('$UI_CONFIG.$MENU_FAVS[2]','/SOFTPART/GENLINK?current=menupage,95,11')
+
+  IF (laser_app = wizans_yes) THEN --laser application
+
+    SPRUNCMD('COPY FRH:\gui\h17d12.gif FRH:\gui\h17d0d.gif', gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy LAS_MON.JPG to FRH', 0, 0)
+    ENDIF
+    Set_S_sVar('$TX_SCREEN[4].$DESTINATION', 'iomon.stm')
+    Set_S_sVar('$TX_SCREEN[4].$SCREEN_NAME', 'Proc Int')
+    Set_S_sVar('$UI_CONFIG.$MENU_FAVS[5]', '/SOFTPART/GENLINK?current=menupage,381,13')
+
+    SPRUNCMD('COPY FRH:\cgtp\iohelp.stm FR:\h17d0d.htm', gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy h17d0d.htm to FR', 0, 0)
+    ENDIF
+
+    SELECT laser_ctrl OF
+
+      CASE(lasctrl_lsln): --LaserLine controller
+        IF (laser_wire = wizans_yes) THEN --wire
+          SPRUNCMD('COPY FRH:\cgtp\laser2.gif FRH:\gui\h17d0b.gif', gm_status)
+            IF (gm_status <> 0) THEN
+              POST_ERR(38000, 'Failed to copy LASER2.GIF to FRH', 0, 0)
+          ENDIF
+          Set_S_sVar('$TX_SCREEN[2].$DESTINATION', 'lasrbrzll.stm')
+          Set_S_sVar('$TX_SCREEN[2].$SCREEN_NAME', 'LaserStat')
+          Set_S_sVar('$UI_CONFIG.$MENU_FAVS[3]', '/SOFTPART/GENLINK?current=menupage,381,11')
+          SPRUNCMD('COPY FRH:\cgtp\chart.gif FRH:\gui\h17d0c.gif', gm_status)
+            IF (gm_status <> 0) THEN
+              POST_ERR(38000, 'Failed to copy CHART.GIF to FRH', 0, 0)
+            ENDIF
+          Set_S_sVar('$TX_SCREEN[3].$DESTINATION', 'chart2.stm')
+          Set_S_sVar('$TX_SCREEN[3].$SCREEN_NAME', 'Strt Time')
+          Set_S_sVar('$UI_CONFIG.$MENU_FAVS[4]', '/SOFTPART/GENLINK?current=menupage,381,12')
+        ENDIF --wire
+
+      CASE(lasctrl_trmp): --Trumpf controller
+        IF (laser_wire = wizans_no) THEN --no wire
+          SPRUNCMD('COPY FRH:\cgtp\laser2.gif FRH:\gui\h17d0b.gif', gm_status)
+            IF (gm_status <> 0) THEN
+              POST_ERR(38000, 'Failed to copy LASER2.GIF to FRH', 0, 0)
+            ENDIF
+          Set_S_sVar('$TX_SCREEN[2].$DESTINATION', 'trumpfstat.stm')
+          Set_S_sVar('$TX_SCREEN[2].$SCREEN_NAME', 'LaserStat')
+          Set_S_sVar('$UI_CONFIG.$MENU_FAVS[3]', '/SOFTPART/GENLINK?current=menupage,381,11')
+        ENDIF --no wire
+
+      --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+        --IF (laser_wire = wizans_no) THEN --no wire
+          --SPRUNCMD('COPY FRH:\cgtp\laser2.gif FRH:\gui\h17d0b.gif', gm_status)
+            --IF (gm_status <> 0) THEN
+              --POST_ERR(38000, 'Failed to copy LASER2.GIF to FRH', 0, 0)
+            --ENDIF
+          --Set_S_sVar('$TX_SCREEN[2].$DESTINATION', 'lasrotfipg.stm')
+          --Set_S_sVar('$TX_SCREEN[2].$SCREEN_NAME', 'LaserStat')
+          --Set_S_sVar('$UI_CONFIG.$MENU_FAVS[3]', '/SOFTPART/GENLINK?current=menupage,381,11')
+        --ENDIF --no wire
+
+      ELSE:
+    ENDSELECT
+  ENDIF --laser application
+
+  IF (rmr_trch_wiz = wizans_yes) THEN --application is a Reamer Torch Wizard
+    SPRUNCfile('FRH:\cgtp\gmrmr1.stm','FR:\gmrmr1.stm')
+    SPRUNCfile('FRH:\gui\h17d12.gif', 'FRH:\gui\h17d0d.gif')
+    --Set Reamer Status as menu favourite (kept the spelling for KM) in slot 5
+    Set_S_sVar('$TX_SCREEN[5].$DESTINATION', 'gmrmr1.stm')
+    Set_S_sVar('$TX_SCREEN[5].$SCREEN_NAME', 'Reamer Status')
+    Set_S_sVar('$UI_CONFIG.$MENU_FAVS[5]', '/SOFTPART/GENLINK?current=menupage,381,13') 
+  ENDIF
+
+END set_webscrn
+-----------------------------------------------------------------------------
+ROUTINE set_arc_var
+-- PURPOSE: set arc variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(ArcVR_Setup) OR (Reset_Cell) THEN
+    ArcVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Arc VARs GMARCVR', FALSE)
+
+  IF (ArcVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Arc VARs Already Setup', FALSE)
+    IF ExecSetupAgn('Arc VARs') THEN -- ask user if they want to setup again
+      ArcVR_Setup = FALSE
+    ELSE
+      WriteLog('  Arc VARs already Complete', FALSE)
+      WriteLog('  GMARCVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_arc_var
+  arctool_var
+  set_arc_ulrm
+  arc_app_bit
+  set_webscrn
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Arc VARs Setup GMARCVR had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Arc VARs Setup completed', FALSE)
+    ArcVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_arc_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmarcvr

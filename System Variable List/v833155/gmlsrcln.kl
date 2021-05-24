@@ -1,0 +1,508 @@
+-------------------------------------------------------------------------
+--
+--   MODULE:         gmlsrcln.kl
+--   TITLE:          GMLSRCLN PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2018/09/05
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Application setup for stand alone configuration for a laser
+--                      cleaner.
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--	   V4.0	      9-10-2018	 schoensm	  V8.33P06 stand-alone configurations
+--	   V4.1	      10-28-2020 schoensm	  V8.33P10 start-over with new settings from Lloyd
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMLSRCLN
+
+%COMMENT = 'GM LSR CLN V4.1'
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+
+CONST
+Version = '2020-11-05'
+%INCLUDE gmcnstnt  -- used for all wizard constants
+
+VAR
+  gm_status, i			       						 : INTEGER
+  Current_Ver  IN SHADOW 	       			 : STRING[32] -- Set equal to Version constant in initialization routine
+  stnda_lsrcln IN SHADOW FROM gmlang1  : STRING[35]
+  enter_gmdata IN SHADOW FROM gmlang1  : STRING[35]
+  CommType 			       								 : INTEGER
+  mfg_area     IN SHADOW FROM GMCFGCEL : INTEGER -- Manufacturing area
+  NumEOATOtMan IN SHADOW FROM GMCFGMH  : INTEGER -- set number of valve packs
+  NumEOATInBlk IN SHADOW FROM GMCFGMH  : INTEGER -- set number of IO blocks  
+  use_vacuum   IN SHADOW FROM GMCFGMH  : BOOLEAN -- Use vacuum
+  USE_MH_TOOL  IN SHADOW FROM GMCFGMH  : BOOLEAN -- Use MH 
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil --GM common routines
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE TURK_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETSU -- Turck input block TBEN-LG-16DIP
+ROUTINE PCORP_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETS3 -- PushCorp
+ROUTINE PVALV_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETS3 -- Proportional Valve
+ROUTINE GMMHGPIO FROM GMMHGPIO -- call program for all Gripper setup.
+ROUTINE GMMHPRGS FROM GMMHPRGS -- Call program to Load MH specific Programs
+ROUTINE GMMHREGS FROM GMMHREGS -- Call program to Load MH specific Register Stuff
+ROUTINE GMMHVARS FROM GMMHVARS -- Call program to Setup MH specific Variables
+-----------------------------------------------------------------------------
+ROUTINE init_lsrcln
+-- PURPOSE: to initialize application Programs associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END init_lsrcln
+-----------------------------------------------------------------------------
+ROUTINE set_vr
+-- PURPOSE: to load all variables used in process
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  -- FFR Configuration OFF, not supported
+  Set_B_sVar('$RSMFST_SV.$FFAST_ENBL', FALSE)
+  Set_I_sVar('$RSMFST_SV.$FFAST_DO.$PORT_NUM', 18)	
+  Set_I_sVar('$RSMPRG_SV.$SVPRG_ENBLE', 3)
+  Set_B_sVar('$SVPRG_ENB', FALSE)
+
+  -- User Alarms
+  Set_S_sVar('$UALRM_MSG[80]', 'PushCorp Power Off Fault'); 		Set_I_sVar('$UALRM_SEV[80]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[81]', 'PushCorp Water Flow Fault'); 		Set_I_sVar('$UALRM_SEV[81]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[82]', 'PushCorp Air Supply Fault'); 		Set_I_sVar('$UALRM_SEV[82]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[83]', 'PushCorp Servo Ready Fault'); 	Set_I_sVar('$UALRM_SEV[83]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[84]', 'PushCorp Ready Fault'); 				Set_I_sVar('$UALRM_SEV[84]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[85]', 'Spindle Latch Fault'); 					Set_I_sVar('$UALRM_SEV[85]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[86]', 'Spindle Press Switch Flt'); 		Set_I_sVar('$UALRM_SEV[86]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[87]', 'Slide Pressure Fault'); 				Set_I_sVar('$UALRM_SEV[87]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[88]', 'TS Empty Next Fault'); 					Set_I_sVar('$UALRM_SEV[88]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[89]', 'TS Full Nest Fault'); 					Set_I_sVar('$UALRM_SEV[89]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[90]', 'TS New Wheels Fault'); 					Set_I_sVar('$UALRM_SEV[90]', 6) -- Pause  
+  Set_S_sVar('$UALRM_MSG[91]', 'BG Not Running Fault'); 				Set_I_sVar('$UALRM_SEV[91]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[92]', 'Slide Position Fault'); 				Set_I_sVar('$UALRM_SEV[92]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[93]', 'RPM Speed Fault'); 							Set_I_sVar('$UALRM_SEV[93]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[94]', 'Motor Stall Fault'); 						Set_I_sVar('$UALRM_SEV[94]', 6) -- Pause
+  Set_S_sVar('$UALRM_MSG[95]', 'Wheel Release Limit SWFault'); 	Set_I_sVar('$UALRM_SEV[95]', 6) -- Pause
+
+  --Set BackGround Task
+  Set_S_sVar('$MIX_BG[1].$PROG_NAME', 'CLEAN_BG')
+  Set_I_sVar('$MIX_BG[1].$MODE', 2)
+  Set_I_sVar('$MIX_BG[1].$STATUS', 2)
+
+END set_vr
+-----------------------------------------------------------------------------
+ROUTINE set_io
+-- PURPOSE: to comment and setup all io used in process
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+CommType = Ethernet -- set it to 89
+
+-- Setup the IP Config
+--Ethernet Push Corp
+IF CommType = Ethernet THEN
+  PCORP_IN_EIP(26,'PushCorp')
+ENDIF
+
+-- Ethernet Tool Stand
+IF CommType = Ethernet THEN
+  TURK_IN_EIP(28,'TS Input#1')
+ENDIF
+
+-- SMC Valve
+IF CommType = Ethernet THEN
+  PVALV_IN_EIP(29,'OutputVlv#2')
+ENDIF
+
+	-- Input Comments
+SET_PORT_CMT(IO_DIN, 642, 'diCheckWheel    ', gm_status)
+SET_PORT_CMT(IO_DIN, 811, 'di811InPos4Rel  ', gm_status)
+SET_PORT_CMT(IO_DIN, 813, 'diSpindRELPPX1  ', gm_status)
+SET_PORT_CMT(IO_DIN, 814, 'diSpindSMCPwrON ', gm_status)
+SET_PORT_CMT(IO_DIN, 969, 'diPushPanelPwrON', gm_status)
+SET_PORT_CMT(IO_DIN, 970, 'diPushWtrOK     ', gm_status)
+SET_PORT_CMT(IO_DIN, 971, 'diPushAirOK     ', gm_status)
+SET_PORT_CMT(IO_DIN, 972, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 973, 'diPushCorpFLTd  ', gm_status)
+SET_PORT_CMT(IO_DIN, 974, 'diPshWhlNoSpin  ', gm_status)
+SET_PORT_CMT(IO_DIN, 975, 'diPushCorpRDY   ', gm_status)
+SET_PORT_CMT(IO_DIN, 976, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 977, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 978, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 979, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 980, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 981, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 982, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 983, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 984, '(Reserved)      ', gm_status)
+
+--Stand1
+SET_PORT_CMT(IO_DIN, 985, 'diTS1DiskPresent', gm_status)
+SET_PORT_CMT(IO_DIN, 986, 'diTS1DiskNOTPres', gm_status)
+SET_PORT_CMT(IO_DIN, 987, 'diTS1DirtyWhl   ', gm_status)
+SET_PORT_CMT(IO_DIN, 988, '(Reserved)	   ', gm_status)
+SET_PORT_CMT(IO_DIN, 989, 'diTS1CleanWhl   ', gm_status)
+SET_PORT_CMT(IO_DIN, 990, '(Reserved)	   ', gm_status)
+SET_PORT_CMT(IO_DIN, 991, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 992, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 993, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 994, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 995, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 996, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 997, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 998, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 999, '(Reserved)      ', gm_status)
+SET_PORT_CMT(IO_DIN, 1000, '(Reserved)     ', gm_status)
+
+--Stand2
+SET_PORT_CMT(IO_DIN, 1001, 'diTS2DiskPresent', gm_status)
+SET_PORT_CMT(IO_DIN, 1002, 'diTS2DiskNOTPres', gm_status)
+SET_PORT_CMT(IO_DIN, 1003, 'diTS2DirtyWhl   ', gm_status)
+SET_PORT_CMT(IO_DIN, 1004, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1005, 'diTS2CleanWhl   ', gm_status)
+SET_PORT_CMT(IO_DIN, 1006, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1007, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1008, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1009, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1010, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1011, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1012, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1013, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1014, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1015, '(Reserved)	    ', gm_status)
+SET_PORT_CMT(IO_DIN, 1016, '(Reserved)	    ', gm_status)
+
+-- Output Comments
+SET_PORT_CMT(IO_DOUT, 641, 'doDiskReplaceWRN',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 642, 'doDiskReplaceREQ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 643, 'doTS1DirtyWhlPr ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 644, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 645, 'doTS1ClnWhPr    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 646, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 647, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 648, 'doTS2DirtyWhPr  ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 649, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 650, 'doTS2ClnWhPr    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 651, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 652, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 653, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 654, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 801, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 802, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 803, 'doSpindleULock  ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 804, 'doSpindleLock   ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 805, '(Reserved)      ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 806, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 807, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 808, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 809, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 810, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 811, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 812, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 813, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 814, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 815, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 816, '(Reserved)	    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 977, 'doPushSrvoON    ',   gm_status)         
+SET_PORT_CMT(IO_DOUT, 978, 'doPushFltReset  ',   gm_status)  
+
+-- Groups Input Comments
+SET_PORT_CMT(IO_GPIN,37, 'Act Slide Pos', gm_status)  
+SET_PORT_CMT(IO_GPIN,38, 'Act RPM Speed', gm_status)  
+SET_PORT_CMT(IO_GPIN,39, 'SMC Pres Fdbk', gm_status)  
+SET_PORT_CMT(IO_GPIN,40, 'Act Motor Cur', gm_status)  
+
+-- Groups Output Comments  
+SET_PORT_CMT(IO_GPOUT, 38, 'Com RPM Speed',gm_status)     
+
+-- Digital Input Configuration 
+SET_PORT_ASG(IO_DIN, 969,89, 26, IO_DIN, 1, -16,gm_status)	
+SET_PORT_ASG(IO_DIN, 985,89, 28, IO_DIN, 1, -16,gm_status)	
+SET_PORT_ASG(IO_DIN, 1001,89, 29, IO_DIN, 1, -16,gm_status)
+	
+-- Digital Output Configuration       
+SET_PORT_ASG(IO_DOUT, 977,89, 26, IO_DOUT, 17, -16,gm_status)
+
+-- Group Input Configuration
+SET_PORT_ASG(IO_GPIN,37,89,26,IO_DIN,33,-16,gm_status)
+SET_PORT_ASG(IO_GPIN,38,89,26,IO_DIN,49,-16,gm_status)  
+SET_PORT_ASG(IO_GPIN,39,89,29,IO_DIN,1,-12,gm_status) 
+SET_PORT_ASG(IO_GPIN,40,89,26,IO_DIN,65,-16,gm_status)
+
+-- Group Output Configuration   
+SET_PORT_ASG(IO_GPOUT,38,89,26,IO_DOUT,33,-16,gm_status)
+  
+--IO Flag Comments
+SET_PORT_CMT(IO_FLAG,109,'In Process      ', gm_status)
+SET_PORT_CMT(IO_FLAG,110,'OK Unlatch Wheel', gm_status)
+SET_PORT_CMT(IO_FLAG,111,'Motion Process  ', gm_status)
+SET_PORT_CMT(IO_FLAG,112,'Slide Posn Fault', gm_status)
+SET_PORT_CMT(IO_FLAG,113,'Srvo Speed Fault', gm_status)
+SET_PORT_CMT(IO_FLAG,114,'Pressure Fault  ', gm_status)
+SET_PORT_CMT(IO_FLAG,115,'Water Flow Fault', gm_status)
+SET_PORT_CMT(IO_FLAG,116,'Air Supply Fault', gm_status)
+SET_PORT_CMT(IO_FLAG,117,'PushCorp Fault  ', gm_status)
+SET_PORT_CMT(IO_FLAG,118,'Servo Stop Fault', gm_status)
+
+END set_io
+-----------------------------------------------------------------------------
+ROUTINE set_pg
+-- PURPOSE: to load all programs used in process
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Load TP programs for stand-alone config V8.33P10
+  --Common Programs
+  Load_File('FRS:', 'chk_bg.tp', 1)
+  Load_File('FRS:', 'chk_tok.tp', 1)
+  Load_File('FRS:', 'clean_bg.tp', 1)
+  Load_File('FRS:', 'init_pushcorp.tp', 1)
+  Load_File('FRS:', 'rst_flags.tp', 1)
+  Load_File('FRS:', 'servo_off.tp', 1)
+  Load_File('FRS:', 'servo_on.tp', 1)
+  Load_File('FRS:', 'spd_lock.tp', 1)
+  Load_File('FRS:', 'spd_unlock.tp', 1)
+  Load_File('FRS:', 'datacol.tp', 1)
+
+  --Clean Programs only 
+  Load_File('FRS:', 'c_chk_tl_std.tp', 1)
+  Load_File('FRS:', 'c_cyc_count.tp', 1)
+  Load_File('FRS:', 'c_dcd_whex.tp', 1)
+  Load_File('FRS:', 'c_set_rpm.tp', 1)
+  Load_File('FRS:', 'c_style28.tp', 1)
+  Load_File('FRS:', 'c_style29.tp', 1)
+  Load_File('FRS:', 'c_stylexx.tp', 1)
+  Load_File('FRS:', 'c_sxxproc1.tp', 1)
+  Load_File('FRS:', 'c_wheel_chk.tp', 1)
+  Load_File('FRS:', 'c_wheel_drp1.tp', 1)
+  Load_File('FRS:', 'c_wheel_drp2.tp', 1)
+  Load_File('FRS:', 'c_wheel_pk1.tp', 1)
+  Load_File('FRS:', 'c_wheel_pk2.tp', 1)
+  Load_File('FRS:', 'c_setconst.tp', 1)
+  Load_File('FRS:', 'c_wheel_meas.tp', 1)
+  SPRUNCfile('FRS:c_hmiocst.tp', 'FR:\hmiocst.tp') 
+  Load_File('FR:','hmiocst.tp',1)
+
+  --Macro Table
+  Set_S_sVar('$macrotable[40].$macro_name','Latch Spindle')
+  Set_S_sVar('$macrotable[40].$prog_name','CLSV2T1')
+  Set_I_sVar('$macrotable[40].$assign_type',4)
+  Set_I_sVar('$macrotable[40].$assign_id',3)
+
+  Set_S_sVar('$macrotable[45].$macro_name','Unlatch Spindle')
+  Set_S_sVar('$macrotable[45].$prog_name','OPNV2T1')
+  Set_I_sVar('$macrotable[45].$assign_type',4)
+  Set_I_sVar('$macrotable[45].$assign_id',8)
+
+END set_pg
+-----------------------------------------------------------------------------
+ROUTINE set_rg
+-- PURPOSE: to comment numeric/position registers used in process.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --data registers
+  Comment_Reg(1,334,'Take Data       ')
+  SET_INT_REG(334,0,gm_status)
+  Comment_Reg(1,335,'Data Timer      ')
+  SET_INT_REG(335,0,gm_status)
+  Comment_Reg(1,339,'                ')
+  SET_INT_REG(339,0,gm_status)
+  Comment_Reg(1,340,'SMC PSI Command ')
+  SET_INT_REG(340,0,gm_status)
+  Comment_Reg(1,341,'SMC PSI Feedback')
+  SET_INT_REG(341,0,gm_status)
+  Comment_Reg(1,342,'Standard Dia    ')
+  SET_INT_REG(342,508,gm_status)
+  Comment_Reg(1,343,'Current Dia     ')
+  SET_INT_REG(343,0,gm_status)
+  Comment_Reg(1,344,'Refer Z Value   ')
+  SET_INT_REG(344,0,gm_status)
+  Comment_Reg(1,345,'Current Dia     ')
+  SET_INT_REG(345,0,gm_status)
+  Comment_Reg(1,346,'Z Offset        ')
+  SET_INT_REG(346,8,gm_status)
+  Comment_Reg(1,347,'Com Surface Spd ')
+  SET_INT_REG(347,1914144,gm_status)
+  Comment_Reg(1,348,'Com Robot Spd   ')
+  SET_INT_REG(348,300,gm_status)
+  Comment_Reg(1,349,'Current CirCufer')
+  SET_INT_REG(349,638,gm_status)
+  Comment_Reg(1,350,'Com RPM Spd     ')
+  SET_INT_REG(350,1200,gm_status)
+  Comment_Reg(1,351,'Slide Position  ')
+  SET_INT_REG(351,0,gm_status)
+  Comment_Reg(1,352,'Grinding Force  ')
+  SET_INT_REG(352,6,gm_status)
+  Comment_Reg(1,353,'Act RPM Spd     ')
+  SET_INT_REG(353,0,gm_status)
+  Comment_Reg(1,354,'Cycle Counter   ')
+  SET_INT_REG(354,0,gm_status)
+  Comment_Reg(1,355,'MAX Cycles      ')
+  SET_INT_REG(355,200,gm_status)
+  Comment_Reg(1,356,'BG Heartbeat    ')
+  SET_INT_REG(356,0,gm_status)
+
+END set_rg
+-----------------------------------------------------------------------------
+ROUTINE set_ic
+-- PURPOSE: to load all io interconnects
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+FOR i = 1 TO 12 DO -- Setup interconnect DO 643-654
+  Set_B_Svar('$thrsditable['+int2str(i)+'].$thr_enb',TRUE)
+  Set_I_Svar('$thrsditable['+int2str(i)+'].$di_no',(i+987))-- from Tool Change Input 987-998
+  Set_I_Svar('$thrsditable['+int2str(i)+'].$do_no',(i+643))-- echo output to PLC 643-654
+ENDFOR --
+
+END set_ic
+-----------------------------------------------------------------------------
+ROUTINE set_mh
+-- PURPOSE: to setup MH grip valves and IO blocks
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --set these variables to force MH setup on this stand-alone config
+  MFG_AREA     = 1 			--set-up BodyShop as Manufacturing Area
+  Use_MH_Tool  = TRUE 	--use MH
+  Use_Vacuum   = FALSE	--no vacuum needed
+  NumEOATOtMan = 1 			--set-up 1 Valve Pack
+  NumEOATInBlk = 2 			--set-up 2 IO blocks
+  
+  gmmhvars --sets MH variables
+  gmmhgpio --sets MH I/O
+  gmmhprgs --sets MH programs
+  gmmhregs --sets MH registers
+
+END set_mh
+-----------------------------------------------------------------------------
+ROUTINE set_lsrclean
+-- PURPOSE: setup laser clean application
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+  WriteLog('  Starting the laser clean program GMLSRCLN', FALSE)
+
+  init_lsrcln 
+  
+  --SETUP ROUTINES 
+  set_mh  -- Run MH Grip for 1-valve pack and 2 IO blocks.
+  set_vr  -- setup all variables, ualarms, BG tasks.
+  set_io  -- setup, comment and configure all io and flags for process.
+  set_pg  -- load programs used in process, and macro table.
+  set_rg  -- comment numeric registers and position registers used in process.
+  set_ic  -- IO interconnects.
+  
+  WriteLog('  Laser Clean setup completed', FALSE)
+
+  WriteLog('', FALSE)
+
+END set_lsrclean
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlsrcln
+
+
+
+
+

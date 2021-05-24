@@ -1,0 +1,205 @@
+-------------------------------------------------------------------------
+--
+--   MODULE:         GMSTUDRG.KL
+--   TITLE:          GMSTUDRG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Application Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Register file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/20 marchaka Add wizlog logging functionality
+--             V4.1   2017/02/05 marchaka         Modify prompts for wizard rerun
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSTUDRG
+
+%COMMENT = 'GM Stud V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- GM bodyshop variables
+%INCLUDE gmcfgstd  -- GM stud variables
+%INCLUDE gmcfgcel  -- cell wizard variables
+
+CONST
+Version = '2017-02-05'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+ gm_status: INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  StudRG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Stud reg at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+-----------------------------------------------------------------------------
+ROUTINE initSTUDREGS
+-- PURPOSE: to initialize application Programs associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(StudRG_Setup) THEN
+    StudRG_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numstudctrl) THEN
+    numstudctrl = 0
+  ENDIF
+
+END initSTUDREGS
+
+-----------------------------------------------------------------------------
+ROUTINE stud_reg
+-- PURPOSE: set stud registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+Comment_Reg(1,140,'StudEQ#1Sch')
+Comment_Reg(1,141,'StudEQ#2Sch')
+
+IF ((stud1_app = stud_rhg) AND (stud1_backup = wizans_yes)) THEN--tool nest slide used
+  Comment_Reg(1,27,'Num of TC Slides') 
+
+  SELECT (stud1_slide) OF
+    CASE (stud_1gunsld):  --single gun on slide
+      SET_INT_REG(27,2,gm_status)
+ 
+    CASE (stud_2gunsld):  --two guns on the same slide
+      SET_INT_REG(27,1,gm_status)
+  
+    ELSE:
+  ENDSELECT
+ENDIF  --tool nest slide used
+
+END stud_reg
+-----------------------------------------------------------------------------
+ROUTINE set_stud_reg
+-- PURPOSE: to initialize application registers associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numstudctrl <> 0) THEN --application has stud 
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(StudRG_Setup) OR (Reset_Cell) THEN
+    StudRG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Stud Program GMSTUDRG', FALSE)
+
+  IF (StudRG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Stud Registers Already Setup', FALSE)
+    IF ExecSetupAgn('STUD REGS') THEN -- ask user if they want to setup again
+      StudRG_Setup = FALSE
+    ELSE
+      WriteLog('  Stud Registers already Complete', FALSE)
+      WriteLog('  GMSTUDRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initSTUDREGS
+  stud_reg
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Stud Program Setup GMSTUDRG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Stud Register Setup completed', FALSE)
+    StudRG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --application has stud
+
+END set_stud_reg
+
+
+-----------------------------------------------------------------------------
+
+
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+BEGIN
+END GMSTUDRG
+

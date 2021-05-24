@@ -1,0 +1,207 @@
+﻿<html>
+
+<head>
+<script>
+function loadPDFDoc(device, pdf) {
+	var xmlhttp;
+
+	xmlhttp=new XMLHttpRequest();
+
+	xmlhttp.onreadystatechange=function() {
+		if (xmlhttp.readyState==4 && xmlhttp.status==200) {
+			xmlhttp.open("GET","/SOFTPART/GENLINK?config=current&current=menupage,1606,1",true);		
+	  		xmlhttp.send();
+	  	}
+	}
+	xmlhttp.open("GET","/KCL/set%20var%20$DOCVIEWER.$CURFILE[1]='"+device+"\\"+pdf+"'",true);
+	xmlhttp.send();
+}
+</script>
+<meta http-equiv="Content-Language" content="en-us">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>GM Documents</title>
+<style type="text/css">
+.style1 {
+	font-size: medium;
+}
+.style2 {
+	margin-bottom: 0px;
+}
+.style3 {
+	border-style: solid;
+	border-color: #FFFFFF;
+}
+.style4 {
+	text-align: center;
+}
+</style>
+</head>
+
+<body>
+
+<table style="width: 28%; height: 344px;">
+	<tbody class="style4">
+	<tr>
+		<td class="style1" style="width: 554px; height: 41px;">
+											<object classid="clsid:7106067C-0E45-11D3-81B6-0000E206D650" id="FRIPButtonChange1" style="width: 180px; height: 31px">
+												<param name="Caption" value="Production Home">
+												<param name="FontSize" value="14">
+												<param name="width" value="180">
+												<param name="height" value="31">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="PageName" value="ProdHome.stm">
+												<param name="BackColor" value="16776960">
+											</object>
+											</td>
+		<td style="width: 1289px; height: 41px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="height: 33px; width: 554px;">
+		<a href="javascript:loadPDFDoc('frs:','GMWIZMAN.pdf')">GM Wizard Manual</a></td>
+                      <td class="style3" style="width: 1289px; height: 33px;">
+                        <form action="/Karel/mpnlsvr" method="GET">
+                          <div>
+                            <input type="hidden" name="object" value="PROG">
+                            <input type="hidden" name="operate" value="RUN">
+                            <input type="hidden" name="pname" value="GMSAVMAN">
+                            <input type="hidden" name="vname" value="$DEVICE">
+                            <input type="hidden" name="value" value="MC:">
+                            <input type="submit" value="Save Files to MC:" class="style2">
+                          </div>
+                        </form>
+                      </td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 33px;">
+		<a href="javascript:loadPDFDoc('frs:','GMDISPMAN.pdf')">Dispense Setup 
+		Manual</a></td>
+		<td style="width: 1289px; height: 33px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 33px;">
+		<a href="javascript:loadPDFDoc('frs:','gmsgman.pdf')">Servo Gun Setup Manual</a></td>
+                      <td style="width: 1289px; height: 33px;">
+                        <form action="/Karel/mpnlsvr" method="GET">
+                          <div>
+                            <input type="hidden" name="object" value="PROG">
+                            <input type="hidden" name="operate" value="RUN">
+                            <input type="hidden" name="pname" value="GMSAVMAN">
+                            <input type="hidden" name="vname" value="$DEVICE">
+                            <input type="hidden" name="value" value="UD1:">
+                            <input type="submit" value="Save Files to UD1" style="width: 161px; height: 26px">
+                          </div>
+                        </form>
+                      </td>
+            </tr>
+
+	<tr>
+		<td style="width: 554px; height: 33px;">
+		<a href="javascript:loadPDFDoc('frs:','GMTIPDRSMAN.pdf')">Tip Dress Setup 
+		Manual</a></td>
+                      <td style="width: 1289px; height: 33px;">
+                        <form action="/Karel/mpnlsvr" method="GET">
+                          <div>
+                            <input type="hidden" name="object" value="PROG">
+                            <input type="hidden" name="operate" value="RUN">
+                            <input type="hidden" name="pname" value="GMSAVMAN">
+                            <input type="hidden" name="vname" value="$DEVICE">
+                            <input type="hidden" name="value" value="UT1:">
+                            <input type="submit" value="Save Files to UT1" style="width: 161px; height: 27px">
+                          </div>
+                        </form>
+                      </td>
+		
+	</tr>
+	<tr>
+		<td style="height: 33px; width: 554px;">
+		<a href="javascript:loadPDFDoc('frs:','gm_ffr_man.pdf')">GM Error 
+		Recovery Manual</a></td>
+		<td style="height: 33px; width: 1289px;">
+		<object classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel1" style="width: 164px; height: 34px; ">
+			<param name="Caption" value="">
+			<param name="FontSize" value="10">
+			<param name="width" value="164">
+			<param name="height" value="34">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MPNLSVR]action">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="BackColor" value="65535">
+		</object>
+		</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 33px;">
+		<a href="javascript:loadPDFDoc('frs:','gmudcman.pdf')">UD&amp;C 
+		Configuration Manual</a></td>
+		<td style="width: 1289px; height: 33px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 33px;">
+		<a href="javascript:loadPDFDoc('frs:','GM_grs3.pdf')">GRS - 3 Spec</a></td>
+		<td style="width: 1289px; height: 33px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','GM_DCS_MAN.pdf')">GM DCS Setup 
+		Guide</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmsprman.pdf')">SPR Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmfdsman.pdf')">FDS Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','g4visrec.pdf')">iRVision Recovery 
+		Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','LPT_MAN.pdf')">LPT Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmpntdisp.pdf')">Paint Dispense 
+		Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmpntvis.pdf')">Paint iRVision 
+		Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmarcman.pdf')">Laser Setup 
+		Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmlasman.pdf')">Remote Laser Weld 
+		Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+	<tr>
+		<td class="style1" style="width: 554px; height: 34px;">
+		<a href="javascript:loadPDFDoc('frs:','gmbrzman.pdf')">Laser Braze/Weld 
+		with Wire Setup Manual</a></td>
+		<td style="width: 1289px; height: 34px;">&nbsp;</td>
+	</tr>
+</table>
+
+</body>
+
+</html>

@@ -1,0 +1,145 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1999
+--             Fanuc Robotics Corporation
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--
+--    Language: KAREL
+--    
+--    Source File:  
+--    
+--    Author: Fanuc Robotics Corporation
+--            3900 W. Hamlin Rd.
+--            Rochester Hills, Michigan  48309
+--    
+--	 
+--    Modification history:
+--      2016-03-15:  marchaka - file created for G4
+--      2017-02-13   marchaka  Removed $dev_path setting.  This is handled 
+--                             in gmmain1 now.
+--      2017-03-12   marchaka  Add PMC Internal I/O assignment for arctool configs
+--      2019-08-03   marchaka  Added internal I/O assingment for R bits to be tied to DO
+------------------------------------------------------------------
+PROGRAM gmpmc
+------------------------------------------------------------------
+%COMMENT = 'GM PMC'
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+
+%ENVIRONMENT PRODDEF
+
+CONST
+Revision = '2019-08-03'
+%INCLUDE gmcnstnt --GM wizard constants
+
+VAR
+Num_errors :INTEGER
+gm_status  :INTEGER
+
+laser_app    IN SHADOW FROM GMCFGLAS: INTEGER   --laser application (ArcTool)
+arc_optn     IN SHADOW FROM GMVARS: BOOLEAN --arctool loaded on the robot
+
+
+%INCLUDE klrdutil  --Routine declaration for core utils
+%INCLUDE gmrdutil --GM common routines
+
+-----------------------------------------------------------------------------
+
+ROUTINE SetIoIntrl(idx, pmc_no, pmc_char, pmc_addr, pmc_size, io_type, io_idx: INTEGER)
+--  Set PMC Internal I/O assignments (not used until R-30iB)
+--  Inputs
+--    idx      - Sys var index number
+--    pmc_no   - ladder no
+--    pmc_char - PMC Type (X, Y, F, R, K, etc)
+--               X = 88, Y = 89, F = 70, D = 68 
+--    pmc_addr - PMC Starting address
+--    pmc_size - PMC Size (in bytes)
+--    io_type  - I/O type (DI, DO, GI, etc)
+--    io_idx   - I/O starting index
+--    
+-----------------------------------------------------------------------------
+VAR
+  i : STRING[4]
+
+BEGIN
+  i = int_to_strg(idx)
+  set_I_sVar('$pmc_if[' + i + '].$pmc_no',   pmc_no)
+  set_I_sVar('$pmc_if[' + i + '].$pmc_char', pmc_char)
+  set_I_sVar('$pmc_if[' + i + '].$pmc_addr', pmc_addr)
+  set_I_sVar('$pmc_if[' + i + '].$pmc_size', pmc_size)
+  set_I_sVar('$pmc_if[' + i + '].$io_type',  io_type)
+  set_I_sVar('$pmc_if[' + i + '].$io_idx',   io_idx)
+END SetIoIntrl
+
+-----------------------------------------------------------------------------
+ROUTINE setpmcintio
+--  Set the PMC internal I/O assignments 
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set internal I/O assignments
+  SetIoIntrl( 1, 1, 88,    0,  128,  1,     1) --DI  [1-x],     128 bytes, X00000
+  SetIoIntrl( 2, 1, 88,  200,  128,  1,  1025) --DI [1025-x],   128 bytes, X00200  
+  SetIoIntrl( 3, 1, 89,    0,  128,  2,     1) --DO  [1-x],     128 bytes, Y00000
+  SetIoIntrl( 4, 1, 89,  200,  128,  2,  1025) --DO [1025-x],   128 bytes, Y00200  
+  SetIoIntrl( 5, 1, 68,    0, 3000, 19, 10001) --GO [10001-x], 3000 bytes, D00000
+  SetIOIntrl( 6, 1, 82,    0, 1500,  2, 11001) --DO [11001-x], 1500 bytes, R00000
+
+END setpmcintio
+-----------------------------------------------------------------------------
+ROUTINE arcpmcinitio
+--  Sets PMC internal I/O assignment that is arc tool specific
+--  This routine is called from ArcTool wizard
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (arc_optn = TRUE) THEN --ArcTool
+    IF (laser_app = wizans_yes) THEN --Laser Application
+      SetIoIntrl( 7, 1, 71,  256,    4, -3,   411) --R [411-x], 4 bytes, G00256
+    ENDIF --Laser Application
+  ENDIF --ArcTool
+
+END arcpmcinitio
+-----------------------------------------------------------------------------
+ROUTINE load_pmc
+--  Loads PMC file
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCMD ('COPY FRS:gmlad1.pmc MD:\LADDER1.PMC', gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy LADDER1.PMC to MD', 0,0)
+    ENDIF  
+
+END load_pmc
+-----------------------------------------------------------------------------
+ROUTINE load_arc_pmc
+--  Loads ArcTool PMC file
+--  Routine is called by ArcTool Wizard
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (arc_optn = TRUE) THEN --ArcTool
+    SPRUNCMD ('COPY FRS:gmarclad1.pmc MD:\LADDER1.PMC', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy LADDER1.PMC to MD', 0,0)
+      ENDIF
+  ENDIF --ArcTool
+
+END load_arc_pmc
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmpmc
+

@@ -1,0 +1,329 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMDISCT.KL
+--   TITLE:          GMDISCT PROGRAM
+-- 
+--
+--
+--   WRITTEN BY:
+--   REVISION DATE:
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Dispense Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/26 marchaka  Add logic to properly select dispense menu if
+--                              servo gun option is loaded on the robot.
+--         2016/11/01 marchaka	Add logic to properly select dispense menu if
+--                              servo tip dress option is loaded on the robot.
+--
+--         2017/04/29 kosaskiR  Added getting variable from GMWIZARD to track if the
+--                              program has already been executed to prevent from running again
+--         2017/05/01 marchaka  Fix ghost strokes based on option set
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMDISPCT
+
+%COMMENT = 'GM Dispense V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT sldef
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE klevkeys  -- TP and cRT key codes
+%INCLUDE gmcfgdsp  -- GM dispense variables for wizard setup
+
+
+CONST
+Version = '2017-05-01'
+%INCLUDE gmcnstnt  -- used for wizard constants
+
+VAR
+
+  g_x:  INTEGER
+  entry,
+  gm_status: INTEGER
+  already_done, -- used for reading "DispctIsDone" from GMWIZARD program to be used for
+                -- ghosting strokes is already been executed
+  prc_menucomp IN CMOS: BOOLEAN --process menu has already been accessed
+
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN   -- Servo gun option loaded
+  srvo_td_opt  IN SHADOW FROM GMCUSTO  : BOOLEAN --servo tip dresser option loaded on the robot
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+
+ROUTINE srvo_optn FROM gmwizspt  --check for servo gun option
+ROUTINE srvotd_optn FROM gmwizspt --check for servo tip dress option
+-----------------------------------------------------------------------------
+ROUTINE dispctrl_su
+-- PURPOSE: Sets dispense settings on sealer config menu at controlled start
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(prc_menucomp) THEN
+    prc_menucomp = FALSE
+  ENDIF
+
+  DELAY 2000
+    --*********Seal Config Screen (Controlled Start Menu)**************
+  IF g_servog_opt THEN 
+    IF srvo_td_opt THEN --servo tip dress option
+      IF prc_menucomp THEN  --process axis menu has been configured
+        FORCE_MENU( tp_panel,  tpi_menus )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_zero )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_seven )
+        delay 1000
+      ELSE  --process axis menu has not been configured
+        FORCE_MENU( tp_panel,  tpi_menus )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_zero )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_seven )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_f5 )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_f5 )
+        delay 1000
+        FORCE_MENU( tp_panel,  ky_f5 )
+        delay 1000
+        prc_menucomp = TRUE
+      ENDIF --process axis menu has been configured
+    ELSE  --no servo tip dress option	
+      FORCE_MENU( tp_panel,  tpi_menus )
+      delay 1000
+      FORCE_MENU( tp_panel,  ky_zero )
+      delay 1000
+      FORCE_MENU( tp_panel,  ky_seven )
+      delay 1000
+    ENDIF --servo tip dress option
+  ELSE  --no servo gun option
+    FORCE_MENU( tp_panel,  tpi_menus )
+    delay 1000
+    FORCE_MENU( tp_panel,  ky_zero )
+    delay 1000
+    FORCE_MENU( tp_panel,  ky_six )
+    delay 1000
+  ENDIF 
+
+--all applications are now on the dispense tool application configuration
+
+  --*********Number of equipments********* 
+  IF ($sleqnum <> 1) THEN --ensure to select equipment 1 to configure it  
+    delay 500 					
+    FORCE_MENU( tp_panel, ky_f3)  --select equipment 1
+    delay 500
+    FORCE_MENU( tp_panel, ky_one)
+    delay 500
+    FORCE_MENU( tp_panel, ky_enter)
+    delay 500
+  ENDIF -- set to equipment one
+
+  --*********Equipment Type **************  
+  --Equipment type - variable orfice  
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_f4 )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_five ) --Vari Orific
+  delay 500
+    
+  -- Enable remote start
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_dn_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_f4 )   -- Remote Start
+  delay 500
+
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_up_arw )
+  delay 500
+
+  IF (numdispctrl <> $sleqnum) THEN --need to change number of dispense equipment
+				                                        
+    SELECT numdispctrl OF
+      CASE(1):  --one dispense controller
+        --need to set dispense setup done here because power cycle will prevent completion of this program
+        SET_VAR(entry, 'gmwizard' , 'DispctIsDone', TRUE, gm_status)
+        IF gm_status <> 0 THEN
+          POST_ERR(38000, '[gmwizard].DispctIsDone FAILED', gm_status, 0) --
+        ENDIF
+
+        FORCE_MENU( tp_panel,  ky_dn_arw )
+        delay 500
+        FORCE_MENU( tp_panel, ky_one)
+        delay 500
+        FORCE_MENU( tp_panel, ky_enter)
+        delay 500    
+        FORCE_MENU( tp_panel,  ky_lf_arw ) --select Yes
+        delay 500
+        FORCE_MENU( tp_panel,  ky_enter )
+      CASE(2):  --two dispense controllers
+        --need to set dispense setup done here because power cycle will prevent completion of this program
+        SET_VAR(entry, 'gmwizard' , 'DispctIsDone', TRUE, gm_status)
+        IF gm_status <> 0 THEN
+          POST_ERR(38000, '[gmwizard].DispctIsDone FAILED', gm_status, 0) --
+        ENDIF        
+
+        delay 500
+        FORCE_MENU( tp_panel,  ky_dn_arw )
+        delay 500
+        FORCE_MENU( tp_panel, ky_two)
+        delay 500
+        FORCE_MENU( tp_panel, ky_enter)
+        delay 500    
+        FORCE_MENU( tp_panel,  ky_lf_arw ) --select Yes
+        delay 500
+        FORCE_MENU( tp_panel,  ky_enter )
+      ELSE:
+    ENDSELECT
+  ENDIF
+
+  IF (numdispctrl = 2) THEN --set up equipment 2 
+
+    --select equipment 2  
+    delay 500 
+    FORCE_MENU( tp_panel, ky_f3)  
+    delay 500
+    FORCE_MENU( tp_panel, ky_two)
+    delay 500
+    FORCE_MENU( tp_panel, ky_enter)
+    delay 500  
+
+    --*********Equipment Type **************  
+    -- Equipment type - variable orfice  
+    FORCE_MENU( tp_panel,  ky_dn_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_f4 )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_five ) --Vari Orific
+    delay 500
+    
+    -- Enable remote start
+    FORCE_MENU( tp_panel,  ky_dn_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_dn_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_dn_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_f4 )   -- Remote Start
+    delay 500
+
+    FORCE_MENU( tp_panel,  ky_up_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_up_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_up_arw )
+    delay 500
+    FORCE_MENU( tp_panel,  ky_up_arw )
+    delay 500
+   
+  ENDIF
+
+  delay 1000
+
+  -- return to control start menu
+  FORCE_MENU( tp_panel,  tpi_menus )
+  delay 700
+  FORCE_MENU( tp_panel,  ky_enter )
+  delay 700
+
+END dispctrl_su
+-----------------------------------------------------------------------------
+BEGIN
+
+--check for software options
+IF UNINIT(g_servog_opt) THEN --servo gun
+  srvo_optn
+ENDIF
+IF UNINIT(srvo_td_opt) THEN --servo tip dresser
+  srvotd_optn
+ENDIF
+
+-- go get variable to see if prgram is already completed, or needs to run again
+GET_VAR(entry, 'gmwizard' , 'DispctIsDone', already_done, gm_status)
+  IF gm_status <> 0 THEN
+    POST_ERR(38000, '[gmwizard].DispctIsDone FAILED', gm_status, 0) --
+  ENDIF
+
+  IF UNINIT(already_done) THEN
+    already_done = FALSE
+  ENDIF
+
+  IF (already_done) THEN
+    RETURN  -- Return to calling program, dont need to execute again
+  ENDIF
+
+  dispctrl_su  --run dispense ghost stroke setup
+
+SET_VAR(entry, 'gmwizard' , 'DispctIsDone', TRUE, gm_status)
+  IF gm_status <> 0 THEN
+    POST_ERR(38000, '[gmwizard].DispctIsDone FAILED', gm_status, 0) --
+  ENDIF
+
+END GMDISPCT
+
+
+
+
+
+
+
+
+
+
+
+
+

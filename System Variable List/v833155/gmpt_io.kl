@@ -1,0 +1,505 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPT_IO.KL
+--   TITLE:          GMPT_IO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Powertrain variable setup files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZMH,GMWIZVIS are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--                    9/02/15     R.Kosaski       Added the code for the custom REQ_CONT and I/O it needs
+--                    11-26-16    R.Kosaski       Added the comment for Flag register #41 Per Jonathon Kroll
+--                                                used to serch incoming pallets.
+--                    1-16-17     R.Kosaski       had to update the Fault ack Bit comment for PROG COMP program
+--                    5-17-17     R.Kosaski       Had to update GI/GO 10&11 to 8&9
+--                    5-24-17     R.Kosaski       Added code for the WE robot model H731 to set pressure outputs
+--                    6-26-17     R.Kosaski       Updated comments setup for pressure inputs RDI 7&8
+--                    7-13-17     R.Kosaski       Updated comments AGAIN  for pressure inputs RDI 7&8
+--                    9-18-18     R.Kosaski       Fixed issue with GI/GO 8&9 were not correct
+--                    9-16-19     R.Kosaski       added variable HomeAstActive integer and set default to 645,
+--                                                and commented DO HomeAstActive to 'Home Asst Active'
+--------------------------------------------------------------------------
+PROGRAM GMPT_IO
+
+%COMMENT = 'GMPT I/O V4.4'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+
+Version = '2019-9-16'
+%INCLUDE gmcnstnt  -- constant file for all GM wizard
+
+ VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  i,
+  StrtinErs   :INTEGER   -- How many errors I/O error counter had when the program started
+  homeAstActiv,         -- Variable for which Digital output to turn on when HOMEROBOT program active
+  RZIC_Rack   IN SHADOW: INTEGER -- what rack type was used for RZIC setup
+  RZIC_slot   IN SHADOW: INTEGER -- what slot type was used for RZIC setup
+  RZIC_strPnt IN SHADOW: INTEGER -- what start Point was used in RZIC group setup
+
+  Use_EGD,              -- Indicated that EGD option was loaded and the RZIC rack was setup for that
+  GMPT_IO_Done IN SHADOW : BOOLEAN -- if the I/O has ran completly
+
+ -- Variables for teh Prog Monitor
+-- Below used for the mastering procedure of the schedule driven by teh PLC in CHK_MDFY
+strtMstrNum,  -- used for the start point for configuring the Group input for Mastering input
+strtEchoNum,  -- used for the start point for configuring the Group Output for Mastering Echo output
+strtFltNum ,  -- used for the start pont for configuring the Group Output for Mastering Fault output
+MasterFltRst, -- Used for DIN to Indicate the PLC has acknowledged the Master Fault and reset the outputs
+MasterReqFlt, -- Used for DOUT to indicate Mastering FAULT occured and could not be completed
+Master_Cmplt, -- Used for DOUT to indicate the Mastering was completed succesfully
+InitMaster,   -- Used for DIN number to initiate a master of the current schedule# Master_Req
+MastrFltCode, -- Used for the GOUT to PLC indicating a code to PLC WHY could not master
+Master_Cnfrm, -- Used for the GOUT to PLC confirming the GIN sent on Master_Req
+Master_Req   IN CMOS FROM MDFYSTUP: INTEGER -- Used for GIN the PLC will send for requesting Mastering of Schedule#
+%INCLUDE gmcfgcel  -- used for all the workcell variables
+%INCLUDE gmcfgerr  -- used for all the error counting and status while executing the wizard
+%INCLUDE gmcfgmh   -- used for all the configuration og the material handling setup
+%INCLUDE gmcfgvis  -- has the vision vars
+%INCLUDE gmcfgtlc  -- Used for tool changer config files
+%INCLUDE gmcfgpwr  -- GMPT Configuration variables
+
+%INCLUDE gmrdutil
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-----------------------------------------------------------------------------
+ROUTINE InitProgMon
+-- PURPOSE: to setup the I/O for Program Monitor I/O used by MDFYSTUP program
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+endpoint,
+Status :INTEGER
+BEGIN
+
+
+MasterFltRst = 330 -- Used for DIN to Indicate the PLC has acknowledged the Master Fault and reset the outputs
+MasterReqFlt = 330 -- Used for DOUT to indicate Mastering FAULT occured and could not be completed
+Master_Cmplt = 329 -- Used for DOUT to indicate the Mastering was completed succesfully
+InitMaster   = 329 -- Used for DIN number to initiate a master of the current schedule# Master_Req
+MastrFltCode = 51  --321,8-- Used for the GOUT to PLC indicating a code to PLC WHY could not master
+Master_Cnfrm = 50  --313,8 Used for the GOUT to PLC confirming the GIN sent on Master_Req
+Master_Req   = 50  --313,8 Used for GIN the PLC will send for requesting Mastering of Schedule#
+strtMstrNum  = 313 -- used for the start point for configuring the Group input for Mastering input
+strtEchoNum  = 313 -- used for the start point for configuring the Group Output for Mastering Echo output
+strtFltNum   = 321 -- used for the start pont for configuring the Group Output for Mastering Fault output
+
+-- Set the Master Request Group Input up
+   IF NOT Cnfg_Grp(IO_GPIN,Master_Req,CellCommType,CellSlotNmbr,strtMstrNum,-8) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+    SET_PORT_CMT(io_gpin,Master_Req,'Master Schedule#',status)
+      IF status <>0 THEN
+        POST_ERR(38000, 'GI '+int2str(Master_Req)+' Comment Set Failed', status, 0) --
+      ENDIF
+      endpoint = strtMstrNum + 7
+      FOR i = strtMstrNum TO endpoint DO
+        SET_PORT_CMT(io_din,i,'Used MstrPrg GI',status)
+        IF status<>0 THEN
+          POST_ERR(38000, 'DI '+int2str(i)+' Comment Set Failed', status, 0) --
+        ENDIF
+      ENDFOR --
+   ENDIF
+
+--    Group Outputs (GOUT's)
+
+-- Set the Master Request Group Output up
+   IF NOT Cnfg_Grp(IO_GPOUT,Master_Cnfrm,CellCommType,CellSlotNmbr,strtEchoNum,-8) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+     SET_PORT_CMT(io_gpout,Master_Cnfrm,'Mstr Sched Echo',status)
+       IF status<>0 THEN
+         POST_ERR(38000, 'GO '+int2str(Master_Cnfrm)+' Comment Set Failed', status, 0) --
+         ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+       ENDIF
+     endpoint = strtEchoNum + 7
+     FOR i = strtEchoNum TO endpoint DO
+       SET_PORT_CMT(io_dout,i,'Used MstrCfrm GO',status)
+       IF status<>0 THEN
+         POST_ERR(38000, 'DO '+int2str(i)+' Comment Set Failed', status, 0) --
+         ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+       ENDIF
+     ENDFOR --
+   ENDIF
+
+ -- Set the Master Fault Code Group Output up
+   IF NOT Cnfg_Grp(IO_GPOUT,MastrFltCode,CellCommType,CellSlotNmbr,strtFltNum,-8) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+     SET_PORT_CMT(io_gpout,MastrFltCode,'Mstr Fault Code',status)
+       IF status<>0 THEN
+         POST_ERR(38000, 'GO '+int2str(MastrFltCode)+' Comment Set Failed', status, 0) --
+         ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+       ENDIF
+     endpoint = strtFltNum + 7
+     FOR i = strtFltNum TO endpoint DO
+       SET_PORT_CMT(io_dout,i,'Used MstrFlt GO',status)
+       IF status<>0 THEN
+         POST_ERR(38000, 'DO '+int2str(i)+' Comment Set Failed', status, 0) --
+         ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+       ENDIF
+     ENDFOR --
+   ENDIF
+
+  SET_PORT_CMT(io_din,MasterFltRst,'Fault Ack Bit',status)
+    IF status<>0 THEN
+      POST_ERR(38000, 'DI '+int2str(MasterFltRst)+' Comment Set Failed', status, 0) --
+      ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+    ENDIF
+  SET_PORT_CMT(io_din,InitMaster,'Master Prog Rqst',status)
+    IF status<>0 THEN
+      POST_ERR(38000, 'DI '+int2str(Master_Req)+' Comment Set Failed', status, 0) --
+      ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+    ENDIF
+  SET_PORT_CMT(io_dout,Master_Cmplt,'Mstr Prog Complt',status)
+    IF status<>0 THEN
+      POST_ERR(38000, 'DO '+int2str(Master_Cmplt)+' Comment Set Failed', status, 0) --
+      ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+    ENDIF
+  SET_PORT_CMT(io_dout,MasterReqFlt,'Mstr Prog Fault',status)
+    IF status<>0 THEN
+      POST_ERR(38000, 'DO '+int2str(MasterReqFlt)+' Comment Set Failed', status, 0) --
+      ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+    ENDIF
+
+
+END InitProgMon
+------------------------------------------------------------------------------
+ROUTINE setIOCmt(io_type: INTEGER; io_num: INTEGER; io_cmt: STRING)
+--
+-- Sets a position registers comment
+-- Input/Output Paramaters:
+-- [IN]  io_type - IO type (IO_DIN,IO_DOUT,IO_GPIN,IO_GPOUT)
+-- [IN]  io_num - IO number
+-- [IN]  io_cmt - IO comments
+------------------------------------------------------------------------------
+VAR
+  l_status : INTEGER
+  l_str    : STRING[4]
+  io_str   : STRING[2]
+
+BEGIN
+
+  SET_PORT_CMT(io_type, io_num, io_cmt, l_status)
+  l_str = int2str(io_num)
+  SELECT io_type OF
+    CASE(IO_DIN):
+      io_str = 'DI'
+    CASE(IO_DOUT):
+      io_str = 'DO'
+    CASE(IO_RDI):
+      io_str = 'RI'
+    CASE(IO_RDO):
+      io_str = 'RO'
+    CASE(IO_GPIN):
+      io_str = 'GI'
+    CASE(IO_GPOUT):
+      io_str = 'GO'
+    ELSE:
+      io_str = 'IO'
+  ENDSELECT
+  IF (l_status = 0) THEN
+    writeLog('Comment ' + io_str +'['+ l_str +':'+ io_cmt +']', FALSE)
+  ELSE
+    writeLog('Failed Comment ' + io_str +'['+ l_str +':'+ io_cmt +']', TRUE)
+  ENDIF
+
+END setIOCmt
+
+
+ -----------------------------------------------------------------------------
+ ROUTINE initRZIC_IO
+ -- PURPOSE:
+ --
+ --
+ -- INPUT:
+ --            -
+ -- OUTPUT:
+ --            -
+ -- CALLED BY:
+ --
+ --
+ -----------------------------------------------------------------------------
+-----------------------------------------------------------------------
+
+VAR
+  rzicrbt_in : STRING[10]
+  rzicrbt_out: STRING[10]
+BEGIN
+  -- EGD Ehternet I/O       -- EGD I/O
+IF Chk_Feature('R535') OR Chk_Feature('R793') THEN
+  RZIC_Rack = 88
+  RZIC_slot = 1
+  RZIC_strPnt = 1
+  Use_EGD = TRUE
+ELSE -- No EGD need to go through the PLC?????
+  RZIC_Rack = CellCommType
+  RZIC_slot = CellSlotNmbr
+  RZIC_strPnt = 257 -- Passing thourgh the PLC start in memory map 257
+  POST_ERR(38000, 'No EGD for RZIC Avaialable', 0, 0) --
+  Use_EGD = FALSE
+ENDIF
+
+ writeLog('Assigning IO for EGD.... ', FALSE)
+ -- Assign the io ports using EGD
+
+  IF Use_EGD THEN
+-- reserve the BANK of I/O ??
+--    SET_PORT_ASG(IO_DIN,257,88,1,IO_DIN,1,-24,STATUS)
+   IF NOT Cnfg_Grp(IO_DIN,257,RZIC_Rack,RZIC_slot,RZIC_strPnt,-24) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+--    SET_PORT_ASG(IO_DOUT,257,88,1,IO_DOUT,1,-24,STATUS)
+   IF NOT Cnfg_Grp(IO_DOUT,257,RZIC_Rack,RZIC_slot,RZIC_strPnt,-24) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+
+--    SET_PORT_ASG(IO_GPIN,47,88,1,IO_GPIN,1,-8,STATUS)
+   IF NOT Cnfg_Grp(IO_GPIN,47,RZIC_Rack,RZIC_slot,RZIC_strPnt,-8) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+
+ --   SET_PORT_ASG(IO_GPIN,48,88,1,IO_GPIN,9,-16,STATUS)
+   IF NOT Cnfg_Grp(IO_GPIN,48,RZIC_Rack,RZIC_slot,(RZIC_strPnt+8),-16) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+
+ --   SET_PORT_ASG(IO_GPOUT,47,88,1,IO_GPOUT,1,-8,STATUS)
+   IF NOT Cnfg_Grp(IO_GPOUT,47,RZIC_Rack,RZIC_slot,RZIC_strPnt,-8) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+
+ --   SET_PORT_ASG(IO_GPOUT,48,88,1,IO_GPOUT,9,-16,STATUS)
+   IF NOT Cnfg_Grp(IO_GPOUT,48,RZIC_Rack,RZIC_slot,(RZIC_strPnt+8),-16) THEN
+     ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+   ELSE -- configured Group so Comment digital using it
+   ENDIF
+
+  ELSE -- regular I/O
+
+  ENDIF
+-- SET_PORT_ASG(IO_DIN,257,88,1,IO_DIN,1,-24,STATUS)
+-- SET_PORT_ASG(IO_DOUT,257,88,1,IO_DOUT,1,-24,STATUS)
+
+-- SET_PORT_ASG(IO_GPIN,47,88,1,IO_GPIN,1,-8,STATUS)
+-- SET_PORT_ASG(IO_GPIN,48,88,1,IO_GPIN,9,-16,STATUS)
+-- SET_PORT_ASG(IO_GPOUT,47,88,1,IO_GPOUT,1,-8,STATUS)
+-- SET_PORT_ASG(IO_GPOUT,48,88,1,IO_GPOUT,9,-16,STATUS)
+
+ -- 1 is left robot
+ -- 2 is right robot
+ IF (RZIC_Type = 1) THEN
+ 	rzicrbt_in  = 'RR'
+ 	rzicrbt_out = 'LR'
+ ELSE
+ 	rzicrbt_in  = 'LR'
+ 	rzicrbt_out = 'RR'
+ ENDIF
+
+  FOR i = 257 TO 272 DO
+    setIOCmt(IO_DIN, i, 'RZIC B Stat b'+int2str((i-256)))
+    setIOCmt(IO_DOUT, i, 'RZIC B Stat b'+int2str((i-256)))
+  ENDFOR -- set all the inputs
+  FOR i = 273 TO 280 DO
+    setIOCmt(IO_DIN, i, 'RZIC Status b'+int2str((i-272)))
+    setIOCmt(IO_DOUT,i, 'RZIC B Stat b'+int2str((i-272)))
+  ENDFOR --
+
+  setIOCmt(IO_GPIN, 47, rzicrbt_in + ' Status')
+  setIOCmt(IO_GPIN, 48, rzicrbt_in + ' Bndry Status')
+
+  setIOCmt(IO_GPOUT, 47, rzicrbt_out + ' Status')
+  setIOCmt(IO_GPOUT, 48, rzicrbt_out + ' Bndry Status')
+
+ END initRZIC_IO
+-----------------------------------------------------------------------------
+ROUTINE initGMPT_io
+-- PURPOSE: to initialize I/O associated with GMPT setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+user_num:STRING[4]
+gm_status :INTEGER
+BEGIN
+
+IF UNINIT(USE_RZIC) THEN
+  USE_RZIC = FALSE
+ENDIF
+
+IF UNINIT(Use_Prog_Mon) THEN
+  Use_Prog_Mon = FALSE
+ENDIF
+
+Current_Ver = Version -- Set the version for reference
+
+IF Use_RZIC THEN -- Ins and outs 257 - 280
+  InitRZIC_IO -- setup I/O comments for RZIC setup
+ENDIF
+
+IF Use_Prog_Mon THEN --Inputs 313-320 Outputs 281-330
+  InitProgMon
+ENDIF
+
+IF UNINIT(homeAstActiv) THEN
+  homeAstActiv = 642
+ENDIF
+
+    setIOCmt(IO_FLAG, 41, 'Search Cancelled')-- used in palletizing RK 11-26-16
+
+
+ --G4 Home Bits, in Powertrain they are called Pounce bits
+  FOR I = 434 to 442 DO
+    user_num = int2str(I-432)
+    SET_PORT_CMT(IO_DOUT,I,'doPounce'+user_num, gm_status)
+  ENDFOR
+
+-- Setup the I/O for the additioanl mapping for the REQCNTCSTM
+-- Setup I/O for additioanl decision Code Options ADDED 9-2-16 per GM team
+  IF NOT Cnfg_Grp(IO_GPIN,8,CellCommType,CellSlotNmbr,385,-8) THEN
+     ErrsInCell.ErrorsIOCom = ErrsInCell.ErrorsIOCom + 1
+  ELSE -- if able to setup, then comment it
+    FOR i = 385 TO 392 DO
+      user_num = int2str(I-384)
+      setIOCmt(IO_DIN, i, 'DCDByte2_'+user_num)
+    ENDFOR --
+    setIOCmt(IO_GPIN, 8, 'Decision Byte2')
+  ENDIF
+  IF NOT Cnfg_Grp(IO_GPOUT,8,CellCommType,CellSlotNmbr,385,-8) THEN
+     ErrsInCell.ErrorsIOCom = ErrsInCell.ErrorsIOCom + 1
+  ELSE -- if able to setup, then comment it
+    FOR i = 385 TO 392 DO
+      user_num = int2str(I-384)
+      setIOCmt(IO_DOUT, i, 'DCDByte2_'+user_num)
+    ENDFOR --
+    setIOCmt(IO_GPOUT, 8, 'Decision Byte2')
+  ENDIF
+
+
+  IF NOT Cnfg_Grp(IO_GPIN,9,CellCommType,CellSlotNmbr,393,-8) THEN
+    ErrsInCell.ErrorsIOCom = ErrsInCell.ErrorsIOCom + 1
+  ELSE -- if able to setup, then comment it
+    FOR i = 393 TO 400 DO
+      user_num = int2str(I-392)
+      setIOCmt(IO_DIN, i, 'DCDByte3_'+user_num)
+    ENDFOR --
+    setIOCmt(IO_GPIN, 9, 'Decision Byte3')
+  ENDIF
+  IF NOT Cnfg_Grp(IO_GPOUT,9,CellCommType,CellSlotNmbr,393,-8) THEN
+    ErrsInCell.ErrorsIOCom = ErrsInCell.ErrorsIOCom + 1
+  ELSE -- if able to setup, then comment it
+    FOR i = 393 TO 400 DO
+      user_num = int2str(I-392)
+     setIOCmt(IO_DOUT, i, 'DCDByte3_'+user_num)
+    ENDFOR --
+    setIOCmt(IO_GPOUT, 9, 'Decision Byte3')
+  ENDIF
+
+-- If WE robot, comment the RDI 7  and RDI 8           '
+   IF Chk_Feature('H731') THEN
+     setIOCmt(IO_RDI, 7, 'MOTOR Purge OK')
+     setIOCmt(IO_RDI, 8, 'REDUCER Purge OK')
+     WriteLog('Comment RDI for WE Robot Purge Inputs',FALSE)
+   ENDIF
+
+-- Add comment for home assist
+   setIOCmt(IO_DOUT, homeAstActiv, 'HOME Asst Active')
+
+END initGMPT_io
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+  ErrsInShop.ErrorsIOCom = 0
+ENDIF
+
+IF UNINIT(GMPT_IO_Done) THEN
+  GMPT_IO_Done = FALSE
+ENDIF
+
+  IF (GMPT_IO_Done = TRUE) THEN -- setup has already been setup
+      WriteLog('Powertrain I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Powertrain I/O') THEN -- ask user if they want to setup again
+      GMPT_IO_Done = FALSE
+    ELSE
+      WriteLog('Powertrain I/O already Complete', FALSE)
+      WriteLog('GMPT_IO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsIOCom -- grab curent eror count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog('Starting the GMPT I/O setup Program', FALSE)
+
+  initGMPT_io
+
+  ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('GMPT I/O setup Program GMPT_IO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog('GMPT I/O setup Program completed', FALSE)
+   GMPT_IO_Done = FALSE
+ ENDIF
+
+  WriteLog('',FALSE)
+
+END GMPT_IO

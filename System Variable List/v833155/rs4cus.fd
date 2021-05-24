@@ -1,0 +1,1898 @@
+/*  This material is the joint property of GMFanuc Robotics Corporation  and
+ *  FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+ *  Corporation or FANUC LTD Japan immediately upon request.  This  material
+ *  and   the  information  illustrated  or  contained  herein  may  not  be
+ *  reproduced, copied, used, or transmitted in whole or in part in any  way
+ *  without the prior written consent of both GMFanuc Robotics and FANUC.
+ *
+ *           All Rights Reserved
+ *           Copyright (C)   1995
+ *           GMFanuc Robotics Corporation
+ *           FANUC LTD Japan
+ *  +
+ *  Feature: GM RS4 Customization
+ *
+ *  Description:  This file contains those elements of SpotTool+ which
+ *  are specific for GM RS 4.  These are then copied to a separate disk.
+ *
+ *  Source File:  rs4cus.fd      1-7-02
+ *
+ *  Author: Bernie Herder
+ *          FANUC Robotics Corporation
+ *          3900 West Hamlin Road
+ *          Rochester Hills, Michigan, 48309-3253
+ *
+ *  Modification history:
+ *  30-NOV-2015     marchaka     Global 4 V8.33P01 Initial Release
+ *  31-MAR-2016     evansja      Added GM HMI Error Recovery
+ *  09-MAY-2016     marchaka	 Global 4 post rev00 additions
+ *  27-May-2016     kosaskirr    Added unremarked GMPT files so loaded and Multi Pounce data
+ *  06-June-2016    kosaskirr    Added cnvrtgin.kl to file for Baluff analog sensor
+ *  01-July-2016    kosaskirr    Added Press files at bottom, and 2 press .gif files in WEB area
+ *  13-July-2016    kosaskirr    Removed Dublicate programs in added press.gif and commented out SHL* programs
+ *                               because they are in RS4GMPT.FD files and system warn when FD ran.
+ *  01-Sept-2016    marchaka     Modified FD for files to survive init starts and some files to be loaded on FRS.
+ *  08-Oct-2016     marchaka     Added dimpler applicaiton wizard programs.
+ *  12-Nov-2016     kosaskirr    Added the files for the ATI icon, and new press files, press manual
+ *  28-Nov-2016     kosaskirr    Added the files for teh SpinTop Controller
+ *  29-Nov-2016     kosaskirr    Added ST_DATAERROR.TP file
+ *
+ *
+ *  28-Nov-2016     marchaka     Added dispense teach pendant programs
+ *  05-Dec-2016     marchaka     Added new manuals and SPR teach pendant programs.  Paint programs added
+ *  07-Dec-2016     kosaski      Changed to have ati_h17d0e.gif replace ati_buttton.jpg
+ *  09-Dec-2016     kosaski      fixed remark ati_h17d0e.gif had */ instead of /*
+ *  12-Dec-2016     marchaka	 movrepr1 removed. tdg1chk will now load as td_chk. hostset.kl now loads.  
+ *                               Added new paintshop programs. prerepr1 removed. PDF loading now has some conditions
+ *                               based on software options installed.
+ *  16-Dec-2016     marchaka     Added gmtipdrsman.pdf
+ *  09-Jan-2017     marchaka     Added ccteach.kl
+ *  25-Jan-2017     marchaka     Added gmbodyrg.kl, gmspotio3, vision application programs.  Removed obsolete iRVis 
+ *                               programs.  Added gmhstset and many DVG and cap changer programs.
+ *  06-Feb-2017     marchaka     Added vision display dictionaries, removed some vision TP programs, added vision programs.
+ *                               Removed tm_vis_3dl.tp, tm_partfind.tp and tm_slotfind.tp
+ *  09-Feb_2017     marchaka     Removed tm_down_count.tp, tm_upcount.tp, tm_vlogic2.tp.  Add autocapchngr.tp, dcd_capchngr.tp, gm_tw_prs01.tp
+ *  16-Feb-2017     marchaka     Removed dcd_capchngr.tp
+ *  25-Feb-2017     marchaka     Do not load gmdispman if R878 GRS Paintshop Dispense is installed.  Remove tc_tdpr1.tp. Add multiple new cap change programs
+ *  28-Feb-2017     keselmld     Change lpto dependance to r885 dependance
+ *  28-Feb-2017     marchaka     Change R878 depnedance to slgrsp dependance
+ *  13-March-2017   marchaka     Added bootrom.udt to force BMON update during the first controlled to
+ *                               cold transition.  Add paintshop dispense manual (gmpntdisp.pdf).  Add pntutils
+ *                               for paintshop.  Removed tm_vis_drop01.tp, tm_vis_dropr1.tp, tm_vis_style1.tp, tm_vlogic1.tp
+ *  17-March-2017   marchaka     Add gmdresseron.tp.  Remove gm_tmp25.tp and gm_tmp26.tp. Add g4visrec.pdf.  Add tdwebmon.  Remove gmtpdr*.stm.  added gmtd*.stm and gmwldg*.stm.
+ *  26-March-2017   marchaka     Add start_circ.tp and stop_circ.tp.  Add files for GM menu edit (custo*) web screens.  Added autocapchngr2.tp, 
+ *                               autocapchngr3.tp and autocapchngr4.tp. Added gmautoup for auto update.
+ *  31-March-2017   marchaka     Added gmautocd for GM auto update during cold start.
+ *  10-April-2017   marchaka     Remove gmtctpg*.stm.  They are no longer needed as they are replaced by one common gun page.  Removed gmtcchg.stm, replaced with
+ *                               gmtcstat.stm. 
+ *  02-May  -2017  kosaski       Removed .TP from Phils added TP files
+ *  15-Feb-2018    marchaka      Add and remove press TP programs.  Add new vision TP programs.
+ *  21-Mar-2018    marchaka      Add new TP programs for cap changing
+ *  2018/04/04     marchaka      Add new SPR and FDS manaul.  Add new paint TP programs.
+ *  2018/04/09     marchaka      Add new paintshop files (tcu_status.stm, tcu_task.pc).
+ *  09-April-2018  kosaski       Added HOMEUTIL and HOMEFIND karel files and HOMEROBOT.TP
+ *  2018/04/23     marchaka      Duplicate copying of exclusion files on FRS with different name to deal with an overwrite issue during auto update
+ *  2018/04/30     marchaka      Add INIT start proteciton for gmptdata.pc
+ *  2018/05/04     marchaka      Add paintshop iRVision manaual
+ *  2018/09/05     marchaka	 Add new wizard files
+ *  2018/09/13     marchaka      Add new spot welding teach pendant programs.  Add gmspotvr5.kl
+ *  2018/09/20     kosaski       Add new gmpundta,gmdcslog, spintoputil files
+ *  2018/09/24     marchaka      Remove loading of srvo_tc.pc, servo gun tool change setup now handled at controlled start.  Add GM UD &C manual.  Added
+ *                               gmspotvr6.kl, gmswgtc.kl.
+ *  2018/10/10     marchaka      Removed loading of svg2a*.dt and svg3a*.dt onto frs.  This is to correct an issue where the GM defaults are overwriting what the user
+ *                               selected in the RCS wizard (virtual) setup.  This should not be an issue as the GM wizard creates these DT files when motor setup happens.
+ *                               The required DT files will be on FRS and FRSU when motion groups are added via the GM wizard.  Replace
+ *                               open.gif with gm_open.gif.
+ *  2018/10/15     kosaski       Add new crc16.kl,gmdcslogend.kl,spintoppath.kl,tmptdcsvldtn.tp and gmpunvin.tp files
+ *
+ *
+ *  2018/10/10     schoensm      Added Stand-Alone TP programs during V8.33P06 build
+ *  2018/12/03     Kosaski       Removed SPINTOP code from memory
+ *  2019/01/13     Kosaski       Added the GRPCYCLCNFRM.TP program to file
+ *  2019/01/18     marchaka      Remove loading of SRVO.stm.  We want to use the standard version of this program.  GM doesn't customize the SRVO error
+ *                               dictionary so there shouldn't be a problem with doing this.
+ *  2019/04/11     marchaka      gmdcsprot added for DCS write protection during an auto update
+ *  2019/08/23     marchaka      gmcolbio and gmcolbvr added for collaborative robot setup.  gmautoup2 added. Double blank sensor
+ *                               TP programs added.  Body chassis marriage wizard program and TP programs added.  Add new servo nut
+ *                               weld program.
+ *  2019/09/08     schoensm      added forcemsgtp.tp for V8.33P08, PHD PinGrip Programs
+ *  2019/09/11     marchaka      Added new paint shop programs 
+ *  2020/02/13     schoensm      Added new programs for V8.33P09 gmoktopk, gmsetvlv, gmfsac.kl, new gmstd1-4.stm files.
+ *  2020/02/25     marchaka      Add GM version of varchg.xml --gmvarchg.xml.
+ *  2020/03/23     marchaka      Added new gmenets3 program for v8.33p09
+ *  2020/10/12     schoensm      Added new crstyle25.tp and gmcolbpg.kl for v8.33p10, laser grind/clean tp files.
+ *  2020/11/06     marchaka      Add new servo gun thickness check TP program (sgthkchk_tmp.tp)
+*/
+name RS4 Customization
+order R667
+require spotplus
+
+/*Set SpotTool+ Defaults for GM*/
+SETVAR $MAX_DIG_PRT 2048 init
+SETVAR $MACRO_MAXNU 200 init
+SETVAR $MAXUALRMNUM 200 init
+SETVAR $STYLE_COUNT 255 init
+SETVAR $THRTABLENUM[3] 64 init
+
+/* init spotplus will allow Karel programs to survive init start */
+
+/* Product Files */
+karel swaxtask init spotplus
+karel swaxtcmn init spotplus
+karel swcfscrn init spotplus   /* replaces one from spotplug.fd */
+karel gmcusto  init spotplus
+karel swcustom init spotplus
+karel atshell  init spotplus
+karel swexec   init spotplus
+karel swexec2  init spotplus
+karel swstud   init spotplus
+karel swgmrs4  init spotplus
+karel incdim   init spotplus
+karel swmanwld init spotplus
+karel swtoolbx init spotplus
+karel swdigitl init spotplus
+karel swdigit2 init spotplus
+karel swgunio  init spotplus
+karel gmeqin   init spotplus
+karel gmeqoutf init spotplus
+karel gmweldio init spotplus
+karel swshell  init spotplus
+karel swshell2 init spotplus
+karel swshell3 init spotplus
+karel gmeqoutt init spotplus
+karel swsoftpa init spotplus
+karel swerrjob init spotplus
+karel swerrsub init spotplus
+karel gmatcstm init spotplus
+
+/*MH Grip */
+karel mhgrpcmn init spotplus
+karel mhdroppt init spotplus
+karel mhgrippt init spotplus
+karel mhgrsetp init spotplus
+karel mhgrshll init spotplus
+karel mhgripsu init spotplus
+karel mhgrset init spotplus
+karel mhadvrcy init spotplus
+karel mhgpinst init spotplus
+karel mhgrprtn init spotplus
+karel mhgrpcls init spotplus
+karel mhgrpopn init spotplus
+karel mhdtgrip init spotplus
+
+/* G4 Wizard Programs */
+karel gmlang1 init spotplus
+karel gmlang2 init spotplus
+karel gmmain1 init spotplus
+karel gmmain2 init spotplus
+karel gmpmc init spotplus
+karel gmenetsu init spotplus
+karel gmenets2 init spotplus
+karel gmenets3 init spotplus
+karel gmsafeio init spotplus
+karel gmsetvar init spotplus
+karel gmutility init spotplus
+karel gmwizard  init spotplus
+karel gmwizmis init spotplus
+karel gmwizlog init spotplus
+karel gmworkin init spotplus
+karel gmcellio init spotplus
+karel gmcellpg init spotplus
+karel gmcellrg init spotplus
+karel gmcellvr init spotplus
+karel gmbodysh init spotplus
+karel gmbodyrg init spotplus
+karel gmwizbsh init spotplus
+karel gmdispio init spotplus
+karel gmdisppg init spotplus
+karel gmdisprg init spotplus
+karel gmdispvr init spotplus
+karel gmdispct init spotplus
+karel gmwizdp init spotplus
+karel gmspotio init spotplus
+karel gmspotio2 init spotplus
+karel gmspotio3 init spotplus
+karel gmspotpg init spotplus
+karel gmspotpg2 init spotplus
+karel gmspotrg init spotplus
+karel gmspotrg2 init spotplus
+karel gmspotvr init spotplus
+karel gmspotvr2 init spotplus
+karel gmspotvr3 init spotplus
+karel gmspotvr4 init spotplus
+karel gmspotvr5 init spotplus
+karel gmspotvr6 init spotplus
+karel gmswgtc init spotplus
+karel gmwizspt init spotplus
+karel gmwizspt2 init spotplus
+karel gmfdsio init spotplus
+karel gmfdspg init spotplus
+karel gmfdsrg init spotplus
+karel gmfdsvr init spotplus
+karel gmwizfds init spotplus
+karel gmsprio init spotplus
+karel gmsprpg init spotplus
+karel gmsprrg init spotplus
+karel gmsprvr init spotplus
+karel gmwizspr init spotplus
+karel gmprojio init spotplus
+karel gmprojio2 init spotplus
+karel gmprojpg init spotplus
+karel gmprojrg init spotplus
+karel gmprojvr init spotplus
+karel gmwizpj init spotplus
+karel gmdimpio init spotplus
+karel gmdimppg init spotplus
+karel gmdimprg init spotplus
+karel gmdimpvr init spotplus
+karel gmwizdmp init spotplus
+karel gmmhvars init spotplus
+karel gmmhgpio init spotplus
+karel gmmhprgs init spotplus
+karel gmmhregs init spotplus
+karel gmwizmh init spotplus
+karel gmpresio init spotplus
+karel gmprespg init spotplus
+karel gmpresrg init spotplus
+karel gmpresvr init spotplus
+karel gmpress init spotplus
+karel gmwizprs init spotplus
+karel gmpwrtn init spotplus
+karel gmpt_io init spotplus
+karel gmptprgs init spotplus
+karel gmptregs init spotplus
+karel gmptvars init spotplus
+karel gmstudio init spotplus
+karel gmstudpg init spotplus
+karel gmstudrg init spotplus
+karel gmstudvr init spotplus
+karel gmwizstd init spotplus
+karel gmtlchio init spotplus
+karel gmwiztlc init spotplus
+karel gmvisnio init spotplus
+karel gmvisprg init spotplus
+karel gmvisreg init spotplus
+karel gmvisvar init spotplus
+karel gmwizvis init spotplus
+karel gmpaint init spotplus
+karel gmpntio init spotplus
+karel gmpntpg init spotplus
+karel gmpntrg init spotplus
+karel gmpntvr init spotplus
+karel gmwizpn init spotplus
+karel gmerrcvy init spotplus
+karel gmautoup init spotplus
+karel gmautoup2 init spotplus
+karel gmautocd init spotplus
+karel gmdcsprot init spotplus
+karel gmbsdata init spotplus
+karel gmlsrgnd init spotplus
+karel gmlsrcln init spotplus
+karel gmlsrdbr init spotplus
+karel gmsrvbrs init spotplus
+karel gmsptplsm init spotplus
+karel gmbdchmr init spotplus
+karel gmaddprg init spotplus
+karel gmcolbio init spotplus
+karel gmcolbvr init spotplus
+karel gmcolbpg init spotplus
+
+/*RK added 11-28-16 for SpinTop */
+karel gmspinio init spotplus
+karel gmspinpg init spotplus
+karel gmspinrg init spotplus
+karel gmspinvr init spotplus
+/*RK edited 09-24-18 for SpinTop karel spintop init spotplus so not loaded*/
+/*RK edited 09-24-18 for SpinTop karel spintopbgr init spotplus so not loaded*/
+karel gmwzldsv init spotplus
+karel mhsrchon init spotplus
+
+/*RK added 09-20-18 for DCS validation for PT */
+/*karel gmdcslog init spotplus RK edited in RS4GMPT 10-29-18*/
+/*RK added 10-15-18 for DCS VALIDATION */
+/*karel gmdcslogend init spotplus RK edited in RS4GMPT 10-29-18*/
+
+/*GM Karel Programs */
+karel chk_mdfy init spotplus
+karel cnvrtgin init spotplus
+karel errcycle init spotplus
+karel cmntmenu init spotplus
+karel ckprpath init spotplus
+karel ckenetnd init spotplus
+karel gmaspd init spotplus
+karel gmsavman init spotplus
+karel gmpncdta init spotplus                     
+karel gmptdata init spotplus				
+karel log_err init spotplus
+karel log_verr init spotplus
+karel log_wndw init spotplus
+karel loganswr init spotplus
+karel mdfystup init spotplus
+karel mpnlsvr init spotplus
+karel run_prog init spotplus
+/*karel updt_pnc --not finished yet*/
+karel wrt_menu init spotplus
+karel wrt_user init spotplus
+karel tpsetvar init spotplus
+karel dmstat init spotplus
+karel ckdnetnd init spotplus
+karel caploss init spotplus
+karel capchffr  init spotplus
+karel custoyn init spotplus
+karel custook init spotplus
+karel custolst init spotplus
+karel ped_pins init spotplus
+karel irunfind init spotplus
+karel iroffset init spotplus
+karel userrtm init spotplus
+karel ir_optn1 init spotplus
+karel ir_optn2 init spotplus
+karel ir_optn3 init spotplus
+karel irmath750 init spotplus
+karel irhelp750 init spotplus
+karel tcteach init spotplus
+karel brkparm init spotplus
+karel average init spotplus
+karel sg_loadd init spotplus
+karel tunediag INIT j670 j643
+karel sgdg_ld INIT j670 j643
+karel sgcreprs INIT j670 j643
+karel swstopgn init spotplus
+karel sgtcload init spotplus
+karel dptype init spotplus
+karel brkcheck init spotplus
+karel pcustyn init spotplus
+karel pcustok init spotplus
+karel pcustlst init spotplus
+karel get_cfg init spotplus
+karel menu_pst init spotplus
+karel mnumonck init spotplus
+karel dcdtch init spotplus
+karel dcd_text init spotplus
+karel hostset init spotplus
+karel ccteach init spotplus
+karel disppage init spotplus
+karel gmhstset init spotplus
+karel tdwebmon init spotplus
+karel menuedt init spotplus
+karel tcwebmon init spotplus
+karel homeutil init spotplus
+karel homefind init spotplus
+/*V8.33P09*/
+karel gmfsac init spotplus
+
+/*GM G4 iRVision */
+karel static82 init spotplus
+karel gmvzdata init spotplus 
+karel setdata init spotplus
+
+/*Dispense Related Files*/
+karel slcstm1 init spotplus
+karel sldsplib init spotplus
+karel slj1load init spotplus
+karel sleqcstm init spotplus
+karel ffr_optn init spotplus
+karel ffroptn2 init spotplus
+karel ffroptn3 init spotplus
+karel slgmpre init spotplus
+karel quiksqrt init spotplus 
+karel opnr_cmd init spotplus
+karel xmitdata init spotplus
+karel pntutils init spotplus
+karel tcu_task init spotplus
+
+/*Quick Open-Close*/
+karel qopen init spotplus
+karel qclose init spotplus
+
+/*G4 Paint Shop */
+karel rpselect init spotplus
+karel findbody init spotplus
+karel getoffst init spotplus
+karel getoffs3 init spotplus
+karel getroof init spotplus
+karel isetfram init spotplus
+
+/*Seek and Find*/
+karel setculst init spotplus
+
+/* duplicate installing of Karel files you want on FRS */
+
+/* Product Files */
+karel gmatcstm NOLOAD
+
+/* G4 Wizard Programs */
+karel gmutility NOLOAD
+karel gmworkin NOLOAD
+karel gmerrcvy NOLOAD
+
+/*GM Karel Programs */
+karel chk_mdfy NOLOAD
+karel cnvrtgin NOLOAD
+karel errcycle NOLOAD
+karel cmntmenu NOLOAD
+karel ckprpath NOLOAD
+karel ckenetnd NOLOAD
+karel gmaspd NOLOAD
+karel gmsavman NOLOAD
+karel gmpncdta NOLOAD                       /*    --loaded via gminstal for gmpt  */
+karel gmptdata NOLOAD                       /*  --loaded via gminstal for gmpt */
+karel log_err NOLOAD
+karel log_verr NOLOAD
+karel log_wndw NOLOAD
+karel loganswr NOLOAD
+karel mdfystup NOLOAD
+karel mpnlsvr NOLOAD
+karel run_prog NOLOAD
+/*karel updt_pnc --not finished yet*/
+karel wrt_menu NOLOAD
+karel wrt_user NOLOAD
+karel tpsetvar NOLOAD
+karel dmstat  NOLOAD
+karel ckdnetnd NOLOAD
+karel caploss NOLOAD
+karel capchffr NOLOAD
+karel custoyn NOLOAD
+karel custook NOLOAD
+karel custolst NOLOAD
+karel ped_pins NOLOAD
+karel irunfind NOLOAD
+karel iroffset NOLOAD
+karel userrtm NOLOAD
+karel ir_optn1 NOLOAD
+karel ir_optn2 NOLOAD
+karel ir_optn3 NOLOAD
+karel irmath750 NOLOAD
+karel irhelp750 NOLOAD
+karel tcteach NOLOAD
+karel brkparm NOLOAD
+karel average NOLOAD
+karel sg_loadd NOLOAD
+karel tunediag NOLOAD
+karel sgdg_ld NOLOAD
+karel sgcreprs NOLOAD
+karel swstopgn NOLOAD
+karel sgtcload NOLOAD
+karel dptype NOLOAD
+karel brkcheck NOLOAD
+karel pcustyn NOLOAD
+karel pcustok NOLOAD
+karel pcustlst NOLOAD
+karel get_cfg NOLOAD
+karel menu_pst NOLOAD
+karel mnumonck NOLOAD
+karel dcdtch NOLOAD
+karel dcd_text  NOLOAD
+karel hostset NOLOAD
+karel ccteach NOLOAD
+karel disppage NOLOAD
+karel gmhstset NOLOAD
+karel tdwebmon NOLOAD
+karel menuedt NOLOAD
+karel tcwebmon NOLOAD
+karel homeutil NOLOAD
+karel homefind NOLOAD
+/*V8.33P09*/
+karel gmfsac NOLOAD
+
+karel spintop NOLOAD
+karel spintopbgr NOLOAD
+/*RK added 09-20-18 for SpinTop */
+karel spintoputil NOLOAD
+karel gmpundta NOLOAD
+/*RK added 10-15-18 for SpinTop */
+karel spintoppath NOLOAD
+karel crc16 NOLOAD
+
+/* GM G4 iRVision */
+karel static82 NOLOAD
+karel gmvzdata NOLOAD  
+karel setdata NOLOAD
+
+/*Dispense Related Files*/
+karel slcstm1 NOLOAD
+karel sldsplib NOLOAD
+karel slj1load NOLOAD
+karel sleqcstm NOLOAD
+karel ffr_optn NOLOAD
+karel ffroptn2 NOLOAD
+karel ffroptn3 NOLOAD
+karel slgmpre NOLOAD
+karel quiksqrt NOLOAD  
+karel opnr_cmd NOLOAD
+karel xmitdata NOLOAD
+karel pntutils NOLOAD
+karel tcu_task NOLOAD
+
+/*Quick Open-Close*/
+karel qopen NOLOAD
+karel qclose NOLOAD
+
+/*Seek and Find*/
+karel setculst NOLOAD
+
+/*G4 Paint Shop */
+karel rpselect NOLOAD
+karel findbody NOLOAD 
+karel getoffst NOLOAD
+karel getoffs3 NOLOAD
+karel getroof NOLOAD
+karel isetfram NOLOAD
+
+/* Menu Utility vars */
+/* These setup prompt boxes */
+/* For CAP Change */
+var menu202  NOLOAD
+var menu203  NOLOAD
+var menu204  NOLOAD
+var menu205  NOLOAD
+var menu302  NOLOAD
+var menu303  NOLOAD
+var menu503 NOLOAD
+
+/* GM Press Vars */
+var menu107 NOLOAD
+var menu108 NOLOAD
+var menu308 NOLOAD
+var menu309 NOLOAD
+var menu310 NOLOAD
+var menu311 NOLOAD
+var menu312 NOLOAD
+var menu313 NOLOAD
+var menu314 NOLOAD
+
+/* GM SpinTop Vars */
+var menu402 NOLOAD
+
+
+/* System variable files */
+
+/* BMON */
+ffile bootrom.udt bootrom.udt COMPRESSED
+
+/* WEB STUFF */
+/*hfile gmyinfo.stm gmyinfo.stm cgtp --not needed for G4*/
+/*hfile gmyinfo2.stm gmyinfo2.stm cgtp --not needed for G4*/
+hfile gm_lib.stm gm_lib.stm cgtp
+hfile gmprdspd.stm PrdSpd.stm cgtp
+hfile gmpdhome.stm ProdHome.stm cgtp
+hfile gmspdhlp.stm SpeedHelp.stm cgtp
+
+hfile proteus1.stm proteus1.stm cgtp
+hfile proteus2.stm proteus2.stm cgtp
+hfile gmwtc1.stm gmwtc1.stm cgtp
+hfile gmwtc2.stm gmwtc2.stm cgtp
+hfile srvo_grd.stm srvo_grd.stm cgtp
+hfile cust.stm cust.stm diageg
+
+hfile lpt1_man.stm lpt1_man.stm cgtp
+hfile lpt1_odm.stm lpt1_odm.stm cgtp
+hfile gmatired.stm gmatired.stm cgtp /* RK added 11-12-16 for ATI icon */
+
+hfile gmsca1.stm gmsca1.stm cgtp
+hfile gmsca2.stm gmsca2.stm cgtp
+
+hfile wizinst.stm wizinst.stm cgtp
+
+/* Tip Dress */
+hfile gmtd1.stm gmtd1.stm cgtp
+hfile gmtd2.stm gmtd2.stm cgtp
+hfile gmtd3.stm gmtd3.stm cgtp
+hfile gmtd4.stm gmtd4.stm cgtp
+hfile gmstd1.stm gmstd1.stm cgtp
+hfile gmstd2.stm gmstd2.stm cgtp
+hfile gmstd3.stm gmstd3.stm cgtp
+hfile gmstd4.stm gmstd4.stm cgtp
+hfile gmwldg1.stm gmwldg1.stm cgtp
+hfile gmwldg2.stm gmwldg2.stm cgtp
+hfile gmwldg3.stm gmwldg3.stm cgtp
+hfile gmwldg4.stm gmwldg4.stm cgtp
+
+/* Menu Edit Web Screen */
+hfile down.gif down.gif gui
+hfile up.gif up.gif gui
+hfile custolst.stm custolst.stm cgtp
+hfile custook.stm custook.stm cgtp
+hfile custoyn.stm custoyn.stm cgtp
+hfile lsthelp.stm lsthelp.stm cgtp
+hfile okhelp.stm okhelp.stm cgtp
+hfile ynhelp.stm ynhelp.stm cgtp
+hfile rangeok.xml rangeok.xml cgtp
+
+/* GM's varchg.xml */
+ffile gmvarchg.xml gmvarchg.xml uncompressed  /*copy to frsu, wiz loads*/
+
+/*GM G4 Tool Change Web Screen */
+hfile broken.gif broken.gif gui
+hfile closed.gif closed.gif gui
+hfile gm_open.gif gm_open.gif gui
+hfile gmtcstat.stm gmtcstat.stm cgtp
+
+/* iRVision */
+hfile static_rslt.stm static_rslt.stm cgtp
+
+/*Paintshop */
+hfile tcu_status.stm tcu_status.stm cgtp
+
+hfile h17d01.gif h17d01.gif gui
+hfile h17d13.gif h17d13.gif gui
+hfile h17d0A.gif h17d0A.gif gui
+hfile h17d0B.gif h17d0B.gif gui
+hfile h17d0C.gif h17d0C.gif gui
+hfile h17d0D.gif h17d0D.gif gui
+hfile h17d0E.gif h17d0E.gif gui
+hfile h17d0F.gif h17d0F.gif gui
+hfile h17d10.gif h17d10.gif gui
+hfile h17d11.gif h17d11.gif gui
+hfile h17d12.gif h17d12.gif gui
+
+hfile h17d0c_disp.gif h17d0c_disp.gif cgtp
+hfile h17d0f_disp.gif h17d0f_disp.gif cgtp
+
+hfile h17d0c_wtc.gif h17d0c_wtc.gif cgtp
+hfile h17d0f_wtc.gif h17d0f_wtc.gif cgtp
+
+hfile h17d0c_press.gif h17d0c_press.gif cgtp
+hfile h17d0d_press.gif h17d0d_press.gif cgtp
+hfile h17d0e_press.gif h17d0e_press.gif cgtp /* RK added 11-12-16 for ATI icon*/
+
+hfile gmpnt_temp.gif gmpnt_temp.gif cgtp
+
+hfile gmpoint.gif pointing.gif cgtp
+
+hfile gmlogo.jpeg gmlogo.jpg gui
+hfile cstrt.jpeg cstrt.jpg gui
+hfile mhsetup.jpeg mhsetup.jpg gui
+hfile lpt1m.gif lpt1m.gif gui
+hfile gm_spd.jpg spd.jpg gui
+/*hfile ati_button.jpg ati_button.jpg gui  RK added 11-12-16 for ATI icon, edited 11-15-16 removed 12-7-16 */
+hfile ati_h17d0e.gif ati_h17d0e.gif gui  /* RK ADDED 12-7-16 */
+hfile ati_h17d0e.gif ati_h17d0e.gif cgtp /* RK ADDED 12-7-16 */
+
+
+/* NEW prompt boxes for cutter limit */
+/* For Tip dress options */
+var menu206  NOLOAD
+var menu207  NOLOAD
+var menu208  NOLOAD
+var menu209  NOLOAD
+var menu210 NOLOAD
+
+/* For Tip dress Dump */
+var menu110  NOLOAD
+var menu111  NOLOAD
+var menu112  NOLOAD
+var menu113  NOLOAD
+var menu114  NOLOAD
+var menu115  NOLOAD
+var menu116  NOLOAD
+var menu117  NOLOAD
+
+/*add new files GrindClean*/
+var menu201  NOLOAD
+var menu211  NOLOAD
+var menu212  NOLOAD
+var menu213  NOLOAD
+
+/* GM specific text for sealer menu's */
+dictionary slcfg1 cfg1 compressed
+var cfg1
+
+dictionary slcfg2 cfg2 compressed
+var cfg2
+
+/* Fault Recovery Screen Dictionary*/
+dictionary swshu4 shu4 compressed
+var shu4
+
+/* GM HMI Error Recovery */
+/* Add to both FR: and FRS: */
+ffile prompt.stm prompt.stm public
+ffile promptfky.stm promptfky.stm public
+ffile promptkey.stm promptkey.stm public
+ffile promptref.stm promptref.stm public
+ffile prompt.stm prompt.stm uncompressed
+ffile promptfky.stm promptfky.stm uncompressed
+ffile promptkey.stm promptkey.stm uncompressed
+ffile promptref.stm promptref.stm uncompressed
+
+/* One Softpanel under TestCycle */
+dictionary atk952 k952
+
+/* Always display SPOT CONFIG at CTRL STRT */
+dictionary atk962 k962
+
+/* Spot Config At CTRL Start */
+dictionary swwiza wiza compressed
+var wiza NOLOAD
+
+/* Applicaiton Shell specific errors
+*  Must merge to common shell error file
+* dictionary swars4 apsh */
+
+/* Spot specific Error Dictionary Files */
+dictionary etrs4c spot
+dictionary etsrvo srvo compressed
+
+/* CUST specific Error Dictionary Files */
+dictionary etcust cust compressed
+
+/* Soft Panel */
+dictionary swsof4 sof4 compressed
+var sof4 NOLOAD
+
+/* MH Function  */
+dictionary mhmhgr mhgr compressed
+var mhgr
+dictionary mhmhg2 mhg2 compressed
+var mhg2
+
+/* Banner Page */
+/*dictionary swrs4b tphn */
+
+/* Cell Setup Home IO Macro Name */
+karel swcellsu init spotplus
+dictionary swcls4 cls4 compressed
+var cls4
+
+/* Spot Weld I/O Screen */
+dictionary swwld4 wld4 compressed
+var wld4 NOLOAD
+
+/* Soft Equipment I/O Screen & PC file */
+dictionary sweqi4 eqi4 compressed
+var eqi4 NOLOAD
+
+/* G4 Dictionary */
+dictionary fxmdfy mdfy compressed
+var mdfy
+dictionary fxmpnc mpnc compressed                   /*  --loaded via gminstal for gmpt */
+var mpnc                                            /*  --loaded via gminstal for gmpt */
+dictionary fxgmpt gmpt compressed                   /*  --loaded via gminstal for gmpt */
+var gmpt                                            /*  --loaded via gminstal for gmpt */
+
+/* G4 Vision Dictionary */
+dictionary fxvisd visd compressed
+var visd
+
+/* Spot Cellio Common shell - dfile */
+ffile sw22r4eg.dt io22r4eg.dt UNCOMPRESSED
+ffile sw22r4gr.dt io22r4gr.dt UNCOMPRESSED
+ffile sw22r4sp.dt io22r4sp.dt UNCOMPRESSED
+ffile sw22r4kn.dt io22r4kn.dt UNCOMPRESSED
+ffile sw22r4eg.dt sw22r4eg.dt UNCOMPRESSED
+
+/* Spot Cellio GM Press */
+ffile sw22rpeg.dt io23rpeg.dt UNCOMPRESSED
+ffile sw22rpgr.dt io22rpgr.dt UNCOMPRESSED
+ffile sw22rpsp.dt io22rpsp.dt UNCOMPRESSED
+ffile sw22rpkn.dt io22rpkn.dt UNCOMPRESSED
+ffile sw22rpeg.dt sw22rpeg.dt UNCOMPRESSED
+
+/* PMC */
+ffile gmlad1.pmc gmlad1.pmc uncompressed
+
+/* PDF */
+ffile gmwizman.pdf gmwizman.pdf uncompressed
+ffile gmdispman.pdf gmdispman.pdf uncompressed ~r885 ~h630 ~h607 ~slgrsp /*do not load on LPT, 200P or 100P robots, R878 GRS Paintshop Dispense */
+ffile lpt_maint.pdf lpt_maint.pdf uncompressed r885 /*load only with LPT */
+ffile gm_ffr_man.pdf gm_ffr_man.pdf uncompressed
+ffile gmsgman.pdf gmsgman.pdf uncompressed j670 j643 /*load only with servo guns */
+ffile lpt_man.pdf lpt_man.pdf uncompressed r885 /* RK added 11-12-16 , kam lpt loading condition */
+ffile gmtipdrsman.pdf gmtipdrsman.pdf uncompressed ~r885 ~h630 ~h607 /*do not load on LPT, 200P or 100P robots */
+ffile gmpntdisp.pdf gmpntdisp.pdf uncompressed slgrsp /*only load on paintshop robots (R878 GRS Paintshop) */
+ffile g4visrec.pdf g4visrec.pdf uncompressed r685 /*only load on robots with iRVision */
+ffile gmsprman.pdf gmsprman.pdf uncompressed /*GM SPR setup manual*/
+ffile gmfdsman.pdf gmfdsman.pdf uncompressed /*GM FDS setup manual*/
+ffile gmpntvis.pdf gmpntvis.pdf uncompressed slgrsp r685 /*only load on paintshop (R878 GRS Paintshop) robots with iRVision */
+ffile gmudcman.pdf gmudcman.pdf uncompressed /*GM UD&C manual*/
+
+/* FMD Filter Update */
+ffile kvareeg.dt kvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile kvareeg.dt gmkvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile posreeg.dt posreeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile posreeg.dt gmposreeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile regeeg.dt regeeg.dt UNCOMPRESSED     /* replaces one from fmddev.fd */
+ffile regeeg.dt gmregeeg.dt UNCOMPRESSED     /* replaces one from fmddev.fd */
+ffile svareeg.dt svareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile svareeg.dt gmsvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile tplineeg.dt tplineeg.dt UNCOMPRESSED /* replaces one from fmddev.fd */
+ffile tplineeg.dt gmtplineeg.dt UNCOMPRESSED /* replaces one from fmddev.fd */
+
+/* */
+ffile argdispeg01.dt argdispeg01.dt UNCOMPRESSED
+ffile drp_ang_mm.dat drp_ang_mm.dat UNCOMPRESSED
+ffile pk_ang_mm.dat pk_ang_mm.dat UNCOMPRESSED
+
+/* Menu Protection at COLD START */
+menu sggmdres NOLOAD /*hide tipdress in setup menu list*/
+menu gmsplus
+menu gmtpdres NOLOAD  /*put tipdress in setup menu list*/
+
+/*DCD Text Setup */
+ffile dcdtext.cm dcdtext.cm uncompressed
+
+/*Break Check Settings */
+ffile brk_chk.cm brk_chk.cm uncompressed
+
+/*iRVision VD Files */
+ffile camera1.vd camera1.vd uncompressed
+ffile camera2.vd camera2.vd uncompressed
+ffile sensor1.vd sensor1.vd uncompressed
+ffile sensor2.vd sensor2.vd uncompressed
+ffile chk_sen1.vd chk_sen1.vd uncompressed
+ffile chk_sen2.vd chk_sen2.vd uncompressed
+
+ffile mvs1i1s1i2.vd mvs1i1s1i2.vd uncompressed
+ffile mvs1i1s2i2.vd mvs1i1s2i2.vd uncompressed
+ffile sv_sen1_3dl.vd sv_sen1_3dl.vd uncompressed
+
+/* Custom Macros. */
+tpp hmiocst  hmiocst  NOLOAD
+tpp phiocst phiocst NOLOAD
+tpp phiocst2 phiocst2 NOLOAD
+tpp ship_pos ship_pos NOLOAD
+tpp bypass bypass NOLOAD
+tpp rmbypass rmbypass NOLOAD
+tpp brakechk brakechk NOLOAD
+tpp gmabort abortit NOLOAD          /* replaces one from fmddev.fd */
+
+/* iRVision */
+tpp tm_vis_tcp7 tm_vis_tcp7 NOLOAD
+tpp abortrun abortrun NOLOAD
+tpp cal_2d_camxx cal_2d_camxx NOLOAD
+tpp cal_3d_senxx cal_3d_senxx NOLOAD
+tpp chk_3d_senxx chk_3d_senxx NOLOAD
+tpp chkoffst chkoffst NOLOAD
+tpp tm_vis_drop02 tm_vis_drop02 NOLOAD
+tpp tm_vis_pick01 tm_vis_pick01 NOLOAD
+tpp tm_vis_pick02 tm_vis_pick02 NOLOAD
+tpp tm_vis_logic1 tm_vis_logic1 NOLOAD
+
+tpp tm_cal_2d tm_cal_2d NOLOAD
+tpp tm_vis_tcp8 tm_vis_tcp8 NOLOAD
+
+tpp statistics statistics NOLOAD
+tpp set_3d_sen1 set_3d_sen1 NOLOAD
+tpp set_3d_sen2 set_3d_sen2 NOLOAD
+tpp ref_vis_data ref_vis_data NOLOAD
+tpp vis_rev_offst vis_rev_offst NOLOAD
+tpp clear_regs clear_regs NOLOAD
+tpp tmvis_srch tmvis_srch NOLOAD
+tpp tmvis_strat1 tmvis_strat1 NOLOAD
+tpp tmvis_strat2 tmvis_strat2 NOLOAD
+tpp tmvis_strat3 tmvis_strat3 NOLOAD
+tpp tmvis_strat4 tmvis_strat4 NOLOAD
+tpp tmvis_strat5 tmvis_strat5 NOLOAD
+tpp tmvis_style2 tmvis_style2 NOLOAD
+tpp feature_srch feature_srch NOLOAD
+tpp tmchk_3dsen1 tmchk_3dsen1 NOLOAD
+tpp tmchk_3dsen2 tmchk_3dsen2 NOLOAD
+tpp tmstatictest tmstatictest NOLOAD
+tpp tmvis_nrackp tmvis_nrackp NOLOAD
+tpp tmvis_rackp tmvis_rackp NOLOAD
+tpp tmvissetrack tmvissetrack NOLOAD
+tpp tmvis_setmem tmvis_setmem NOLOAD
+tpp visrjcttohom visrjcttohom NOLOAD
+tpp visproctohom visproctohom NOLOAD
+
+/* Water Saver Reset Macros*/
+tpp rst_wtr1 rst_wtr1 NOLOAD
+tpp wtr_off1 wtr_off1 NOLOAD
+tpp gm_strst rst_stp  NOLOAD
+tpp tip_rst  tip_rst  NOLOAD
+tpp gm_cpchg cap_chng NOLOAD
+tpp woffmtr woffmtr NOLOAD
+tpp w2offmtr w2offmtr NOLOAD
+tpp setwrtol setwrtol NOLOAD
+
+/* FFR Stuff */
+tpp cstd1ffr cstd1ffr NOLOAD
+tpp cstd2ffr cstd2ffr NOLOAD
+tpp pstd1ffr pstd1ffr NOLOAD
+tpp pstd2ffr pstd2ffr NOLOAD
+tpp spdpffr1 spdpffr1 NOLOAD
+tpp spdpffr2 spdpffr2 NOLOAD
+
+/* Global Tipdress Macros */
+tpp tddmpgck tddmpgck NOLOAD
+tpp tddmpack tddmpack NOLOAD
+tpp cutrlmg1 cutrlmg1 NOLOAD
+tpp cutrplg1 cutrplg1 NOLOAD
+tpp cutrrplg1 cutrrplg1 NOLOAD
+tpp cutrrst cutrrst NOLOAD
+tpp tdg1off tdg1off NOLOAD
+tpp tdg1on tdg1on NOLOAD
+tpp tdg2on tdg2on NOLOAD
+tpp tdg3on tdg3on NOLOAD
+tpp tdg4on tdg4on NOLOAD
+
+tpp drescaps drescaps NOLOAD
+tpp drescpe2 drescpe2 NOLOAD
+
+tpp drespde1 drespde1 NOLOAD
+tpp drespde2 drespde2 NOLOAD
+tpp dvgchke1 dvgchke1 NOLOAD
+tpp dvgchke2 dvgchke2 NOLOAD
+tpp postdres postdres NOLOAD
+
+tpp tdg1chk td_chk NOLOAD
+tpp tdgl1mtr tdgl1mtr NOLOAD
+tpp tdgl2mtr tdgl2mtr NOLOAD
+tpp tdgl2mt tdgl2mt NOLOAD
+tpp tdgl3mtr tdgl3mtr NOLOAD
+tpp tdgl4mtr tdgl4mtr NOLOAD
+tpp tdgp1ck tdgp1ck NOLOAD
+tpp pedgtdg1 pedgtdg1 NOLOAD
+tpp pedgtdg2 pedgtdg2 NOLOAD
+tpp pedgtdg3 pedgtdg3 NOLOAD
+tpp pedgtdg4 pedgtdg4 NOLOAD
+tpp carsty29 carsty29 NOLOAD
+tpp tcsty29 tcsty29 NOLOAD
+tpp pedsty29 pedsty29 NOLOAD
+tpp pedsty30 pedsty30 NOLOAD
+tpp td_3_mtr td_3_mtr NOLOAD
+tpp td_3_on td_3_on NOLOAD
+tpp td_4_mtr td_4_mtr NOLOAD
+tpp td_4_on td_4_on NOLOAD
+
+tpp post29 post29 NOLOAD
+tpp post30 post30 NOLOAD
+tpp pdsty29 pdsty29 NOLOAD
+tpp pdsty30 pdsty30 NOLOAD
+tpp sdrscaps sdrscaps NOLOAD
+tpp sdrscpe2 sdrscpe2 NOLOAD
+tpp sdrspde1 sdrspde1 NOLOAD
+tpp sdrspde2 sdrspde2 NOLOAD
+tpp std_1mtr std_1mtr NOLOAD
+tpp std_2mtr std_2mtr NOLOAD
+tpp stdg1on stdg1on NOLOAD
+tpp stdg2on stdg2on NOLOAD
+tpp stdg3on stdg3on NOLOAD
+tpp stdg4on stdg4on NOLOAD
+tpp tcsdrescp tcsdrescp NOLOAD
+tpp retatd_d retatd_d NOLOAD
+tpp advatd_d advatd_d NOLOAD
+tpp retstd_d retstd_d NOLOAD
+tpp advstd_d advstd_d NOLOAD
+
+/* Servo Nut Weld */
+tpp templa01n templa01n NOLOAD
+
+/* Standard macros */
+tpp gm_atpnc atpounce NOLOAD     /* replaces one from spotplug.fd */
+tpp gmpnc    pounce   NOLOAD
+tpp gm_ecopt echooptn NOLOAD
+tpp gm_entzn entrizon NOLOAD
+tpp gm_exzon exitizon NOLOAD
+tpp gm_homio home_io  NOLOAD     /* replaces one from spotplug.fd */
+tpp bodyhmio bodyhmio NOLOAD
+tpp gm_mvrep mov_repr NOLOAD     /* replaces one from spotplug.fd */
+tpp postrepr postrepr NOLOAD
+tpp pre_repr pre_repr NOLOAD
+tpp gm_rqcon req_cont NOLOAD
+tpp gm_mvhom mov_home NOLOAD     /* replaces one from spotplug.fd */
+tpp gm_invrt inv_rout NOLOAD
+tpp gm_ddrop dcd_drop NOLOAD
+tpp gm_dpick dcd_pick NOLOAD
+tpp reqmenu reqmenu NOLOAD            /* replaces one from pcsend.fd */
+tpp set_tool set_tool NOLOAD
+
+tpp gm_mhrep gm_mhrep NOLOAD
+tpp req_erly req_erly NOLOAD
+tpp gm_stsgm set_segm NOLOAD
+
+/* Standard templates */
+tpp gm_hmpnc homfrpon NOLOAD
+tpp homtoprc homtoprc NOLOAD
+tpp prctohom prctohom NOLOAD
+tpp gm_tmp01 templa01 NOLOAD
+tpp gm_tmp02 templa02 NOLOAD
+tpp gm_tmp03 templa03 NOLOAD
+tpp gm_tmp04 templa04 NOLOAD
+tpp gm_tmp05 templa05 NOLOAD
+tpp gm_tmp06 templa06 NOLOAD
+tpp gm_tmp07 templa07 NOLOAD
+tpp gm_tmp08 templa08 NOLOAD
+tpp gm_tmp09 templa09 NOLOAD
+tpp gm_tmp10 templa10 NOLOAD
+tpp gm_tmp11 templa11 NOLOAD
+tpp gm_tmp12 templa12 NOLOAD
+tpp gm_tmp13 templa13 NOLOAD
+tpp gm_tmp14 templa14 NOLOAD
+tpp gm_tmp15 templa15 NOLOAD
+tpp gm_tmp16 templa16 NOLOAD
+tpp gm_tmp17 templa17 NOLOAD
+tpp gm_tmp18 templa18 NOLOAD
+tpp gm_tmp19 templa19 NOLOAD
+tpp gm_tmp20 templa20 NOLOAD
+tpp gm_tmp21 templa21 NOLOAD
+tpp gm_tmp22 templa22 NOLOAD
+tpp gm_tmp23 templa23 NOLOAD
+tpp gm_tmp24 templa24 NOLOAD
+tpp gm_tmp27 templa27 NOLOAD
+tpp gm_tmp28 templa28 NOLOAD
+tpp gm_tmp29 templa29 NOLOAD
+
+/*MH MF macros*/
+
+tpp cls_vle1 clsv1t1 NOLOAD
+tpp cls_vle2 clsv2t1 NOLOAD
+tpp cls_vle3 clsv3t1 NOLOAD
+tpp cls_vle4 clsv4t1 NOLOAD
+tpp cls_vle5 clsv5t1 NOLOAD
+
+tpp opn_vle1 opnv1t1 NOLOAD
+tpp opn_vle2 opnv2t1 NOLOAD
+tpp opn_vle3 opnv3t1 NOLOAD
+tpp opn_vle4 opnv4t1 NOLOAD
+tpp opn_vle5 opnv5t1 NOLOAD
+
+*/740 Mh valve Packs*/
+tpp cls_vle6 clsv6t1  NOLOAD
+tpp cls_vle7 clsv7t1  NOLOAD
+tpp cls_vle8 clsv8t1  NOLOAD
+tpp cls_vle9 clsv9t1  NOLOAD
+tpp cls_vl10 clsv10t1 NOLOAD
+
+tpp opn_vle6 opnv6t1  NOLOAD
+tpp opn_vle7 opnv7t1  NOLOAD
+tpp opn_vle8 opnv8t1  NOLOAD
+tpp opn_vle9 opnv9t1  NOLOAD
+tpp opn_vl10 opnv10t1 NOLOAD
+
+tpp gm_vcon1 vac1t1on  NOLOAD
+tpp gm_vcon2 vac2t1on  NOLOAD
+tpp vacpon1 vacpon1   NOLOAD
+tpp vacpon2 vacpon2   NOLOAD
+tpp vacpoff1 vacpoff1 NOLOAD
+tpp vacpoff2 vacpoff2 NOLOAD
+tpp vac_on3  vac3t1on  NOLOAD
+tpp vac_on4  vac4t1on  NOLOAD
+tpp gm_vcof1 vac1t1of NOLOAD
+tpp gm_vcof2 vac2t1of NOLOAD
+tpp vac_off3 vac3t1of NOLOAD
+tpp vac_off4 vac4t1of NOLOAD
+tpp blow_of1 blwof1t1 NOLOAD
+tpp blow_of2 blwof2t1 NOLOAD
+tpp blowpof1 blowpof1 NOLOAD
+tpp blowpof2 blowpof2 NOLOAD
+tpp blow_of3 blwof3t1 NOLOAD
+tpp blow_of4 blwof4t1 NOLOAD
+tpp gmvacon vacuumon NOLOAD        /* replaces one from mhgripcm.fd */
+tpp gmvacoff vacuumof NOLOAD       /* replaces one from mhgripcm.fd */
+tpp gmgrippt grippart NOLOAD       /* replaces one from mhgripcm.fd */
+tpp gmdroppt droppart NOLOAD       /* replaces one from mhgripcm.fd */
+tpp gmblow blowoff NOLOAD          /* replaces one from mhgripcm.fd */
+tpp gmcknpt chknoprt NOLOAD        /* replaces one from mhgripcm.fd */
+tpp gmckprt chkpart NOLOAD         /* replaces one from mhgripcm.fd */
+/*V8.33P09*/
+tpp gmoktopk oktopick NOLOAD
+tpp gmsetvlv setvalve NOLOAD
+
+tpp clspvle1 clspvle1 NOLOAD
+tpp clspvle2 clspvle2 NOLOAD
+tpp clspvle3 clspvle3 NOLOAD
+tpp clspvle4 clspvle4 NOLOAD
+tpp clspvle5 clspvle5 NOLOAD
+tpp clspvle6 clspvle6 NOLOAD
+tpp clspvle7 clspvle7 NOLOAD
+tpp clspvle9 clspvle9 NOLOAD
+tpp clspvl10 clspvl10 NOLOAD
+tpp clspavle clspavle NOLOAD
+tpp clspale clspale NOLOAD
+
+tpp opnpvle1 opnpvle1 NOLOAD
+tpp opnpvle2 opnpvle2 NOLOAD
+tpp opnpvle3 opnpvle3 NOLOAD
+tpp opnpvle4 opnpvle4 NOLOAD
+tpp opnpvle5 opnpvle5 NOLOAD
+tpp opnpvle6 opnpvle6 NOLOAD
+tpp opnpvle7 opnpvle7 NOLOAD
+tpp opnpvle8 opnpvle8 NOLOAD
+tpp opnpvle9 opnpvle9 NOLOAD
+
+tpp opnpavle opnpavle NOLOAD
+tpp grpcyclcnfrm grpcyclcnfrm NOLOAD /* RK added 1-13-19 NEW manual Vavle cycle prompt */
+
+/*GM Press Related Files*/
+tpp gmpentzn gmpentzn NOLOAD
+tpp gmphmpnc gmphmpnc NOLOAD
+
+tpp gmp_rep gmp_rep NOLOAD
+tpp tmdrop tmdrop NOLOAD
+tpp tmdroppp tmdroppp NOLOAD
+tpp tmpick tmpick NOLOAD
+
+tpp tmpickpp tmpickpp NOLOAD
+tpp gmptmp01 gmptmp01 NOLOAD
+tpp gmptmp02 gmptmp02 NOLOAD
+tpp gmptmp03 gmptmp03 NOLOAD
+tpp gmptmp06 gmptmp06 NOLOAD
+tpp gmptmp07 gmptmp07 NOLOAD
+tpp gmptmp08 gmptmp08 NOLOAD
+tpp gmptmp09 gmptmp09 NOLOAD
+tpp gmptmp10 gmptmp10 NOLOAD
+tpp gmptmp11 gmptmp11 NOLOAD
+tpp gmptmp12 gmptmp12 NOLOAD
+tpp gmptmp13 gmptmp13 NOLOAD
+tpp gmptmp14 gmptmp14 NOLOAD
+tpp gmptmp15 gmptmp15 NOLOAD
+tpp gmptmp16 gmptmp16 NOLOAD
+tpp gmptmp17 gmptmp17 NOLOAD
+tpp gmptmp18 gmptmp18 NOLOAD
+tpp gmptmp19 gmptmp19 NOLOAD
+tpp gmptmp20 gmptmp20 NOLOAD
+tpp gmptmp21 gmptmp21 NOLOAD
+tpp gmptmp22 gmptmp22 NOLOAD
+tpp gmptmp23 gmptmp23 NOLOAD
+tpp gmptmp24 gmptmp24 NOLOAD
+tpp gmptmp25 gmptmp25 NOLOAD
+tpp gmptmp26 gmptmp26 NOLOAD
+tpp gmptmp27 gmptmp27 NOLOAD
+tpp gmptmp28 gmptmp28 NOLOAD
+tpp gmptmp29 gmptmp29 NOLOAD
+tpp gmptmp30 gmptmp30 NOLOAD
+tpp vical_rn vical_rn NOLOAD
+tpp gmpptav gmpptav NOLOAD
+tpp z_av_ex z_av_ex NOLOAD
+
+tpp gmpptchk gmpptchk NOLOAD
+tpp gmpptdrp gmpptdrp NOLOAD
+tpp gmpptpk  gmpptpk NOLOAD
+tpp gmpptrte gmpptrte NOLOAD
+tpp gmptlckt gmptlckt NOLOAD
+tpp gmptlctp gmptlctp NOLOAD
+tpp gmptldv  gmptldv NOLOAD
+tpp gmptllch gmptllch NOLOAD
+tpp gmptlmch gmptlmch NOLOAD
+tpp gmptlprs gmptlprs NOLOAD
+tpp gmptluch gmptluch NOLOAD
+tpp clr_adc clr_adc NOLOAD
+
+tpp clear_dr clear_dr NOLOAD
+tpp clear_pk clear_pk NOLOAD
+tpp dst_fanr dst_fanr NOLOAD
+tpp dst_adrp dst_adrp NOLOAD
+tpp dst_fmag dst_fmag NOLOAD
+tpp dst_fnoz dst_fnoz NOLOAD
+tpp dst_atry dst_atry NOLOAD
+tpp dst_last dst_last NOLOAD
+tpp dst_srch dst_srch NOLOAD
+tpp dst_updt dst_updt NOLOAD
+tpp dst_mstk dst_mstk NOLOAD
+tpp dst_poff dst_poff NOLOAD
+tpp flt_mh flt_mh NOLOAD
+tpp flt_visn flt_visn NOLOAD
+tpp flt_rack flt_rack NOLOAD
+tpp pounc_dr pounc_dr NOLOAD
+tpp pounc_pk pounc_pk NOLOAD
+tpp pounc_sv pounc_sv NOLOAD
+
+tpp ve_req1 ve_req1 NOLOAD
+tpp ve_req2 ve_req2 NOLOAD
+tpp ve_req3 ve_req3 NOLOAD
+tpp rk_cknew rk_cknew NOLOAD
+tpp rk_clear rk_clear NOLOAD
+tpp rk_dflip rk_dflip NOLOAD
+tpp rk_droff rk_droff NOLOAD
+
+tpp rk_init rk_init NOLOAD
+tpp rk_ufram rk_ufram NOLOAD
+tpp rk_ufrmm rk_ufrmm NOLOAD
+tpp rk_updat rk_updat NOLOAD
+tpp tl_chkrk tl_chkrk NOLOAD
+tpp tl_getpt tl_getpt NOLOAD
+
+tpp tl_t1_t1 tl_t1_t1 NOLOAD
+tpp tl_t1_t2 tl_t1_t2 NOLOAD
+tpp tl_t1_t3 tl_t1_t3 NOLOAD
+tpp tl_t2_t1 tl_t2_t1 NOLOAD
+tpp tl_t2_t2 tl_t2_t2 NOLOAD
+tpp tl_t2_t3 tl_t2_t3 NOLOAD
+tpp tl_t3_t1 tl_t3_t1 NOLOAD
+tpp tl_t3_t2 tl_t3_t2 NOLOAD
+tpp tl_t3_t3 tl_t3_t3 NOLOAD
+
+tpp tldrt1n1 tldrt1n1 NOLOAD
+tpp tldrt1n2 tldrt1n2 NOLOAD
+tpp tldrt1n3 tldrt1n3 NOLOAD
+tpp tldrt1n4 tldrt1n4 NOLOAD
+tpp tldrt2n1 tldrt2n1 NOLOAD
+tpp tldrt2n2 tldrt2n2 NOLOAD
+tpp tldrt2n3 tldrt2n3 NOLOAD
+tpp tldrt2n4 tldrt2n4 NOLOAD
+tpp tldrt3n1 tldrt3n1 NOLOAD
+tpp tldrt3n2 tldrt3n2 NOLOAD
+tpp tldrt3n3 tldrt3n3 NOLOAD
+tpp tldrt3n4 tldrt3n4 NOLOAD
+tpp tldrt4n1 tldrt4n1 NOLOAD
+tpp tldrt4n2 tldrt4n2 NOLOAD
+tpp tldrt5n1 tldrt5n1 NOLOAD
+tpp tldrt5n2 tldrt5n2 NOLOAD
+tpp tldrt6n1 tldrt6n1 NOLOAD
+tpp tldrt6n2 tldrt6n2 NOLOAD
+
+tpp tlpkt1n1 tlpkt1n1 NOLOAD
+tpp tlpkt1n2 tlpkt1n2 NOLOAD
+tpp tlpkt1n3 tlpkt1n3 NOLOAD
+tpp tlpkt1n4 tlpkt1n4 NOLOAD
+tpp tlpkt2n1 tlpkt2n1 NOLOAD
+tpp tlpkt2n2 tlpkt2n2 NOLOAD
+tpp tlpkt2n3 tlpkt2n3 NOLOAD
+tpp tlpkt2n4 tlpkt2n4 NOLOAD
+
+tpp tlpkt3n1 tlpkt3n1 NOLOAD
+tpp tlpkt3n2 tlpkt3n2 NOLOAD
+tpp tlpkt3n3 tlpkt3n3 NOLOAD
+tpp tlpkt3n4 tlpkt3n4 NOLOAD
+tpp tlpkt4n1 tlpkt4n1 NOLOAD
+tpp tlpkt4n2 tlpkt4n2 NOLOAD
+tpp tlpkt5n1 tlpkt5n1 NOLOAD
+tpp tlpkt5n2 tlpkt5n2 NOLOAD
+tpp tlpkt6n1 tlpkt6n1 NOLOAD
+tpp tlpkt6n2 tlpkt6n2 NOLOAD
+tpp tlrkckrn tlrkckrn NOLOAD
+tpp vecal_rn vecal_rn NOLOAD
+tpp vecamcal vecamcal NOLOAD
+tpp ve_init ve_init NOLOAD
+
+tpp ve_pkoff ve_pkoff NOLOAD
+tpp vi_pkoff vi_pkoff NOLOAD
+tpp vi_droff vi_droff NOLOAD
+tpp vi_init vi_init NOLOAD
+tpp vi_req1 vi_req1 NOLOAD
+tpp vi_req4 vi_req4 NOLOAD
+tpp vi_live1 vi_live1 NOLOAD
+tpp vi_live2 vi_live2 NOLOAD
+tpp vi_live3 vi_live3 NOLOAD
+tpp vi_live4 vi_live4 NOLOAD
+tpp vecameas vecameas NOLOAD
+tpp vecamchk vecamchk NOLOAD
+tpp veclc1p1 veclc1p1 NOLOAD
+tpp veclc1p2 veclc1p2 NOLOAD
+tpp veclc2p1 veclc2p1 NOLOAD
+tpp veclc2p2 veclc2p2 NOLOAD
+
+tpp dst_snoz dst_snoz NOLOAD
+tpp dst_doff dst_doff NOLOAD
+tpp gmptmp31 gmptmp31 NOLOAD
+tpp gmptmp32 gmptmp32 NOLOAD
+tpp gmptmp33 gmptmp33 NOLOAD
+tpp gmptmp34 gmptmp34 NOLOAD
+tpp gmptmp35 gmptmp35 NOLOAD
+tpp pbrk_chk pbrk_chk NOLOAD
+tpp send_ovr send_ovr NOLOAD
+tpp displaypage displaypage NOLOAD
+
+/* NEW press Programs RK 7-1-16 from L Steed */
+tpp prt_hdrp prt_hdrp NOLOAD
+tpp prt_hpck prt_hpck NOLOAD
+tpp style128_lpt style128_lpt NOLOAD
+tpp style129 style129 NOLOAD
+tpp templa04_rcr templa04_rcr NOLOAD
+tpp vical_rcr vical_rcr NOLOAD
+
+tpp synclpt1plr synclpt1plr NOLOAD
+tpp synclpt2p2p synclpt2p2p NOLOAD
+tpp synclpt3pur synclpt3pur NOLOAD
+
+tpp chk_sync_enb chk_sync_enb NOLOAD
+tpp chk_sync_man chk_sync_man NOLOAD
+
+tpp priocst priocst NOLOAD
+tpp prflt_mh prflt_mh NOLOAD
+
+tpp prt_init prt_init NOLOAD /* RK added 11-12-16 NEW press Program from L Steed */
+
+/* New press programs 2018-02-15 */
+tpp sync_mon sync_mon NOLOAD
+
+/* NEW Press TP Programs schoensm V8.33P08 */
+tpp flt_mhsync flt_mhsync NOLOAD
+tpp lpt_healthd lpt_healthd NOLOAD
+tpp profiler profiler NOLOAD
+tpp vi_health_chk vi_health_chk NOLOAD
+
+/* NEW Press Vision Programs schoensm V8.33P08 */
+ffile cam1_he_ck.vd cam1_he_ck.vd uncompressed
+ffile cam2_he_ck.vd cam2_he_ck.vd uncompressed
+ffile cam3_he_ck.vd cam3_he_ck.vd uncompressed
+ffile cam4_he_ck.vd cam4_he_ck.vd uncompressed
+
+/*Tool changer macros*/
+tpp tcdpmhh1 tcdpmhh1 NOLOAD
+tpp tcdpmhh2 tcdpmhh2 NOLOAD
+tpp tcdpmhh3 tcdpmhh3 NOLOAD
+tpp tcdpmhh4 tcdpmhh4 NOLOAD
+tpp tcpkmhh1 tcpkmhh1 NOLOAD
+tpp tcpkmhh2 tcpkmhh2 NOLOAD
+tpp tcpkmhh3 tcpkmhh3 NOLOAD
+tpp tcpkmhh4 tcpkmhh4 NOLOAD
+tpp tcdrescp tcdrescp NOLOAD
+tpp tcpstdrs tcpstdrs NOLOAD
+tpp tcchkgun tcchkgun NOLOAD
+tpp tcgunrdy tcgunrdy NOLOAD
+tpp tccktool tccktool NOLOAD
+tpp tcclslid tcclslid NOLOAD
+tpp tcempty tcempty NOLOAD
+tpp tcgetnum tcgetnum NOLOAD
+tpp tcinnest tcinnest NOLOAD
+tpp tcltchtl tcltchtl NOLOAD
+tpp tcopnlid tcopnlid NOLOAD
+tpp tcunltch tcunltch NOLOAD
+tpp tcreset tcreset NOLOAD
+tpp tcpkrdy tcpkrdy NOLOAD
+tpp style26 style26 NOLOAD
+tpp twstgxtc twstgxtc NOLOAD
+tpp sgtcsrst sgtcsrst NOLOAD
+tpp emgdtch emgdtch NOLOAD
+tpp sgcgwear sgcgwear NOLOAD
+tpp tw_mem tw_mem NOLOAD
+tpp tw_ver tw_ver NOLOAD
+tpp sgtctwgn sgtctwgn NOLOAD
+
+tpp sgtcgrst sgtcgrst NOLOAD
+
+tpp sgdetach sgdetach NOLOAD
+tpp sgattach sgattach NOLOAD
+
+/*Dispense Purge macros*/
+/* SHOULD ADD TO STANDARD RS MACROS */
+tpp gm_prge1 purge_e1 NOLOAD        /* replaces one from sl_com.fd */
+tpp purge_j1 purge_j1 NOLOAD        /* replaces one from sl_com.fd */
+tpp purge_p1 purge_p1 NOLOAD
+tpp gm_prge2 purge_e2 NOLOAD
+tpp purge_j2 purge_j2 NOLOAD
+tpp purge_p2 purge_p2 NOLOAD
+tpp preprge1 preprge1 NOLOAD
+tpp preprge2 preprge2 NOLOAD
+tpp ltsprge1 ltsprge1 NOLOAD
+tpp ltsprge2 ltsprge2 NOLOAD
+tpp chkrfill chkrfill NOLOAD
+tpp sxx_show sxx_show NOLOAD
+tpp sxxdcds1 sxxdcds1 NOLOAD
+tpp sxxdcds2 sxxdcds2 NOLOAD
+tpp sxxrspr1 sxxrspr1 NOLOAD
+tpp sxxrspr2 sxxrspr2 NOLOAD
+tpp sxxdcdsx sxxdcdsx NOLOAD
+tpp tmdproc1_1vol tmdproc1_1vol NOLOAD
+tpp tmdproc2_1vol tmdproc2_1vol NOLOAD
+
+/*Servo gun macros*/
+tpp cap_selc cap_selc NOLOAD
+tpp cap_wear cap_wear NOLOAD
+tpp num_guns num_guns NOLOAD
+tpp stpr_chk stpr_chk NOLOAD
+tpp tw_setg1 tw_setg1 NOLOAD
+tpp tw_setg2 tw_setg2 NOLOAD
+tpp tw_setg3 tw_setg3 NOLOAD
+tpp tw_setg4 tw_setg4 NOLOAD
+tpp tw_guns  tw_guns  NOLOAD
+tpp tw_reg   tw_reg   NOLOAD
+tpp chk_tips chk_tips NOLOAD
+tpp tw_upd   tw_upd   NOLOAD
+tpp tw_updcc tw_updcc NOLOAD
+tpp tw_updt  tw_updt  NOLOAD
+tpp wr_updgm wr_updgm NOLOAD
+tpp wr_setup wr_setup NOLOAD           /* replaces one from j670.fd */
+tpp airopgns airopgns NOLOAD
+tpp opengrp2 opengrp2 NOLOAD
+tpp opengrp3 opengrp3 NOLOAD
+tpp openguns openguns NOLOAD
+
+tpp chk_wear chk_wear NOLOAD
+tpp ffrmtr   ffrmtr   NOLOAD
+tpp gm_tmp30 templa30 NOLOAD
+tpp movrepr2 movrepr2 NOLOAD
+tpp movrepr3 movrepr3 NOLOAD
+tpp movrepr4 movrepr4 NOLOAD
+tpp pdinsdrs pdinsdrs NOLOAD
+tpp tdg1pr1  tdg1pr1 NOLOAD
+tpp tdg2pr2  tdg2pr2 NOLOAD
+tpp tdg3pr3  tdg3pr3 NOLOAD
+tpp tdg4pr4  tdg4pr4 NOLOAD
+tpp tlckstud tlckstud NOLOAD
+tpp tw_gnrst tw_gnrst NOLOAD
+
+tpp capchngr capchngr NOLOAD
+tpp capchngr2 capchngr2 NOLOAD
+tpp capchngr3 capchngr3 NOLOAD
+tpp capchngr4 capchngr4 NOLOAD
+tpp capoff capoff  NOLOAD
+tpp capon capon NOLOAD
+tpp ccoffsetmov ccoffsetmov NOLOAD
+tpp ccoffsetsta ccoffsetsta NOLOAD
+tpp ccremovemov ccremovemov NOLOAD
+tpp ccremovesta ccremovesta NOLOAD
+tpp cctiprst cctiprst NOLOAD
+tpp clsgrp2 clsgrp2 NOLOAD
+tpp clsgrp3 clsgrp3 NOLOAD
+tpp clsgunp1 clsgunp1 NOLOAD
+tpp clsgunp2 clsgunp2 NOLOAD
+tpp clsguns clsguns NOLOAD
+tpp dcd_capchng dcd_capchng NOLOAD
+tpp dcd_capchng2 dcd_capchng2 NOLOAD
+tpp dcd_capchng3 dcd_capchng3 NOLOAD
+tpp dcd_capchng4 dcd_capchng4 NOLOAD
+tpp homefrtd homefrtd NOLOAD
+tpp homefrtd2 homefrtd2 NOLOAD
+tpp homefrtd3 homefrtd3 NOLOAD
+tpp homefrtd4 homefrtd4 NOLOAD
+tpp hometotd hometotd NOLOAD
+tpp hometotd2 hometotd2 NOLOAD
+tpp hometotd3 hometotd3 NOLOAD
+tpp hometotd4 hometotd4 NOLOAD
+tpp notiprst notiprst NOLOAD
+tpp opengunp1 opengunp1 NOLOAD
+tpp opengunp2 opengunp2 NOLOAD
+tpp style27 style27 NOLOAD
+tpp style28 style28  NOLOAD
+tpp tcsty28 tcsty28 NOLOAD
+tpp tdfrcapchng tdfrcapchng NOLOAD
+tpp tdfrcapchng2 tdfrcapchng2 NOLOAD
+tpp tdfrcapchng3 tdfrcapchng3 NOLOAD
+tpp tdfrcapchng4 tdfrcapchng4 NOLOAD
+tpp tdtocapchng tdtocapchng NOLOAD
+tpp tdtocapchng2 tdtocapchng2 NOLOAD
+tpp tdtocapchng3 tdtocapchng3 NOLOAD
+tpp tdtocapchng4 tdtocapchng4 NOLOAD
+tpp tipdress1 tipdress1 NOLOAD
+tpp tc_tipdrs1 tc_tipdrs1 NOLOAD
+tpp tipdress2 tipdress2 NOLOAD
+tpp tipdress3 tipdress3 NOLOAD
+tpp tipdress4 tipdress4 NOLOAD
+tpp autocapchngr autocapchngr NOLOAD
+tpp autocapchngr2 autocapchngr2 NOLOAD
+tpp autocapchngr3 autocapchngr3 NOLOAD
+tpp autocapchngr4 autocapchngr4 NOLOAD
+tpp gm_tw_prs01 gm_tw_prs01 NOLOAD
+tpp gmdresseron gmdresseron NOLOAD
+tpp cc_frtd1 cc_frtd1 NOLOAD
+tpp cc_frtd2 cc_frtd2 NOLOAD
+tpp cc_frtd3 cc_frtd3 NOLOAD
+tpp cc_frtd4 cc_frtd4 NOLOAD
+tpp cc_proc1 cc_proc1 NOLOAD
+tpp cc_proc2 cc_proc2 NOLOAD
+tpp cc_proc3 cc_proc3 NOLOAD
+tpp cc_proc4 cc_proc4 NOLOAD
+tpp combocapchgr combocapchgr NOLOAD
+tpp combocapchgr2 combocapchgr2 NOLOAD
+tpp combocapchgr3 combocapchgr3 NOLOAD
+tpp combocapchgr4 combocapchgr4 NOLOAD
+tpp jawclosed jawclosed NOLOAD
+tpp jawopen jawopen NOLOAD
+tpp sgthkchk_tmp sgthkchk_tmp NOLOAD
+
+tpp bypproc1 bypproc1 NOLOAD
+tpp bypproc2 bypproc2 NOLOAD
+tpp td_2_mt td_2_mt NOLOAD
+tpp purge_1 purge_1 NOLOAD
+tpp purge_2 purge_2 NOLOAD
+tpp rmtstrt1 rmtstrt1 NOLOAD
+tpp rmtstrt2 rmtstrt2 NOLOAD
+tpp rs_prge1 rs_prge1 NOLOAD
+tpp rs_prge2 rs_prge2 NOLOAD
+
+/* tpp rst_f15 rst_f15 NOLOAD */
+tpp tmsproc1 tmsproc1 NOLOAD
+tpp tmsproc2 tmsproc2 NOLOAD
+tpp tmdproc1 tmdproc1 NOLOAD
+tpp tmdproc2 tmdproc2 NOLOAD
+
+tpp sxxdropx sxxdropx NOLOAD
+tpp gm_tmp31 templa31 NOLOAD
+tpp partcomp partcomp NOLOAD
+tpp tdverify tdverify NOLOAD
+tpp dvgtipck dvgtipck NOLOAD
+tpp reschke1 reschke1 NOLOAD
+tpp reschke2 reschke2 NOLOAD
+
+/* Projection Welding */
+tpp  swpwcpcg swpwcpcg NOLOAD
+tpp  swpwcpsl swpwcpsl NOLOAD
+tpp  swpwmvrp swpwmvrp NOLOAD
+tpp  swpwprpr swpwprpr NOLOAD
+tpp  swpwprrp swpwprrp NOLOAD
+tpp  swpwst26 swpwst26 NOLOAD
+tpp  swpwst29 swpwst29 NOLOAD
+tpp  tcdroph2 tcdroph2 NOLOAD
+tpp  tcpickh2 tcpickh2 NOLOAD
+tpp  swpwtprs swpwtprs NOLOAD
+tpp  tmplswpw tmplswpw NOLOAD
+tpp  tmppwprc tmppwprc NOLOAD
+tpp  tmplacpw tmplacpw NOLOAD
+tpp  tmpdswpw tmpdswpw NOLOAD
+tpp  ffrswpw2 ffrswpw2 NOLOAD
+tpp  ffrswpw1 ffrswpw1 NOLOAD
+tpp  tmpdmprc tmpdmprc NOLOAD
+tpp  tmplacdm tmplacdm NOLOAD
+tpp  dimple1  dimple1 NOLOAD
+tpp  setstrk1 setstrk1 NOLOAD
+tpp  dimple2  dimple2 NOLOAD
+tpp  setstrk2 setstrk2 NOLOAD
+tpp  chktchmd chktchmd NOLOAD
+
+/*SPR Files*/
+tpp cut_tape cut_tape NOLOAD
+tpp ffrsprpr ffrsprpr NOLOAD
+
+
+tpp prprcck1 prprcck1 NOLOAD
+tpp prprcck2 prprcck2 NOLOAD
+tpp rividchk rividchk NOLOAD
+tpp rividrst rividrst NOLOAD
+tpp rivbgpr1 rivbgpr1 NOLOAD
+tpp rivbgpr2 rivbgpr2 NOLOAD
+tpp rivbgpr1_2 rivbgpr1_2 NOLOAD
+tpp rivet1 rivet1 NOLOAD
+tpp rivet2 rivet2 NOLOAD
+tpp riv1chk riv1chk NOLOAD
+tpp riv2chk riv2chk NOLOAD
+tpp riv1pchk riv1pchk NOLOAD
+tpp riv2pchk riv2pchk NOLOAD
+tpp riv1set riv1set NOLOAD
+tpp riv2set riv2set NOLOAD
+tpp tcswsprs tcswsprs NOLOAD
+
+tpp ffrsprhb ffrsprhb NOLOAD
+tpp tlckspr  tlckspr NOLOAD
+tpp hmiospr  hmiospr NOLOAD
+
+tpp tmcsprproc tmcsprproc NOLOAD
+tpp tmptcswspr tmptcswspr NOLOAD
+tpp tmpedsprproc tmpedsprproc NOLOAD
+tpp tmppdspr tmppdspr NOLOAD
+tpp tmpcspr tmpcspr NOLOAD
+tpp tmpcsprhb tmpcsprhb NOLOAD
+
+tpp pdstysptspr pdstysptspr NOLOAD
+tpp reenableffr reenableffr NOLOAD
+tpp spr1calibrate spr1calibrate NOLOAD
+tpp spr1hometool spr1hometool NOLOAD
+tpp spr2calibrate spr2calibrate NOLOAD
+tpp spr2hometool spr2hometool NOLOAD
+
+/* FDS */
+tpp fdshome fdshome NOLOAD
+tpp fdsstyle fdsstyle NOLOAD
+tpp ffrscwpr ffrscwpr NOLOAD
+tpp fdsprcck1 fdsprcck1 NOLOAD
+tpp hmiofds hmiofds NOLOAD
+tpp screw screw NOLOAD
+tpp screwpck screwpck NOLOAD
+tpp screwset screwset NOLOAD
+tpp scwbgprg scwbgprg NOLOAD
+tpp scwidchk scwidchk NOLOAD
+tpp scwidrst scwidrst NOLOAD
+tpp spndhomchk spndhomchk NOLOAD
+tpp tmpfdspr tmpfdspr NOLOAD
+
+/* Vision */
+tpp dcd_drop dcd_drop NOLOAD
+tpp sxxdrop1 sxxdrop1 NOLOAD
+tpp sxxdrop2 sxxdrop2 NOLOAD
+tpp sxxdrop3 sxxdrop3 NOLOAD
+tpp sxxpick1 sxxpick1 NOLOAD
+tpp dcd_dp_rload dcd_dp_rload NOLOAD
+tpp perc_frm_slct perc_frm_slct NOLOAD
+tpp temp05_rfload temp05_rfload NOLOAD
+tpp forcemsgtp forcemsgtp NOLOAD
+
+/* LPT Files */
+tpp style100 style100  NOLOAD
+tpp homfrpon_lpt homfrpon_lpt NOLOAD
+tpp repair_lpt  repair_lpt NOLOAD
+
+tpp templa01_lpt templa01_lpt NOLOAD
+tpp templa02_lpt templa02_lpt NOLOAD
+tpp templa22_lpt templa22_lpt NOLOAD
+tpp templa23_lpt templa23_lpt NOLOAD
+tpp templa29_lpt templa29_lpt NOLOAD
+tpp templa31_lpt templa31_lpt  NOLOAD
+tpp templa32_lpt templa32_lpt NOLOAD
+tpp templa33_lpt templa33_lpt NOLOAD
+tpp templa06_lpt templa06_lpt NOLOAD
+tpp templa12_lpt templa12_lpt NOLOAD
+tpp templa13_lpt templa13_lpt NOLOAD
+tpp templa34_lpt templa34_lpt  NOLOAD
+tpp templa35_lpt templa35_lpt NOLOAD
+tpp templa14_lpt templa14_lpt NOLOAD
+tpp templa15_lpt templa15_lpt NOLOAD
+tpp templa04_lpt templa04_lpt NOLOAD
+tpp templa05_lpt templa05_lpt NOLOAD
+tpp templa16_lpt templa16_lpt NOLOAD
+tpp templa17_lpt templa17_lpt NOLOAD
+tpp templa18_lpt templa18_lpt NOLOAD
+tpp templa19_lpt templa19_lpt NOLOAD
+tpp templa20_lpt templa20_lpt NOLOAD
+tpp templa21_lpt templa21_lpt NOLOAD
+tpp clr_adc_lpt clr_adc_lpt NOLOAD
+tpp templa03_lpt templa03_lpt NOLOAD
+tpp templa07_lpt templa07_lpt NOLOAD
+tpp templa08_lpt templa08_lpt NOLOAD
+tpp templa09_lpt templa09_lpt NOLOAD
+tpp templa10_lpt templa10_lpt NOLOAD
+tpp templa11_lpt templa11_lpt  NOLOAD
+tpp templa26_lpt templa26_lpt NOLOAD
+tpp templa27_lpt templa27_lpt NOLOAD
+tpp templa28_lpt templa28_lpt NOLOAD
+tpp templa30_lpt templa30_lpt NOLOAD
+
+tpp lpt_cond lpt_cond NOLOAD
+tpp lpt_diag lpt_diag NOLOAD
+tpp lpt_health lpt_health NOLOAD
+tpp lpt_master_position lpt_master_position NOLOAD
+tpp lpt_mounting lpt_mounting NOLOAD
+tpp lpt_removal lpt_removal NOLOAD
+tpp lpt_zdtchk lpt_zdtchk NOLOAD
+tpp mgrp_hom mgrp_hom NOLOAD
+tpp mov_home_lpt mov_home_lpt NOLOAD
+tpp pwrup pwrup NOLOAD
+
+/*Powertrain*/
+tpp mov_rcvy mov_rcvy NOLOAD /*-- schoensm added back in for V8.33P06*/
+tpp set_rcvy set_rcvy NOLOAD /*-- schoensm added back in for V8.33P06*/
+tpp gm_tmp50 templa50 NOLOAD
+tpp gm_tmp51 templa51 NOLOAD
+/*tpp tmadcddr tmadcddr NOLOAD -- RK removed 7-13-16 because in RS4GMPT.FD */
+/*tpp tmadcdpk tmadcdpk NOLOAD -- RK removed 7-13-16 because in RS4GMPT.FD */
+/*tpp tmadrop  tmadrop  NOLOAD -- RK removed 7-13-16 because in RS4GMPT.FD */
+/*tpp tmapick  tmapick  NOLOAD -- RK removed 7-13-16 because in RS4GMPT.FD */
+/*tpp tmawash  tmawash  NOLOAD -- RK removed 7-13-16 because in RS4GMPT.FD */
+tpp emgtcunlt emgtcunlt NOLOAD
+
+tpp homerobot homerobot        /*NOLOAD RK removed 4-09-18--loaded via software gminstal utility for gmpt */
+tpp mov_pounce mov_pounce      /*NOLOAD --loaded via software gminstal utility for gmpt */
+tpp ref_pos_flt ref_pos_flt    /* NOLOAD--loaded via software gminstal utility for gmpt */
+
+/*tpp shlerhne shlerhne NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlerhns shlerhns NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlexit shlexit NOLOAD            --loaded via software gminstal utility for gmpt */
+/*tpp shlinit shlinit NOLOAD            --loaded via software gminstal utility for gmpt */
+/*tpp shlpause shlpause NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlprere shlprere NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlprmpt shlprmpt NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlreset shlreset NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlresum shlresum NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlsafe shlsafe NOLOAD            --loaded via software gminstal utility for gmpt */
+/*tpp shlstart shlstart NOLOAD          --loaded via software gminstal utility for gmpt */
+/*tpp shlt1t2 shlt1t1 NOLOAD            --loaded via software gminstal utility for gmpt */
+
+/* Advanced MH Recovery for Bodyshop without Auto Exit */
+tpp gm_tmp32 templa32 NOLOAD
+tpp tmpadrop tmpadrop  NOLOAD
+tpp tmpapick tmpapick  NOLOAD
+tpp style25 style25 NOLOAD
+tpp dcd_tmpl dcd_tmpl NOLOAD
+
+tpp tc_tdpr2 tc_tdpr2 NOLOAD
+tpp tc_tdpr3 tc_tdpr3 NOLOAD
+tpp tc_tdpr4 tc_tdpr4 NOLOAD
+
+/*G4 New Dispense Programs */
+tpp area_dc area_dc NOLOAD
+tpp areadata areadata NOLOAD
+tpp areastrt areastrt NOLOAD
+tpp part_id part_id NOLOAD
+tpp qsquirt qsquirt NOLOAD
+tpp total_dc total_dc NOLOAD
+tpp totaldta totaldta NOLOAD
+
+/*G4 New SPINTOP Programs 11-28-16 */
+
+tpp st_enable st_enable NOLOAD
+tpp st_start st_start NOLOAD
+tpp st_stop st_stop NOLOAD
+tpp st_stoprot st_stoprot NOLOAD
+tpp st_strota st_strota NOLOAD
+tpp st_frezang st_frezang NOLOAD
+tpp st_ovrang st_ovrang NOLOAD
+tpp st_ovroff st_ovroff NOLOAD
+tpp st_dataread st_dataread NOLOAD
+tpp st_datasend st_datasend NOLOAD
+tpp st_dataclear st_dataclear NOLOAD
+tpp st_dataerror st_dataerror NOLOAD  /* RK added 12-7-16 edited 12-9-16*/
+tpp sxxbypproc1 sxxbypproc1 NOLOAD
+tpp sxxbypproc2 sxxbypproc2 NOLOAD
+tpp sxxcamchk sxxcamchk NOLOAD
+tpp sxxcamtop1 sxxcamtop1 NOLOAD
+tpp sxxcamxprx sxxcamxprx NOLOAD
+tpp sxxdcdeopik sxxdcdeopik NOLOAD
+tpp sxxshow1 sxxshow1 NOLOAD
+tpp sxxshow2 sxxshow2 NOLOAD
+/*tpp tmptdcsvldtn tmptdcsvldtn NOLOAD RK edited 10-29-18*/
+tpp gmpunvin gmpunvin NOLOAD
+
+/*G4 Paint */
+tpp close_rq close_rq NOLOAD
+tpp clr_opio clr_opio NOLOAD
+tpp clroffst clroffst NOLOAD
+tpp gunclean gunclean NOLOAD
+tpp gunpurge gunpurge NOLOAD
+tpp gunscrub gunscrub NOLOAD
+tpp gunsponge gunsponge NOLOAD
+tpp guntest guntest NOLOAD
+tpp held_cls held_cls NOLOAD
+tpp held_opn held_opn NOLOAD
+tpp mov_gmnt mov_gmnt NOLOAD
+tpp mov_usr1 mov_usr1 NOLOAD
+tpp mov_usr2 mov_usr2 NOLOAD
+tpp open_rq open_rq NOLOAD
+tpp p_3dmv p_3dmv NOLOAD
+tpp qsquirt2 qsquirt2 NOLOAD
+tpp qsquirt3 qsquirt3 NOLOAD
+tpp recv_ofl recv_ofl NOLOAD
+tpp recv_ofr recv_ofr NOLOAD
+tpp setfinit setfinit NOLOAD
+tpp setfrmtp setfrmtp NOLOAD
+tpp superpurge superpurge NOLOAD
+tpp wait_clr wait_clr NOLOAD
+tpp wait_cls wait_cls NOLOAD
+tpp wait_opn wait_opn NOLOAD
+tpp wait_opr wait_opr NOLOAD
+tpp xmit_ofl xmit_ofl NOLOAD
+tpp xmit_ofr xmit_ofr NOLOAD
+tpp gunblowoff gunblowoff NOLOAD
+tpp homefrmgmaint homefrmgmaint NOLOAD
+tpp homefrmpurge homefrmpurge NOLOAD
+tpp homefrmrepair homefrmrepair NOLOAD
+tpp homefrmuser1 homefrmuser1 NOLOAD
+tpp homefrmuser2 homefrmuser2 NOLOAD
+tpp hometogmaint hometogmaint NOLOAD
+tpp hometopurge hometopurge NOLOAD
+tpp hometorepair hometorepair NOLOAD
+tpp hometouser1 hometouser1 NOLOAD
+tpp hometouser2 hometouser2 NOLOAD
+tpp pntstyle32 style32 NOLOAD
+tpp pntstyle33 style33 NOLOAD
+tpp pntstyle34 style34 NOLOAD
+tpp pntstyle35 style35 NOLOAD
+tpp pntstyle36 style36 NOLOAD
+tpp pntstyle37 style37 NOLOAD
+tpp tmppntproc tmppntproc NOLOAD
+tpp tmppntstyl tmppntstyl NOLOAD
+tpp tmppntsxxxrx tmppntsxxxrx NOLOAD
+tpp start_circ start_circ NOLOAD
+tpp stop_circ stop_circ NOLOAD
+tpp pnt_mov_purg pnt_mov_purg NOLOAD
+tpp pnt_mov_repr pnt_mov_repr NOLOAD
+tpp pnt_mov_home pnt_mov_home NOLOAD
+tpp prep_mtr_ref prep_mtr_ref NOLOAD
+tpp rspg_sel rspg_sel NOLOAD
+tpp irvjobid irvjobid NOLOAD
+tpp tip_check tip_check NOLOAD
+
+/* Stand-Alone TP Programs */
+/*GM Laser Clean Process */
+tpp chk_bg chk_bg NOLOAD
+tpp chk_tok chk_tok NOLOAD
+tpp clean_bg clean_bg NOLOAD
+tpp init_pushcorp init_pushcorp NOLOAD
+tpp rst_flags rst_flags NOLOAD
+tpp servo_off servo_off NOLOAD
+tpp servo_on servo_on NOLOAD
+tpp spd_lock spd_lock NOLOAD
+tpp spd_unlock spd_unlock NOLOAD
+tpp datacol datacol NOLOAD
+tpp c_chk_tl_std c_chk_tl_std NOLOAD
+tpp c_cyc_count c_cyc_count NOLOAD
+tpp c_dcd_whex c_dcd_whex NOLOAD
+tpp c_set_rpm c_set_rpm NOLOAD
+tpp c_style28 c_style28 NOLOAD
+tpp c_style29 c_style29 NOLOAD
+tpp c_stylexx c_stylexx NOLOAD
+tpp c_sxxproc1 c_sxxproc1 NOLOAD
+tpp c_wheel_chk c_wheel_chk NOLOAD
+tpp c_wheel_drp1 c_wheel_drp1 NOLOAD
+tpp c_wheel_drp2 c_wheel_drp2 NOLOAD
+tpp c_wheel_pk1 c_wheel_pk1 NOLOAD
+tpp c_wheel_pk2 c_wheel_pk2 NOLOAD
+tpp c_setconst c_setconst NOLOAD
+tpp c_wheel_meas c_wheel_meas NOLOAD
+tpp c_hmiocst c_hmiocst NOLOAD
+tpp g_chk_tl_std g_chk_tl_std NOLOAD
+tpp g_comp_cal g_comp_cal NOLOAD
+tpp g_cyc_count g_cyc_count NOLOAD
+tpp g_dcd_dp_whl g_dcd_dp_whl NOLOAD
+tpp g_dcd_pk_whl g_dcd_pk_whl NOLOAD
+tpp g_force_cal g_force_cal NOLOAD
+tpp g_force_chk g_force_chk NOLOAD
+tpp grind_bg grind_bg NOLOAD
+tpp g_hmiocst g_hmiocst NOLOAD
+tpp hd_vac_off hd_vac_off NOLOAD
+tpp hd_vac_on hd_vac_on NOLOAD
+tpp set_air_pres set_air_pres NOLOAD
+tpp set_force set_force NOLOAD
+tpp g_set_rpm g_set_rpm NOLOAD
+tpp g_style28 g_style28 NOLOAD
+tpp g_stylexx g_stylexx NOLOAD
+tpp g_sxxproc1 g_sxxproc1 NOLOAD
+tpp ulock_aslots ulock_aslots NOLOAD
+tpp g_wheel_chk g_wheel_chk NOLOAD
+tpp g_wheel_drs g_wheel_drs NOLOAD
+tpp g_wheel_drp1 g_wheel_drp1 NOLOAD
+tpp g_wheel_drp2 g_wheel_drp2 NOLOAD
+tpp g_wheel_drp3 g_wheel_drp3 NOLOAD
+tpp g_wheel_meas g_wheel_meas NOLOAD
+tpp g_wheel_pk1 g_wheel_pk1 NOLOAD
+tpp g_wheel_pk2 g_wheel_pk2 NOLOAD
+tpp g_wheel_pk3 g_wheel_pk3 NOLOAD
+tpp g_set_const g_set_const NOLOAD
+
+/*GM Spot Plasma Process */
+tpp sbi_clutch sbi_clutch NOLOAD
+tpp sbi_feedr_fwd sbi_feedr_fwd NOLOAD
+tpp sbi_feedr_rwd sbi_feedr_rwd NOLOAD
+tpp sbi_gas1_off sbi_gas1_off NOLOAD
+tpp sbi_gas1_on sbi_gas1_on NOLOAD
+tpp sbi_mode sbi_mode NOLOAD
+tpp sbi_off sbi_off NOLOAD
+tpp sbi_on sbi_on NOLOAD
+tpp sbi_style27 sbi_style27 NOLOAD
+tpp sbi_stylexxx sbi_stylexxx NOLOAD
+tpp sbi_sxxprocx sbi_sxxprocx NOLOAD
+tpp sbi_u1wir_fwd sbi_u1wir_fwd NOLOAD
+tpp sbi_u2wir_rwd sbi_u2wir_rwd NOLOAD
+tpp sbi_weld sbi_weld NOLOAD
+
+/*FANUC Servo Brush Stand-Alone */
+tpp debur_stylexx debur_stylexx NOLOAD
+tpp debur_sxxponc debur_sxxponc NOLOAD
+tpp debur_sxxprc1 debur_sxxprc1 NOLOAD
+tpp deburr_bg deburr_bg NOLOAD
+tpp deburr_err deburr_err NOLOAD
+tpp hmiocst_dburr hmiocst_dburr NOLOAD
+tpp tm_brush_prc1 tm_brush_prc1 NOLOAD
+
+/*GM Body Chassis Marriage */
+tpp s0xprc1xxx s0xprc1xxx NOLOAD
+tpp xbolt_engage xbolt_engage NOLOAD
+
+/*GM Seek and Find Programs */
+tpp rack1_hm rack1_hm NOLOAD
+tpp racktohomedcd racktohomedcd NOLOAD
+tpp search_ex search_ex NOLOAD
+tpp set_eoat set_eoat NOLOAD
+tpp set_memory set_memory NOLOAD
+tpp set_rack set_rack NOLOAD
+tpp srch_fault_ex srch_fault_ex NOLOAD
+tpp tmseekfndpk tmseekfndpk NOLOAD
+
+/*GM Quick Open-Close Programs */
+tpp quickclose quickclose NOLOAD
+tpp quickopen quickopen NOLOAD
+
+/*GM Double Blank Sensor */
+tpp phd_chk phd_chk NOLOAD
+tpp phdrcvry phdrcvry NOLOAD
+tpp set_phd_di set_phd_di NOLOAD
+tpp sxxpk_to_clr sxxpk_to_clr NOLOAD
+tpp tm2prtchkpick tm2prtchkpick NOLOAD
+
+/*GM Dispense BG Programs */
+tpp purge_bkg1 purge_bkg1 NOLOAD
+tpp purge_bkg2 purge_bkg2 NOLOAD
+
+/*GM PHD PinGrip Programs */
+tpp bypsinpt bypsinpt NOLOAD
+tpp chkdisbl chkdisbl NOLOAD
+tpp pingrip_temp pingrip_temp NOLOAD
+tpp pinrel_temp pinrel_temp NOLOAD
+
+/*GM Collaborative Programs */
+tpp crstyle25 crstyle25 NOLOAD
+
+/* glue4 ap.com init1upd.com 2 */
+/* glue4 custom.tx custom.tx 2 */
+
+/* Run utility program to setup variables */
+/* and load TP programs */
+utility incdim /* Fixes dimensions for swshell for INIT start */
+utility gminstal  /*Runs during software install*/
+
+
+
+
+
+

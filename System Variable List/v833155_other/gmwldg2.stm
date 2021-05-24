@@ -1,0 +1,448 @@
+﻿<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Gun 2 Info</title>
+<style type="text/css">
+#FRIPMenuChange1 {
+	height: 31px;
+	width: 93px;
+}
+#FRIPButtonChange1 {
+	height: 31px;
+	width: 85px;
+}
+#FRIPEditBox4 {
+	height: 37px;
+	width: 71px;
+}
+#FRIPEditBox5 {
+	height: 37px;
+	width: 71px;
+}
+#FRIPEditBox6 {
+	height: 38px;
+	width: 62px;
+}
+#FRIPLabel14 {
+	float: left;
+}
+#FRIPLabel20 {
+	float: left;
+}
+#FRIPEditBox7 {
+	height: 37px;
+	width: 71px;
+}
+#FRIPEditBox8 {
+	height: 37px;
+	width: 71px;
+}
+#GN_MENU {
+	height: 31px;
+	width: 96px;
+}
+</style>
+</head>
+
+<body>
+
+<table style="width: 313px; height: 379px">
+	<tr>
+		<td>
+		<table style="width: 100%">
+			<tr>
+				<td style="text-align: left; width: 102px">
+				<object classid="clsid:71060678-0E45-11D3-81B6-0000E206D650" id="GN_MENU">
+					<param name="Caption" value="Gun List">
+					<param name="FontSize" value="14">
+					<param name="width" value="96">
+					<param name="height" value="31">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="PageName01" value="/frh/cgtp/gmwldg2.stm">
+					<param name="PageName02" value="/frh/cgtp/gmwldg2.stm">
+					<param name="PageName03" value="/frh/cgtp/gmwldg3.stm">
+					<param name="PageName04" value="/frh/cgtp/gmwldg4.stm">
+					<param name="PageCaption01" value="Gun 1">
+					<param name="PageCaption02" value="Gun 2">
+					<param name="PageCaption03" value="Gun 3">
+					<param name="PageCaption04" value="Gun 4">
+					<param name="BackColor" value="16711680">
+					<param name="Pipe" value="mypipe.dat">
+					<param name="Interval" value="250">
+				</object>
+				</td>
+				<td>
+				<object classid="clsid:71060678-0E45-11D3-81B6-0000E206D650" id="TD_MENU" style="height: 30px">
+					<param name="Caption" value="TD LIST">
+					<param name="FontSize" value="14">
+					<param name="width" value="100">
+					<param name="height" value="30">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="PageName02" value="/frh/cgtp/gmstd2.stm">
+					<param name="PageName03" value="/frh/cgtp/gmstd3.stm">
+					<param name="PageName04" value="/frh/cgtp/gmstd4.stm">
+					<param name="PageCaption01" value="Servo Tip Dresser 1">
+					<param name="PageCaption02" value="Servo Tip Dresser 2">
+					<param name="PageCaption03" value="Servo Tip Dresser 3">
+					<param name="PageCaption04" value="Servo Tip Dresser 4">
+					<param name="BackColor" value="16711680">
+					<param name="Pipe" value="mypipe.dat">
+					<param name="Interval" value="250">
+				</object>
+				</td>
+				<td>
+				<object classid="clsid:BEC06F36-B6DE-4903-838C-5B110F58550E" id="FRIPExecution1">
+					<param name="width" value="32">
+					<param name="height" value="32">
+					<param name="FastLoad" value="-1">
+					<param name="Name" value="TDWEBMON">
+				</object>
+				</td>
+			</tr>
+			<tr>
+				<td style="text-align: left; width: 102px">Gun2 Cuts Since CC</td>
+				<td style="text-align: left">Wear
+											Since CC (Gun2)</td>
+				<td style="text-align: left">Wear
+											Since CC (Rbt)</td>
+			</tr>
+			<tr>
+				<td style="text-align: left; width: 102px">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel14">
+												<param name="Caption" value="">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="55">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="64">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td style="text-align: left">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel37">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="205">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel21">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="206">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+			</tr>
+			<tr>
+				<td style="width: 102px; text-align: left">Td Last Cycle Wear Amount (Gun2)
+				</td>
+				<td style="text-align: left">Td Last Cycle Wear Amount (Rbt)
+				</td>
+				<td>&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel32">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="246">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel30">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="247">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px; text-align: left">Td Avg Cycle Wear Amount (Gun2)</td>
+				<td style="text-align: left">Td Avg Cycle Wear Amount (Rbt).</td>
+				<td>&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel33">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="248">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel31">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="249">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px; text-align: left">Num of Deburr Dresses</td>
+				<td style="text-align: left">Num of PreDresses</td>
+				<td>Num of ReDresses</td>
+			</tr>
+			<tr>
+				<td style="height: 58px; width: 102px">
+											<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox4">
+												<param name="Caption" value>
+												<param name="FontSize" value="14">
+												<param name="width" value="71">
+												<param name="height" value="37">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="130">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="ValueMin" value="0">
+												<param name="ValueMax" value="3">
+												<param name="Border" value="4">
+											</object>
+											</td>
+				<td style="height: 58px">
+											<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox5">
+												<param name="Caption" value>
+												<param name="FontSize" value="14">
+												<param name="width" value="71">
+												<param name="height" value="37">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="132">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="ValueMin" value="1">
+												<param name="ValueMax" value="7">
+												<param name="Border" value="4">
+											</object>
+											</td>
+				<td style="height: 58px">
+											<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox6">
+												<param name="Caption" value>
+												<param name="FontSize" value="14">
+												<param name="width" value="62">
+												<param name="height" value="38">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="131">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="ValueMin" value="1">
+												<param name="ValueMax" value="3">
+												<param name="Border" value="4">
+											</object>
+											</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">Wear(Gun2)</td>
+				<td>Wear(Rbt)</td>
+				<td>CapWear Soft Limit </td>
+			</tr>
+			<tr>
+				<td style="width: 102px">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel15">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="102">
+												<param name="DataIndex" value="$SGGUN2.$SETUP.$WRDWN_TIP">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel22">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="102">
+												<param name="DataIndex" value="$SGGUN2.$SETUP.$WRDWN_RBT">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel34">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="217">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+			</tr>
+			<tr>
+				<td style="width: 102px; height: 24px">Td Cut Amount (Gun2)</td>
+				<td style="height: 24px">Td Cut Amount (Rbt)</td>
+				<td style="height: 24px">&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel18">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="203">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel24">
+												<param name="Caption" value="%3.3f">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="204">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											</td>
+				<td>&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">Max Cap Wear Value (Gun2) </td>
+				<td>Max Cap Wear Value (Rbt) </td>
+				<td>&nbsp;</td>
+			</tr>
+			<tr>
+				<td style="width: 102px">
+											<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox7">
+												<param name="Caption" value>
+												<param name="FontSize" value="14">
+												<param name="width" value="71">
+												<param name="height" value="37">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="337">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="ValueMin" value="3">
+												<param name="ValueMax" value="6">
+												<param name="Border" value="4">
+												<param name="Type" value="2">
+												<param name="IncrValue" value="0.1">
+											</object>
+											</td>
+				<td>
+											<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox8">
+												<param name="Caption" value>
+												<param name="FontSize" value="14">
+												<param name="width" value="71">
+												<param name="height" value="37">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="338">
+												<param name="Interval" value="250">
+												<param name="TrueFont" value="-1">
+												<param name="FastLoad" value="-1">
+												<param name="ValueMin" value="3">
+												<param name="ValueMax" value="6">
+												<param name="Border" value="4">
+												<param name="Type" value="2">
+												<param name="IncrValue" value="0.1">
+											</object>
+											</td>
+				<td>&nbsp;</td>
+			</tr>
+		</table>
+		</td>
+	</tr>
+</table>
+
+</body>
+
+</html>

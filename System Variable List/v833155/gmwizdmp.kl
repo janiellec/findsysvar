@@ -1,0 +1,153 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmwizdmp.kl
+--
+--    Description:
+--
+--    gmwizdmp contains questions for configuring GM G4 dimpler applications
+--    
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: 
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           2016/10/08   marchaka Program created
+--           2016/10/12   marchaka Combination logic added
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmwizdmp
+-------------------------------------------------------------------------------------------------------------
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT='GM DimplerWizG4.0'
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- Required for the configuration for GM Body Shop variables  
+%INCLUDE gmcfgdmp  -- Required for the configuration of dimpler application variables
+
+CONST
+
+Version = '2016-10-12'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+
+VAR
+  ans          : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+ROUTINE USERPAGE FROM USERPAGE  -- forces user screen to pendant
+-------------------------------------------------------------------
+ROUTINE initdimpvar
+--intialize variables in case projection weld wizard is run not from wizard
+-------------------------------------------------------------------
+VAR
+w: INTEGER
+
+BEGIN
+  --Initialize variables
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(dimp_ctrl) THEN
+    dimp_ctrl = 0
+  ENDIF
+
+  IF UNINIT(dimp1_app) THEN
+    dimp1_app = 0
+  ENDIF
+
+  IF UNINIT(dimp2_app) THEN
+    dimp2_app = 0
+  ENDIf
+
+END initdimpvar
+-------------------------------------------------------------------
+ROUTINE dimp_wiz
+-------------------------------------------------------------------
+BEGIN
+
+  initdimpvar --initialize wizard variables
+
+  IF ((bshop_proc1 = dimpappl) OR (bshop_proc2 = dimpappl))THEN  --dimpler cannot be combined with itself
+                                                                 --one dimpler is max for G4
+    numdimpctrl = 1
+  ELSE
+    numdimpctrl = 0
+  ENDIF
+
+  SELECT numdimpctrl OF
+    CASE(1):  --one dimpler
+
+      IF (dimp1_app = 0) THEN --skip application type question if combo
+                              --if combo dimp1_app VAR should have already been set be set in gmwizbsh
+      
+        REPEAT
+          --WRITE(CR,'One Dimpler Controller',CR)
+          --WRITE('1. Robot Held',CR)
+          --WRITE('2. Single Pedestal',CR)
+          --WRITE('Answer: ')
+
+          CLR_STND_SCR(gm_status)
+          WRITE(CR,dmp1_gmdata,CR)
+          WRITE('1.',rh_gmdata,CR)
+          WRITE('2.',sp_gmdata,CR)
+          WRITE(gdata_ans,'(1-2):')
+          READ(ans)
+        UNTIL(Verify_Answr(ans,1,2))
+        dimp1_app = ans
+
+      ENDIF --skip application type question if combo
+
+    ELSE:
+  ENDSELECT --number of dimpler controllers 
+
+END dimp_wiz
+-------------------------------------------------------------------
+BEGIN
+
+set_english
+initdimpvar
+dimp_wiz
+
+END gmwizdmp
+

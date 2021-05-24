@@ -1,0 +1,1124 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMDISPIO.KL
+--   TITLE:          GMDISPIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Dispense Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the I/O file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         marchaka 2016/09/01 Updated DI 1054 and DI 1182 to be diSLxCirculate
+--         marchaka 2016/09/23 Added DI 112 and DI 172 SLxEqptRmtRes
+--         marchaka 2016/11/01 Fixed DI 1192, 1193, 1194,1201-1216
+--                             Fixed process 2 setting of sliomap variables when
+--                             process 1 is not a dispenser
+--         friededr 2016/11/12 Minor updates to support Paintshop.
+--                             Added DO/GO support for Prepressure Request.
+--         friededr 2016/11/22 Fixed mapping code for gun I/O.
+--         friededr 2017/02/24 Added I/O to SCA interface to support "First
+--                             Degrade Job" functionailty.  This is part of
+--                             the standard SCA signal layout.
+--         marchaka 2017/07/24 Fix I/O comments DI[131]-[133] to say P2 instead of P1
+--             v4.3 2018/05/03   marchaka          Add I/O comments for material near expiration and material expired
+--             v4.4 2019/08/13   marchaka        Updated I/O comments for barrel empty, air detected and remote start
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMDISPIO
+
+%COMMENT = 'GM DspnsI/O V4.4'
+%PRIORITY = 50
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT iosetup -- Need for teh SET_PORT builtins
+%ENVIRONMENT SLDEF
+
+%INCLUDE KLIOTYPS  -- need for the constant declared for IO_DIN/IO_DOUT
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgdsp  -- All dispense variables for wizard setup
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgpwr  -- has GM powertrain variable settings for configuration
+%INCLUDE gmcfgpnt  -- Contains GM PaintShop configuration settings.
+%INCLUDE gm_var    -- GM variables
+%INCLUDE gmcfgstd  -- GM wizard variables for Stud Applications
+%INCLUDE gmevrs4io -- GM Karel variables
+
+CONST
+Version = '2019-08-13'
+%INCLUDE gmcnstnt  -- used for all wizard constants
+
+VAR
+Num, i,gm_status  :INTEGER -- Used for Temp vars
+Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+DispnsrSetup IN SHADOW : ARRAY[Max_Disp_Eq] OF BOOLEAN -- indicates if the Dispenser has been setup before
+
+disp_1_slot,
+disp_2_Slot    IN CMOS: INTEGER -- used for which Node or Slot the Equiptment will use Def.=Ethernet
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+
+
+
+ROUTINE SCA_Disp_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenetsu
+-----------------------------------------------------------------------------
+ROUTINE ChkDispInit
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+-- Check Common Dispense variable used in the program to be setup
+IF UNINIT(DispCommType) THEN --set hook for multiple communications
+  DispCommType = Ethernet -- set it to 89
+ENDIF
+IF UNINIT(numdispctrl) THEN
+  numdispctrl = 0
+ENDIF
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+
+-- Check variable associated with dispenser #1
+IF UNINIT(DispnsrSetup[1]) THEN
+  DispnsrSetup[1] = FALSE
+ENDIF
+IF UNINIT(bshop_proc1) THEN
+  bshop_proc1 = 0
+ENDIF
+IF UNINIT(disp_1_slot) THEN
+  disp_1_slot = 4
+ENDIF
+IF UNINIT(dispapp[1].disp_eqty) THEN
+  dispapp[1].disp_eqty = 0
+ENDIF
+
+-- Check variable associated with dispenser #2
+IF UNINIT(DispnsrSetup[2]) THEN
+   DispnsrSetup[2] = FALSE
+ENDIF
+IF UNINIT(bshop_proc2) THEN
+  bshop_proc2 = 0
+ENDIF
+IF UNINIT(disp_2_slot) THEN
+  disp_2_slot = 5
+ENDIF
+IF UNINIT(dispapp[2].disp_eqty) THEN
+  dispapp[2].disp_eqty = 0
+ENDIF
+
+
+END ChkDispInit
+-----------------------------------------------------------------------------
+ROUTINE SCADspEq1_IO
+-- PURPOSE: to setup and configure SCA Dispense equipemnt #1
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  ChkDispInit
+
+  IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND ((bshop_proc1 = dispappl) OR (Use_Dispense) OR (pnt_dsp_used)))) THEN --controller 1 setup can be executed
+
+  IF DispnsrSetup[1] = TRUE THEN -- Dispenser I/O has already been setup
+    WRITE TPERROR(CHR(cc_clear_win),'Dispenser #1 Already Setup')
+      IF NOT ExecSetupAgn('Dispenser#1') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+ -- Controller#1 INPUTS set the rack lenght so TP display is all inclusive of the 128 bits
+  SET_PORT_ASG(io_din,1025,DispCommType, disp_1_Slot,io_din,1,  -128, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(DispCommType)+' Slot ' +Int2str(disp_1_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+ -- Controller#1 OUTPUTS set the rack lenght so TP display is all inclusive of the 128 bits
+  SET_PORT_ASG(io_dout,1025,DispCommType, disp_1_Slot,io_dout,1,  -128, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(DispCommType)+' Slot ' +Int2str(disp_1_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+
+ -- INPUTS System#1
+
+  SET_PORT_CMT(IO_DIN, 67, 'diP1RemoteStart', gm_status)
+  SET_PORT_CMT(IO_DIN, 68, 'diP1Purge', gm_status)
+  SET_PORT_CMT(IO_DIN, 69, 'diP1Shutdwn', gm_status)
+
+  FOR i = 70 TO 101 DO
+    Num = i - 69 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'Wet_ModeArea'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 102, 'di_XData_AckPR1', gm_status)
+  SET_PORT_CMT(IO_DIN, 103, 'diP1PumpsRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 104, 'P1_MultiPurge', gm_status)
+  SET_PORT_CMT(IO_DIN, 105, 'P1_Gun1Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 106, 'P1_Gun2Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 107, 'P1_Gun3Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 108, 'P1_ScrubReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 109, 'P1_ReloadAOk', gm_status)
+  SET_PORT_CMT(IO_DIN, 110, 'P1_ReloadBOk', gm_status)
+  SET_PORT_CMT(IO_DIN, 111, 'P1_ShldCleanReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 112, 'SL1EqptRmtRes', gm_status)
+
+  SET_PORT_CMT(IO_GPIN,51, 'giSL11TotalVol', gm_status)
+  SET_PORT_ASG(IO_GPIN,51,DispCommType,disp_1_slot,IO_DIN,33,-16, gm_status)
+  SET_PORT_CMT(IO_GPIN,52, 'giSL1AreaVol', gm_status)
+  SET_PORT_ASG(IO_GPIN,52,DispCommType,disp_1_slot,IO_DIN,49,-16, gm_status)
+  SET_PORT_CMT(IO_GPIN,53, '(Reserved)', gm_status)
+
+  SET_PORT_CMT(IO_GPIN,54, 'giSL1Pressure', gm_status)
+  SET_PORT_ASG(IO_GPIN,54,DispCommType,disp_1_slot,IO_DIN,65,-16, gm_status)
+  SET_PORT_CMT(IO_GPIN,55, 'giSL1TempSet', gm_status)
+  SET_PORT_ASG(IO_GPIN,55,DispCommType,disp_1_slot,IO_DIN,81,-8, gm_status)
+  SET_PORT_CMT(IO_GPIN,56, 'giSL1TempActual', gm_status)
+  SET_PORT_ASG(IO_GPIN,56,DispCommType,disp_1_slot,IO_DIN,89,-8, gm_status)
+  SET_PORT_CMT(IO_GPIN,57, 'giSL1FaultData', gm_status)
+  SET_PORT_ASG(IO_GPIN,57,DispCommType,disp_1_slot,IO_DIN,97,-8, gm_status)
+
+  SET_PORT_CMT(IO_GPIN,58, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_GPIN,59, '(Reserved)', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 1025, 'diSL1Ready', gm_status)
+  SET_PORT_CMT(IO_DIN, 1026, 'diSL1NOFault', gm_status)
+  SET_PORT_CMT(IO_DIN, 1027, 'diSL1NOAlert', gm_status)
+  SET_PORT_CMT(IO_DIN, 1028, 'diSL1InProcess', gm_status)
+  SET_PORT_CMT(IO_DIN, 1029, 'diSL1TotalVolOK', gm_status)
+  SET_PORT_CMT(IO_DIN, 1030, 'diSL1AreaVolOK', gm_status)
+  SET_PORT_CMT(IO_DIN, 1031, 'diSL1PurgeReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 1032, 'diSL1RmtStartInp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1033, 'diSL1Barel1Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1034, 'diSL1Barel1Empty', gm_status)
+  SET_PORT_CMT(IO_DIN, 1035, 'diSL1Barel2Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1036, 'diSL1Barel2Empty', gm_status)
+  SET_PORT_CMT(IO_DIN, 1037, 'diSL1Barl2K1Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1038, 'diSL1Barl2K1Empt', gm_status)
+  SET_PORT_CMT(IO_DIN, 1039, 'diSL1Barl2K2Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1040, 'diSL1Barl2K2Empt', gm_status)
+  SET_PORT_CMT(IO_DIN, 1041, 'diSL1FrstDgrdJob', gm_status)
+  SET_PORT_CMT(IO_DIN, 1042, 'diSL1LowTotVol', gm_status)
+  SET_PORT_CMT(IO_DIN, 1043, 'diSL1HighTotVol', gm_status)
+  SET_PORT_CMT(IO_DIN, 1044, 'diSL1ShutDwnStat', gm_status)
+  SET_PORT_CMT(IO_DIN, 1045, 'diSL1_2KMixerChngR', gm_status)
+  SET_PORT_CMT(IO_DIN, 1046, 'diSL1_2KinMixer', gm_status)
+  SET_PORT_CMT(IO_DIN, 1047, 'diSL1AirDetected', gm_status)
+  SET_PORT_CMT(IO_DIN, 1048, 'diSL1MeterFilling', gm_status)
+  SET_PORT_CMT(IO_DIN, 1049, 'diSL1MeterFull', gm_status)
+  SET_PORT_CMT(IO_DIN, 1050, 'diSL1FillRequest', gm_status)
+  SET_PORT_CMT(IO_DIN, 1051, 'diSL1MtrRSRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 1052, 'diSL1MtrDockRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 1053, 'diSL1Fill_Inter', gm_status)
+  SET_PORT_CMT(IO_DIN, 1054, 'diSL1Circulate', gm_status)
+  SET_PORT_CMT(IO_DIN, 1055, 'diSL1TmpZnDsbled', gm_status)
+  SET_PORT_CMT(IO_DIN, 1056, 'diSL1XData_Ack', gm_status)
+
+  FOR i = 1057 TO 1072 DO
+    Num = i - 1056 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1TotalVolB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1073 TO 1088 DO
+    Num = i - 1072 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1AreaVolB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1089 TO 1104 DO
+    Num = i - 1088 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1PressureB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1105 TO 1112 DO
+    Num = i - 1104 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1TempSetB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1113 TO 1120 DO
+    Num = i - 1112 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1ActTempB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1121 TO 1136 DO
+    Num = i - 1120 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL1FaultBit'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 1137, 'diSL1P1B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1138, 'diSL1P1B1Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1139, 'diSL1P1B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1140, 'diSL1P1B2Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1141, 'diSL1P2B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1142, 'diSL1P2B1Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1143, 'diSL1P2B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1144, 'diSL1P2B2Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1145, 'diSL1AutoMode', gm_status)
+  SET_PORT_CMT(IO_DIN, 1146, 'diSL1EqCtrlStop', gm_status)
+  SET_PORT_CMT(IO_DIN, 1147, 'diSL1TcuEnbl', gm_status)
+  SET_PORT_CMT(IO_DIN, 1148, 'diSL1TempAchieved', gm_status)
+
+  FOR I = 1149 to 1152 DO
+    SET_PORT_CMT(IO_DIN,I,'(SL1 Reserved)',gm_status)
+  ENDFOR
+
+ --***********************************************************
+ -- OUTPUTS System#1
+ --***********************************************************
+  SET_PORT_CMT(IO_DOUT, 73, 'doPR1RmtStartInp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 74, 'doP1ShutDwnStat', gm_status)
+  SET_PORT_CMT(IO_DOUT, 75, 'doP1DispReady', gm_status)
+  SET_PORT_CMT(IO_DOUT, 76, 'doP1PurgeReg', gm_status)
+  SET_PORT_CMT(IO_DOUT, 77, 'doP1TipChngReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 78, 'do_XDataStrobePR1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 79, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 80, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 81, 'doSL1P1B1Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 82, 'doSL1P1B1Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 83, 'doSL1P1B2Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 84, 'doSL1P1B2Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 85, 'doSL1P2B1Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 86, 'doSL1P2B1Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 87, 'doSL1P2B2Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 88, 'doSL1P2B2Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 89, 'doP1CircActive', gm_status)
+  SET_PORT_CMT(IO_DOUT, 90, 'doP1MtrALoadReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 91, 'doP1MtrBLoadReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 92, 'doP1PriorityRld', gm_status)
+  SET_PORT_CMT(IO_DOUT, 93, 'doP1DiskMonDSBL', gm_status)
+  SET_PORT_CMT(IO_DOUT, 94, 'doP1HeatZnBypass', gm_status)
+  SET_PORT_CMT(IO_DOUT, 95, 'doP1FirstDgrdJob', gm_status)
+  SET_PORT_CMT(IO_DOUT, 96, 'doSL1AirDetected', gm_status)
+  SET_PORT_CMT(IO_DOUT, 97, 'doSL1AreaNum1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 98, 'doSL1AreaNum2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 99, 'doSL1AreaNum3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 100, 'doSL1AreaNum4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 101, 'doSL1AreaNum5', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 102, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 103, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 104, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 105, 'doSL1P1B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 106, 'doSL1P1B1Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 107, 'doSL1P1B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 108, 'doSL1P1B2Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 109, 'doSL1P2B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 110, 'doSL1P2B1Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 111, 'doSL1P2B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 112, 'doSL1P2B2Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 113, 'goSLXVolData1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 114, 'goSLXVolData2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 115, 'goSLXVolData3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 116, 'goSLXVolData4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 117, 'goSLXVolData5', gm_status)
+  SET_PORT_CMT(IO_DOUT, 118, 'goSLXVolData6', gm_status)
+  SET_PORT_CMT(IO_DOUT, 119, 'goSLXVolData7', gm_status)
+  SET_PORT_CMT(IO_DOUT, 120, 'goSLXVolData8', gm_status)
+  SET_PORT_CMT(IO_DOUT, 121, 'goSLXVolData9', gm_status)
+  SET_PORT_CMT(IO_DOUT, 122, 'goSLXVolData10', gm_status)
+  SET_PORT_CMT(IO_DOUT, 123, 'goSLXVolData11', gm_status)
+  SET_PORT_CMT(IO_DOUT, 124, 'goSLXVolData12', gm_status)
+  SET_PORT_CMT(IO_DOUT, 125, 'goSLXVolData13', gm_status)
+  SET_PORT_CMT(IO_DOUT, 126, 'goSLXVolData14', gm_status)
+  SET_PORT_CMT(IO_DOUT, 127, 'goSLXVolData15', gm_status)
+  SET_PORT_CMT(IO_DOUT, 128, 'goSLXVolData16', gm_status)
+
+  FOR i = 345 TO 360 DO
+    Num = i - 344 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'goSL1Pressure'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 361 TO 368 DO
+    Num = i - 360 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'goSL1TempSet'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 369 TO 376 DO
+    Num = i - 368 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'goSL1TempActual'+int2str(Num),gm_status)
+  ENDFOR --
+
+  -- configure data to the PLC
+  SET_PORT_CMT(IO_GPOUT,51, 'goSL1VolData', gm_status)
+  SET_PORT_ASG(IO_GPOUT,51,CellCommType,CellSlotNmbr,IO_DOUT,113,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,52, 'goSL1AreaNumPLC1', gm_status)
+  SET_PORT_ASG(IO_GPOUT,52,CellCommType,CellSlotNmbr,IO_DOUT,97,-5,gm_status)
+  SET_PORT_CMT(IO_GPOUT,53, 'goSL1PartID', gm_status)
+  SET_PORT_ASG(IO_GPOUT,53,DispCommType,disp_1_slot,IO_DOUT,1,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,54, 'goSLXPressure', gm_status)
+  SET_PORT_ASG(IO_GPOUT,54,CellCommType,CellSlotNmbr,IO_DOUT,345,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,55, 'goSLXTempSetPnt', gm_status)
+  SET_PORT_ASG(IO_GPOUT,55,CellCommType,CellSlotNmbr,IO_DOUT,361,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,56, 'goSLXActualTemp', gm_status)
+  SET_PORT_ASG(IO_GPOUT,56,CellCommType,CellSlotNmbr,IO_DOUT,369,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,57, 'goSL1FlowCmd2', gm_status)
+  SET_PORT_ASG(IO_GPOUT,57,DispCommType,disp_1_slot,IO_DOUT,49,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,58, 'goSL1FlowCm', gm_status)
+  SET_PORT_ASG(IO_GPOUT,58,DispCommType,disp_1_slot,IO_DOUT,17,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,59, 'goSL1AreaNumDisp', gm_status)
+  SET_PORT_ASG(IO_GPOUT,59,DispCommType,disp_1_slot,IO_DOUT,65,-5,gm_status)
+  SET_PORT_CMT(IO_GPOUT,69, 'goSL1Prepressure', gm_status)
+  SET_PORT_ASG(IO_GPOUT,69,DispCommType,disp_1_slot,IO_DOUT,81,-8,gm_status)
+
+  FOR i = 1025 TO 1032 DO
+    Num = i - 1024 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL1StyleBit'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 1033, 'doSL1StyleStrobe', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1034, 'doSL1TotVolComp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1035, 'doSL1Gun1On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1036, 'doSL1Gun2On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1037, 'doSL1Gun3On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1038, 'doSL1Gun4On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1039, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1040, '(Reserved)', gm_status)
+
+  FOR i = 1041 TO 1056 DO
+    Num = i - 1040 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL1MatFlow'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 1057, 'doNotATPurgePos', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1058, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1059, 'diSL1AreaVolComp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1060, 'doSL1Purge', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1061, 'doSL1ShutDwnCmd', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1062, 'doSL1FaultReset', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1063, 'doSL1RemoteStart', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1064, 'do2kRepairPosE1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1065, 'do2kMixerChgE1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1066, 'do2kPurgePBE1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1067, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1068, 'doSL1StatRefRdy', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1069, 'doSL1MtrDocked', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1070, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1071, 'doSL1Circulate', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1072, 'doSL1FillMeter', gm_status)
+
+  FOR i = 1073 TO 1088 DO
+    Num = i - 1072 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL1BeadShp'+int2str(Num),gm_status)
+  ENDFOR --
+
+ FOR i = 1089 TO 1093 DO
+   Num = i - 1088 -- subtract to add to end of comment
+   SET_PORT_CMT(IO_DOUT,i,'doSL1AreaNumB'+int2str(Num),gm_status)
+ ENDFOR --
+
+ SET_PORT_CMT(IO_DOUT, 1094, '(Reserved)', gm_status)
+ SET_PORT_CMT(IO_DOUT, 1095, '(Reserved)', gm_status)
+ SET_PORT_CMT(IO_DOUT, 1096, 'doSL1AreaXActive', gm_status)
+ SET_PORT_CMT(IO_DOUT, 1097, 'doSL1XDataStrobe', gm_status)
+
+ FOR I = 1098 to 1104 DO
+   SET_PORT_CMT(IO_DOUT,I,'(SL1 Reserved)',gm_status)
+ ENDFOR
+
+ FOR i = 1105 TO 1112 DO
+   Num = i - 1104 -- subtract to add to end of comment
+   SET_PORT_CMT(IO_DOUT,i,'doSL1PrepresB'+int2str(Num),gm_status)
+ ENDFOR 
+
+ FOR I = 1113 to 1128 DO
+   SET_PORT_CMT(IO_DOUT,I,'(SL1 Reserved)',gm_status)
+ ENDFOR
+
+ FOR i = 1129 TO 1144 DO
+   Num = i - 1128 -- subtract to add to end of comment
+   SET_PORT_CMT(IO_DOUT,i,'doSL1DgrdEcho'+int2str(Num),gm_status)
+ ENDFOR 
+
+ FOR I = 1145 to 1152 DO
+   SET_PORT_CMT(IO_DOUT,I,'(SL1 Reserved)',gm_status)
+ ENDFOR
+
+ IF (DispCommType = Ethernet) THEN
+   SCA_Disp_EIP(disp_1_slot,'DISP1','')
+ ENDIF
+
+
+ENDIF
+
+END SCADspEq1_IO
+-----------------------------------------------------------------------------
+ROUTINE SCADspEq2_IO
+-- PURPOSE: to setup and configure SCA Dispense equipemnt #2
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+--VAR
+
+BEGIN
+
+    ChkDispInit -- go verify all variables used in this program is initialized
+
+IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND (bshop_proc2 = dispappl))) THEN --controller 2 setup can be executed
+
+  IF DispnsrSetup[1] = TRUE THEN -- Dispenser I/O has already been setup
+    WRITE TPERROR(CHR(cc_clear_win),'Dispenser #1 Already Setup')
+      IF NOT ExecSetupAgn('Dispenser#1') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+
+ -- Controller#2 INPUTS set the rack lenght so TP display is all inclusive of the 128 bits
+  SET_PORT_ASG(io_din,1153,DispCommType, disp_2_Slot,io_din,1,  -128, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(DispCommType)+' Slot ' +Int2str(disp_2_slot)+' Setup FAILED', gm_status, 0) --
+      POST_ERR(38000, 'No INPUT or OUTPUT comment done', gm_status, 0) --
+      RETURN -- If cant configure, return so User can report no comments
+    ENDIF
+ -- Controller#2 OUTPUTS set the rack lenght so TP display is all inclusive of the 128 bits
+  SET_PORT_ASG(io_dout,1153,DispCommType, disp_2_Slot,io_dout,1,  -128, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(DispCommType)+' Slot ' +Int2str(disp_2_slot)+' Setup FAILED', gm_status, 0) --
+      POST_ERR(38000, 'No INPUT or OUTPUT comment done', gm_status, 0) --
+      RETURN -- If cant configure, return so User can report no comments
+    ENDIF
+
+ -- INPUTS System #2
+
+  SET_PORT_CMT(IO_DIN, 131, 'diP2RemoteStart', gm_status)
+  SET_PORT_CMT(IO_DIN, 132, 'diP2Purge', gm_status)
+  SET_PORT_CMT(IO_DIN, 133, 'diP2Shutdwn', gm_status)
+
+  FOR i = 134 TO 165 DO
+    Num = i - 133 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'Wet_ModeArea'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 166, 'di_XData_AckPR2', gm_status)
+  SET_PORT_CMT(IO_DIN, 167, 'diP2PumpsRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 168, 'P2_MultiPurge', gm_status)
+  SET_PORT_CMT(IO_DIN, 169, 'P2_Gun1Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 170, 'P2_Gun2Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 171, 'P2_Gun3Select', gm_status)
+  SET_PORT_CMT(IO_DIN, 172, 'P2_ScrubReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 173, 'P2_ReloadAOk', gm_status)
+  SET_PORT_CMT(IO_DIN, 174, 'P2_ReloadBOk', gm_status)
+  SET_PORT_CMT(IO_DIN, 175, 'P2_ShldCleanReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 176, 'SL2EqptRmtRes', gm_status)
+
+  SET_PORT_CMT(IO_GPIN,60,'giSL2TotalVol',gm_status) 
+  SET_PORT_ASG(IO_GPIN,60,DispCommType,disp_2_Slot,IO_DIN,33,-16,gm_status)
+  SET_PORT_CMT(IO_GPIN,61, 'giSL2AreaVol', gm_status)
+  SET_PORT_ASG(IO_GPIN,61,DispCommType,disp_2_slot,IO_DIN,49,-16, gm_status)
+  SET_PORT_CMT(IO_GPIN,62, 'Reserved', gm_status)
+
+  SET_PORT_CMT(IO_GPIN,63, 'giSL2Pressure', gm_status)
+  SET_PORT_ASG(IO_GPIN,63,DispCommType,disp_2_slot,IO_DIN,65,-16, gm_status)
+  SET_PORT_CMT(IO_GPIN,64, 'giSL2TempSet', gm_status)
+  SET_PORT_ASG(IO_GPIN,64,DispCommType,disp_2_slot,IO_DIN,81,-8, gm_status)
+  SET_PORT_CMT(IO_GPIN,65, 'giSL2TempActual', gm_status)
+  SET_PORT_ASG(IO_GPIN,65,DispCommType,disp_2_slot,IO_DIN,89,-8, gm_status)
+  SET_PORT_CMT(IO_GPIN,66, 'giSL2FaultData', gm_status)
+  SET_PORT_ASG(IO_GPIN,66,DispCommType,disp_2_slot,IO_DIN,97,-8, gm_status)
+  SET_PORT_CMT(IO_GPIN,67, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_GPIN,68, '(Reserved)', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 1153, 'diSL2Ready', gm_status)
+  SET_PORT_CMT(IO_DIN, 1154, 'diSL2NOFault', gm_status)
+  SET_PORT_CMT(IO_DIN, 1155, 'diSL2NOAlert', gm_status)
+  SET_PORT_CMT(IO_DIN, 1156, 'diSL2InProcess', gm_status)
+  SET_PORT_CMT(IO_DIN, 1157, 'diSL2TotalVolOK', gm_status)
+  SET_PORT_CMT(IO_DIN, 1158, 'diSL2AreaVolOK', gm_status)
+  SET_PORT_CMT(IO_DIN, 1159, 'diSL2PurgeReq', gm_status)
+  SET_PORT_CMT(IO_DIN, 1160, 'diSL2RmtStartInp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1161, 'diSL2Barel1Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1162, 'diSL2Barel1Empty', gm_status)
+  SET_PORT_CMT(IO_DIN, 1163, 'diSL2Barel2Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1164, 'diSL2Barel2Empty', gm_status)
+  SET_PORT_CMT(IO_DIN, 1165, 'diSL2Barl2K1Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1166, 'diSL2Barl2K1Empt', gm_status)
+  SET_PORT_CMT(IO_DIN, 1167, 'diSL2Barl2K2Low', gm_status)
+  SET_PORT_CMT(IO_DIN, 1168, 'diSL2Barl2K2Empt', gm_status)
+  SET_PORT_CMT(IO_DIN, 1169, 'diSL2FrstDgrdJob', gm_status)
+  SET_PORT_CMT(IO_DIN, 1170, 'diSL2LowTotVol', gm_status)
+  SET_PORT_CMT(IO_DIN, 1171, 'diSL2HighTotVol', gm_status)
+  SET_PORT_CMT(IO_DIN, 1172, 'diSL2ShutDwnStat', gm_status)
+  SET_PORT_CMT(IO_DIN, 1173, 'diSL2_2KMixerChngR', gm_status)
+  SET_PORT_CMT(IO_DIN, 1174, 'diSL2_2KinMixer', gm_status)
+  SET_PORT_CMT(IO_DIN, 1175, 'diSL2AirDetected', gm_status)
+  SET_PORT_CMT(IO_DIN, 1176, 'diSL2MeterFilling', gm_status)
+  SET_PORT_CMT(IO_DIN, 1177, 'diSL2MeterFull', gm_status)
+  SET_PORT_CMT(IO_DIN, 1178, 'diSL2FillRequest', gm_status)
+  SET_PORT_CMT(IO_DIN, 1179, 'diSL2MtrRSRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 1180, 'diSL2MtrDockRdy', gm_status)
+  SET_PORT_CMT(IO_DIN, 1181, 'diSL2Fill_Inter', gm_status)
+  SET_PORT_CMT(IO_DIN, 1182, 'diSL2Circulate', gm_status)
+  SET_PORT_CMT(IO_DIN, 1183, 'diSL2TmpZnDsbled', gm_status)
+  SET_PORT_CMT(IO_DIN, 1184, 'diSL2XData_Ack', gm_status)
+
+  FOR i = 1185 TO 1200 DO
+    Num = i - 1184 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2TotalVolB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1201 TO 1216 DO
+    Num = i - 1200 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2AreaVolB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1217 TO 1232 DO
+    Num = i - 1216 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2PressureB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1233 TO 1240 DO
+    Num = i - 1232 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2TempSetB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1241 TO 1248 DO
+    Num = i - 1240 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2ActTempB'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1249 TO 1264 DO
+    Num = i - 1248 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DIN,i,'diSL2FaultBit'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 1265, 'diSL2P1B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1266, 'diSL2P1B1Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1267, 'diSL2P1B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1268, 'diSL2P1B2Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1269, 'diSL2P2B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1270, 'diSL2P2B1Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1271, 'diSL2P2B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DIN, 1272, 'diSL2P2B2Expired', gm_status)
+  SET_PORT_CMT(IO_DIN, 1273, 'diSL2AutoMode', gm_status)
+  SET_PORT_CMT(IO_DIN, 1274, 'diSL2EqCtrlStop', gm_status)
+  SET_PORT_CMT(IO_DIN, 1275, 'diSL2TcuEnbl', gm_status)
+  SET_PORT_CMT(IO_DIN, 1276, 'diSL2TempAchieved', gm_status)
+
+  FOR I = 1277 to 1280 DO
+    SET_PORT_CMT(IO_DIN,I,'(SL2 Reserved)',gm_status)
+  ENDFOR
+
+
+
+ -- OUTPUTS System #2
+  SET_PORT_CMT(IO_DOUT, 137, 'doP2RmtStartInp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 138, 'doP2ShutDwnStat', gm_status)
+  SET_PORT_CMT(IO_DOUT, 139, 'doP2DispReady', gm_status)
+  SET_PORT_CMT(IO_DOUT, 140, 'doP2PurgeReg', gm_status)
+  SET_PORT_CMT(IO_DOUT, 141, 'doP2TipChngReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 142, 'do_XDataStrobePR2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 143, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 144, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 145, 'doSL2P1B1Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 146, 'doSL2P1B1Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 147, 'doSL2P1B2Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 148, 'doSL2P1B2Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 149, 'doSL2P2B1Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 150, 'doSL2P2B1Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 151, 'doSL2P2B2Empty', gm_status)
+  SET_PORT_CMT(IO_DOUT, 152, 'doSL2P2B2Low', gm_status)
+  SET_PORT_CMT(IO_DOUT, 153, 'doP2CircActive', gm_status)
+  SET_PORT_CMT(IO_DOUT, 154, 'doP2MtrALoadReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 155, 'doP2MtrBLoadReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 156, 'doP2PriorityRld', gm_status)
+  SET_PORT_CMT(IO_DOUT, 157, 'doP2DiskMonDSBL', gm_status)
+  SET_PORT_CMT(IO_DOUT, 158, 'doP2HeatZnBypass', gm_status)
+  SET_PORT_CMT(IO_DOUT, 159, 'doP2FirstDgrdJob', gm_status)
+  SET_PORT_CMT(IO_DOUT, 160, 'doSL2AirDetected', gm_status)
+  SET_PORT_CMT(IO_DOUT, 161, 'doSL2AreaNum1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 162, 'doSL2AreaNum2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 163, 'doSL2AreaNum3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 164, 'doSL2AreaNum4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 165, 'doSL2AreaNum5', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 166, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 167, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 168, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 169, 'doSL2P1B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 170, 'doSL2P1B1Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 171, 'doSL2P1B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 172, 'doSL2P1B2Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 173, 'doSL2P2B1ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 174, 'doSL2P2B1Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 175, 'doSL2P2B2ApprExp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 176, 'doSL2P2B2Expired', gm_status)
+  SET_PORT_CMT(IO_DOUT, 177, 'goSLXVolData1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 178, 'goSLXVolData2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 179, 'goSLXVolData3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 180, 'goSLXVolData4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 181, 'goSLXVolData5', gm_status)
+  SET_PORT_CMT(IO_DOUT, 182, 'goSLXVolData6', gm_status)
+  SET_PORT_CMT(IO_DOUT, 183, 'goSLXVolData7', gm_status)
+  SET_PORT_CMT(IO_DOUT, 184, 'goSLXVolData8', gm_status)
+  SET_PORT_CMT(IO_DOUT, 185, 'goSLXVolData9', gm_status)
+  SET_PORT_CMT(IO_DOUT, 186, 'goSLXVolData10', gm_status)
+  SET_PORT_CMT(IO_DOUT, 187, 'goSLXVolData11', gm_status)
+  SET_PORT_CMT(IO_DOUT, 188, 'goSLXVolData12', gm_status)
+  SET_PORT_CMT(IO_DOUT, 189, 'goSLXVolData13', gm_status)
+  SET_PORT_CMT(IO_DOUT, 190, 'goSLXVolData14', gm_status)
+  SET_PORT_CMT(IO_DOUT, 191, 'goSLXVolData15', gm_status)
+  SET_PORT_CMT(IO_DOUT, 192, 'goSLXVolData16', gm_status)
+
+  SET_PORT_CMT(IO_GPOUT,54, 'goSLXPressure', gm_status)
+  SET_PORT_ASG(IO_GPOUT,54,CellCommType,CellSlotNmbr,IO_DOUT,345,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,55, 'goSLXTempSetPnt', gm_status)
+  SET_PORT_ASG(IO_GPOUT,55,CellCommType,CellSlotNmbr,IO_DOUT,361,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,56, 'goSLXActualTemp', gm_status)
+  SET_PORT_ASG(IO_GPOUT,56,CellCommType,CellSlotNmbr,IO_DOUT,369,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,60, 'goSL2VolData', gm_status)
+  SET_PORT_ASG(IO_GPOUT,60,CellCommType,CellSlotNmbr,IO_DOUT,177,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,61, 'goSL2AreaNumPLC1', gm_status)
+  SET_PORT_ASG(IO_GPOUT,61,CellCommType,CellSlotNmbr,IO_DOUT,161,-5,gm_status)
+  SET_PORT_CMT(IO_GPOUT,62, 'goSL2PartID', gm_status)
+  SET_PORT_ASG(IO_GPOUT,62,DispCommType,disp_2_slot,IO_DOUT,1,-8,gm_status)
+ -- SET_PORT_CMT(IO_GPOUT,63, 'goSL2Pressure', gm_status)                         --GM Removed
+ -- SET_PORT_ASG(IO_GPOUT,63,CellCommType,CellSlotNmbr,IO_DOUT,345,-16,gm_status)
+ -- SET_PORT_CMT(IO_GPOUT,64, 'goSL2TempSetPnt', gm_status)
+ -- SET_PORT_ASG(IO_GPOUT,64,CellCommType,CellSlotNmbr,IO_DOUT,361,-8,gm_status)
+ -- SET_PORT_CMT(IO_GPOUT,65, 'goSL2ActualTemp', gm_status)
+ -- SET_PORT_ASG(IO_GPOUT,65,CellCommType,CellSlotNmbr,IO_DOUT,369,-8,gm_status)
+  SET_PORT_CMT(IO_GPOUT,66, 'goSL2FlowCmd2', gm_status)
+  SET_PORT_ASG(IO_GPOUT,66,DispCommType,disp_2_slot,IO_DOUT,49,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,67, 'goSL2FlowCm', gm_status)
+  SET_PORT_ASG(IO_GPOUT,67,DispCommType,disp_2_slot,IO_DOUT,17,-16,gm_status)
+  SET_PORT_CMT(IO_GPOUT,68, 'goSL2AreaNumDisp', gm_status)
+  SET_PORT_ASG(IO_GPOUT,68,DispCommType,disp_2_slot,IO_DOUT,65,-5,gm_status)
+  SET_PORT_CMT(IO_GPOUT,70, 'goSL2Prepressure', gm_status)
+  SET_PORT_ASG(IO_GPOUT,70,DispCommType,disp_2_slot,IO_DOUT,81,-8,gm_status)
+
+  FOR i = 1153 TO 1160 DO
+    Num = i - 1152 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL2StyleBit'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 1161, 'doSL2StyleStrobe', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1162, 'doSL2TotVolComp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1163, 'doSL2Gun1On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1164, 'doSL2Gun2On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1165, 'doSL2Gun3On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1166, 'doSL2Gun4On', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1167, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1168, '(Reserved)', gm_status)
+
+  FOR i = 1169 TO 1184 DO
+    Num = i - 1168 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL2MatFlow'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 1185, 'doNotATPurgePos', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1186, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1187, 'diSL2AreaVolComp', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1188, 'doSL2Purge', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1189, 'doSL2ShutDwnCmd', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1190, 'doSL2FaultReset', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1191, 'doSl2RemoteStart', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1192, 'do2kRepairPosE2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1193, 'do2kMixerChgE2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1194, 'do2kPurgePBE2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1195, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1196, 'doSL2StatRefRdy', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1197, 'doSL2MtrDocked', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1198, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1199, 'doSL2Circulate', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1200, 'doSL2FillMeter', gm_status)
+
+  FOR i = 1201 TO 1216 DO
+    Num = i - 1200 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL2BeadShp'+int2str(Num),gm_status)
+  ENDFOR --
+
+  FOR i = 1217 TO 1221 DO
+    Num = i - 1216 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL2AreaNum'+int2str(Num),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 1222, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1223, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1224, 'doSL2AreaXActive', gm_status)
+  SET_PORT_CMT(IO_DOUT, 1225, 'doSL2XDataStrobe', gm_status)
+
+  FOR I = 1226 to 1232 DO
+    SET_PORT_CMT(IO_DOUT,I,'(SL2 Reserved)',gm_status)
+  ENDFOR
+
+  FOR i = 1233 TO 1240 DO
+    Num = i - 1232 -- subtract to add to end of comment
+    SET_PORT_CMT(IO_DOUT,i,'doSL2PrepresB'+int2str(Num),gm_status)
+  ENDFOR 
+
+  FOR I = 1241 to 1256 DO
+    SET_PORT_CMT(IO_DOUT,I,'(SL2 Reserved)',gm_status)
+  ENDFOR
+  FOR i = 1257 TO 1272 DO
+   Num = i - 1256 -- subtract to add to end of comment
+   SET_PORT_CMT(IO_DOUT,i,'doSL2DgrdEcho'+int2str(Num),gm_status)
+  ENDFOR 
+
+  FOR I = 1273 to 1280 DO
+    SET_PORT_CMT(IO_DOUT,I,'(SL2 Reserved)',gm_status)
+  ENDFOR 
+ 
+ IF (DispCommType = Ethernet) THEN
+   SCA_Disp_EIP(disp_2_slot,'DISP2','')
+ ENDIF
+
+  RETURN
+
+ENDIF
+
+END SCADspEq2_IO
+-----------------------------------------------------------------------------
+ROUTINE setdispiovr
+-- PURPOSE: setup dispenser I/O variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+x: INTEGER
+a: STRING[4]
+
+BEGIN
+
+  IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND ((bshop_proc1 = dispappl) OR (Use_Dispense) OR (pnt_dsp_used)))) THEN --controller 1 setup can be executed 
+
+    --dispense I/O menu variables
+    dispctrl[1].disp_rdyi   = 1025 			--Dispense Ready
+    dispctrl[1].di_maj_flti = 1026     			--Dispenser Major Fault
+    dispctrl[1].di_min_flti = 1027  			--Dispnser Minor Fault
+    dispctrl[1].di_in_proci = 1028  			--Dispenser in Process
+    dispctrl[1].di_vol_oki  = 1029  			--Dispenser Volume OK
+    dispctrl[1].di_purgrqi  = 1031  			--Dispenser Purge Request
+    dispctrl[1].di_rmtinpi  = 1032  			--Dispenser Remote Start in Process
+    dispctrl[1].di_drumemi  = 1034 			--Dispenser Drum Empty
+    
+    dispctrl[1].do_prtstrbi = 1033			--Dispenser Style Strobe
+    dispctrl[1].do_dispcomp = 1034			--Dispenser Complete
+    dispctrl[1].do_onguni   = 1035			--Dispenser Gun 1 On
+    dispctrl[1].do_ongun2i  = 1036			--Dispenser Gun 2 On
+    dispctrl[1].do_ongun3i  = 1037			--Dispenser Gun 3 On
+    dispctrl[1].do_ongun4i  = 1038			--Dispenser Gun 4 On
+    dispctrl[1].do_clrflti  = 1062			--Dispenser Fault Reset
+    dispctrl[1].do_rmtsrti  = 1063                      --Dispenser Remote Start
+
+    dispctrl[1].go_prt_idi  = 53                        --Dispenser Part ID
+
+    dispctrl[1].ao_cmdflwt  = 19			--Dispenser Flow Command Type GO
+    dispctrl[1].ao_cmdflwi  = 58			--Dispenser Flow Command
+
+    --Karel variables used for execution
+    di_rmtproc_t[1] = 1					--Process 1 On Request
+    di_rmtproc_i[1] = 65				--Process 1 On Request
+
+    Set_I_sVar('$SLIOMAP[1].DI_DISP_RDYT',1)
+    Set_I_sVar('$SLIOMAP[1].DI_DISP_RDYI',dispctrl[1].disp_rdyi)
+    Set_I_sVar('$SLIOMAP[1].DI_MAJ_FLTT',1)    
+    Set_I_sVar('$SLIOMAP[1].DI_MAJ_FLTI',dispctrl[1].di_maj_flti)
+    Set_I_sVar('$SLIOMAP[1].DI_MIN_FLTT',1)
+    Set_I_sVar('$SLIOMAP[1].DI_MIN_FLTI',dispctrl[1].di_min_flti)
+    Set_I_sVar('$SLIOMAP[1].DI_IN_PROCT',1)
+    Set_I_sVar('$SLIOMAP[1].DI_IN_PROCI',dispctrl[1].di_in_proci)
+    Set_I_sVar('$SLIOMAP[1].DI_VOL_OKT',1)
+    Set_I_sVar('$SLIOMAP[1].DI_VOL_OKI',dispctrl[1].di_vol_oki)
+    Set_I_sVar('$SLIOMAP[1].DI_PURGRQUET',1)
+    Set_I_sVar('$SLIOMAP[1].DI_PURGRQUEI',dispctrl[1].di_purgrqi)
+    Set_I_sVar('$SLIOMAP[1].DI_RMTINPROT',1)
+    Set_I_sVar('$SLIOMAP[1].DI_RMTINPROI',dispctrl[1].di_rmtinpi)
+    --Set_I_sVar('$SLIOMAP[1].DI_DRUMEMTYT',1)				--GM requested this to be removed
+    --Set_I_sVar('$SLIOMAP[1].DI_DRUMEMTYI',dispctrl[1].di_drumemi)
+
+    Set_I_sVar('$SLIOMAP[1].DO_PRTSTRBT',2)
+    Set_I_sVar('$SLIOMAP[1].DO_PRTSTRBI',dispctrl[1].do_prtstrbi)
+    Set_I_sVar('$SLIOMAP[1].DO_DISPCOMPT',2)
+    Set_I_sVar('$SLIOMAP[1].DO_DISPCOMPI',dispctrl[1].do_dispcomp)
+    Set_I_sVar('$SLIOMAP[1].DO_ONGUNT',2)
+    Set_I_sVar('$SLIOMAP[1].DO_ONGUNI',dispctrl[1].do_onguni)
+    Set_I_sVar('$SLIOMAP[1].DO_CLR_FLTT',2)
+    Set_I_sVar('$SLIOMAP[1].DO_CLR_FLTI',dispctrl[1].do_clrflti)
+    Set_I_sVar('$SLIOMAP[1].DO_RMT_STRTT',2)
+    Set_I_sVar('$SLIOMAP[1].DO_RMT_STRTI',dispctrl[1].do_rmtsrti)
+
+    Set_I_sVar('$SLIOMAP[1].GO_PRT_IDT',19)
+    Set_I_sVar('$SLIOMAP[1].GO_PRT_IDI',dispctrl[1].go_prt_idi)
+
+    Set_I_sVar('$SLIOMAP[1].AO_CMDFLOWT',dispctrl[1].ao_cmdflwt)
+    Set_I_sVar('$SLIOMAP[1].AO_CMDFLOWI',dispctrl[1].ao_cmdflwi)
+
+    IF ($SLSETUP[1].NUMBER_GUNS >= 2) THEN
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN2T',2)
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN2I',dispctrl[1].do_ongun2i)
+    ENDIF
+    IF ($SLSETUP[1].NUMBER_GUNS >= 3) THEN
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN3T',2)
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN3I',dispctrl[1].do_ongun3i)
+    ENDIF
+    IF ($SLSETUP[1].NUMBER_GUNS >= 4) THEN
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN4T',2)
+      Set_I_sVar('$SLIOMAP[1].DO_ONGUN4I',dispctrl[1].do_ongun4i)
+    ENDIF
+        
+  ENDIF  --dispense controller 1
+
+ IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND (bshop_proc2 = dispappl))) THEN --controller 2 setup can be executed
+
+    --dispense I/O menu variables
+    dispctrl[2].disp_rdyi   = 1153 			--Dispense Ready  
+    dispctrl[2].di_maj_flti = 1154     			--Dispenser Major Fault
+    dispctrl[2].di_min_flti = 1155  			--Dispnser Minor Fault
+    dispctrl[2].di_in_proci = 1156  			--Dispenser in Process
+    dispctrl[2].di_vol_oki  = 1157  			--Dispenser Volume OK
+    dispctrl[2].di_purgrqi  = 1159  			--Dispenser Purge Request
+    dispctrl[2].di_rmtinpi  = 1160  			--Dispenser Remote Start in Process
+    dispctrl[2].di_drumemi  = 1162 			--Dispenser Drum Empty
+    
+    dispctrl[2].do_prtstrbi = 1161			--Dispenser Style Strobe
+    dispctrl[2].do_dispcomp = 1162			--Dispenser Complete
+    dispctrl[2].do_onguni   = 1163			--Dispenser Gun 1 On
+    dispctrl[2].do_ongun2i  = 1164			--Dispenser Gun 2 On
+    dispctrl[2].do_ongun3i  = 1165			--Dispenser Gun 3 On
+    dispctrl[2].do_ongun4i  = 1166			--Dispenser Gun 4 On
+    dispctrl[2].do_clrflti  = 1190			--Dispenser Fault Reset
+    dispctrl[2].do_rmtsrti = 1191                      --Dispenser Remote Start
+    
+    dispctrl[2].go_prt_idi  = 62                        --Dispenser Part ID
+
+    dispctrl[2].ao_cmdflwt  = 19			--Dispenser Flow Command Type GO
+    dispctrl[2].ao_cmdflwi  = 67			--Dispenser Flow Command
+
+    --Karel variables used for execution
+    di_rmtproc_t[2] = 1					--Process 2 On Request
+    di_rmtproc_i[2] = 129				--Process 2 On Request
+
+    SELECT numdispctrl OF
+
+      CASE(1):  --one dispense cntroller, on process 2 sealer equipment 1
+
+        Set_I_sVar('$SLIOMAP[1].DI_DISP_RDYT',1)
+        Set_I_sVar('$SLIOMAP[1].DI_DISP_RDYI',dispctrl[2].disp_rdyi)
+        Set_I_sVar('$SLIOMAP[1].DI_MAJ_FLTT',1)    
+        Set_I_sVar('$SLIOMAP[1].DI_MAJ_FLTI',dispctrl[2].di_maj_flti)
+        Set_I_sVar('$SLIOMAP[1].DI_MIN_FLTT',1)
+        Set_I_sVar('$SLIOMAP[1].DI_MIN_FLTI',dispctrl[2].di_min_flti)
+        Set_I_sVar('$SLIOMAP[1].DI_IN_PROCT',1)
+        Set_I_sVar('$SLIOMAP[1].DI_IN_PROCI',dispctrl[2].di_in_proci)
+        Set_I_sVar('$SLIOMAP[1].DI_VOL_OKT',1)
+        Set_I_sVar('$SLIOMAP[1].DI_VOL_OKI',dispctrl[2].di_vol_oki)
+        Set_I_sVar('$SLIOMAP[1].DI_PURGRQUET',1)
+        Set_I_sVar('$SLIOMAP[1].DI_PURGRQUEI',dispctrl[2].di_purgrqi)
+        Set_I_sVar('$SLIOMAP[1].DI_RMTINPROT',1)
+        Set_I_sVar('$SLIOMAP[1].DI_RMTINPROI',dispctrl[2].di_rmtinpi)
+        --Set_I_sVar('$SLIOMAP[1].DI_DRUMEMTYT',1)				--GM requested this to be removed
+        --Set_I_sVar('$SLIOMAP[1].DI_DRUMEMTYI',dispctrl[2].di_drumemi)
+
+        Set_I_sVar('$SLIOMAP[1].DO_PRTSTRBT',2)
+        Set_I_sVar('$SLIOMAP[1].DO_PRTSTRBI',dispctrl[2].do_prtstrbi)
+        Set_I_sVar('$SLIOMAP[1].DO_DISPCOMPT',2)
+        Set_I_sVar('$SLIOMAP[1].DO_DISPCOMPI',dispctrl[2].do_dispcomp)
+        Set_I_sVar('$SLIOMAP[1].DO_ONGUNT',2)
+        Set_I_sVar('$SLIOMAP[1].DO_ONGUNI',dispctrl[2].do_onguni)
+        Set_I_sVar('$SLIOMAP[1].DO_CLR_FLTT',2)
+        Set_I_sVar('$SLIOMAP[1].DO_CLR_FLTI',dispctrl[2].do_clrflti)
+        Set_I_sVar('$SLIOMAP[1].DO_RMT_STRTT',2)
+        Set_I_sVar('$SLIOMAP[1].DO_RMT_STRTI',dispctrl[2].do_rmtsrti)
+
+        Set_I_sVar('$SLIOMAP[1].GO_PRT_IDT',19)
+        Set_I_sVar('$SLIOMAP[1].GO_PRT_IDI',dispctrl[2].go_prt_idi)
+
+        Set_I_sVar('$SLIOMAP[1].AO_CMDFLOWT',dispctrl[2].ao_cmdflwt)
+        Set_I_sVar('$SLIOMAP[1].AO_CMDFLOWI',dispctrl[2].ao_cmdflwi)
+
+        IF ($SLSETUP[1].NUMBER_GUNS >= 2) THEN
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN2T',2)
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN2I',dispctrl[2].do_ongun2i)
+        ENDIF
+        IF ($SLSETUP[1].NUMBER_GUNS >= 3) THEN
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN3T',2)
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN3I',dispctrl[2].do_ongun3i)
+        ENDIF
+        IF ($SLSETUP[1].NUMBER_GUNS >= 4) THEN
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN4T',2)
+          Set_I_sVar('$SLIOMAP[1].DO_ONGUN4I',dispctrl[2].do_ongun4i)
+        ENDIF
+ 
+      CASE(2):  --two dispense controllers
+
+        Set_I_sVar('$SLIOMAP[2].DI_DISP_RDYT',1)
+        Set_I_sVar('$SLIOMAP[2].DI_DISP_RDYI',dispctrl[2].disp_rdyi)
+        Set_I_sVar('$SLIOMAP[2].DI_MAJ_FLTT',1)    
+        Set_I_sVar('$SLIOMAP[2].DI_MAJ_FLTI',dispctrl[2].di_maj_flti)
+        Set_I_sVar('$SLIOMAP[2].DI_MIN_FLTT',1)
+        Set_I_sVar('$SLIOMAP[2].DI_MIN_FLTI',dispctrl[2].di_min_flti)
+        Set_I_sVar('$SLIOMAP[2].DI_IN_PROCT',1)
+        Set_I_sVar('$SLIOMAP[2].DI_IN_PROCI',dispctrl[2].di_in_proci)
+        Set_I_sVar('$SLIOMAP[2].DI_VOL_OKT',1)
+        Set_I_sVar('$SLIOMAP[2].DI_VOL_OKI',dispctrl[2].di_vol_oki)
+        Set_I_sVar('$SLIOMAP[2].DI_PURGRQUET',1)
+        Set_I_sVar('$SLIOMAP[2].DI_PURGRQUEI',dispctrl[2].di_purgrqi)
+        Set_I_sVar('$SLIOMAP[2].DI_RMTINPROT',1)
+        Set_I_sVar('$SLIOMAP[2].DI_RMTINPROI',dispctrl[2].di_rmtinpi)
+        --Set_I_sVar('$SLIOMAP[2].DI_DRUMEMTYT',1)				--GM requested this to be removed
+        --Set_I_sVar('$SLIOMAP[2].DI_DRUMEMTYI',dispctrl[2].di_drumemi)
+
+        Set_I_sVar('$SLIOMAP[2].DO_PRTSTRBT',2)
+        Set_I_sVar('$SLIOMAP[2].DO_PRTSTRBI',dispctrl[2].do_prtstrbi)
+        Set_I_sVar('$SLIOMAP[2].DO_DISPCOMPT',2)
+        Set_I_sVar('$SLIOMAP[2].DO_DISPCOMPI',dispctrl[2].do_dispcomp)
+        Set_I_sVar('$SLIOMAP[2].DO_ONGUNT',2)
+        Set_I_sVar('$SLIOMAP[2].DO_ONGUNI',dispctrl[2].do_onguni)
+        Set_I_sVar('$SLIOMAP[2].DO_CLR_FLTT',2)
+        Set_I_sVar('$SLIOMAP[2].DO_CLR_FLTI',dispctrl[2].do_clrflti)
+        Set_I_sVar('$SLIOMAP[2].DO_RMT_STRTT',2)
+        Set_I_sVar('$SLIOMAP[2].DO_RMT_STRTI',dispctrl[2].do_rmtsrti)
+
+        Set_I_sVar('$SLIOMAP[2].GO_PRT_IDT',19)
+        Set_I_sVar('$SLIOMAP[2].GO_PRT_IDI',dispctrl[2].go_prt_idi)
+
+        Set_I_sVar('$SLIOMAP[2].AO_CMDFLOWT',dispctrl[2].ao_cmdflwt)
+        Set_I_sVar('$SLIOMAP[2].AO_CMDFLOWI',dispctrl[2].ao_cmdflwi)
+
+	IF ($SLSETUP[2].NUMBER_GUNS >= 2) THEN
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN2T',2)
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN2I',dispctrl[2].do_ongun2i)
+        ENDIF
+        IF ($SLSETUP[2].NUMBER_GUNS >= 3) THEN
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN3T',2)
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN3I',dispctrl[2].do_ongun3i)
+        ENDIF
+        IF ($SLSETUP[2].NUMBER_GUNS >= 4) THEN
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN4T',2)
+          Set_I_sVar('$SLIOMAP[2].DO_ONGUN4I',dispctrl[2].do_ongun4i)
+        ENDIF
+      
+      ELSE:--
+
+    ENDSELECT
+
+  ENDIF
+
+END setdispiovr
+-----------------------------------------------------------------------------
+ROUTINE initDISPVARS
+-- PURPOSE: to initialize dispense variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+
+IF UNINIT(DispCommType) THEN --set hook for multiple communications
+  DispCommType = Ethernet -- set it to 89
+ENDIF
+IF UNINIT(disp_2_slot) THEN
+  disp_2_slot = 5
+ENDIF
+
+END initDISPVARS
+-----------------------------------------------------------------------------
+ROUTINE set_disp_IO
+-- PURPOSE: sets dispenser IO
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numdispctrl <> 0) THEN --application has dispense
+
+initDISPVARS  --initiate communication and slot settings
+SCADspEq1_IO  --set dispense controller 1 I/O
+SCADspEq2_IO  --set dispense controller 2 I/O
+
+WRITE TPERROR(CHR(cc_clear_win),'GMDISPIO Setup Succesfully')
+DELAY 1000
+
+ENDIF
+
+END set_disp_IO
+-----------------------------------------------------------------------------
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+  set_disp_IO
+
+END GMDISPIO

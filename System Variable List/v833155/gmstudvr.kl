@@ -1,0 +1,415 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSTUDVR.KL
+--   TITLE:          GMSTUDVR PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Dispense Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016-06-14 marchaka Moved system variable settings from gmstudio to gmstudvr
+--         2016-07-25 marchaka Disabled weld ID from displaying in SPOT instruction
+--         2016-10-14 marchaka Logic for combinations (stud as process 2) added
+--         2016-10-20 marchaka Add wizlog logging functionality
+--              V4.1  2017/02/05 marchaka         Modify prompt logic for wizard rerun
+--              V4.1  2017/02/13 marchaka         Removed $dev_path setting.  Handled in gmmain1.
+--              V4.1  2017/03/28 marchaka         Add eow_type setting to 3 (weld in process and weld complete)
+--              V4.1  2017/04/10 marchaka         Removed stud_webscrn routine.  Not used anyways, plus 
+--                                                the new tool change webscreen will get configured in gmcellvr.
+--
+--------------------------------------------------------------------------
+PROGRAM GMSTUDVR
+
+%COMMENT = 'GM Stud V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE klevkeys  -- TP and cRT key codes
+%INCLUDE gmevrlng
+
+%INCLUDE gmevrs4io --GM variables
+%INCLUDE gm_var    --GM variables
+%INCLUDE gmcfgcel  --GM cell variables
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgtlc  --GM tool change variables
+%INCLUDE gmcfgstd  -- GM wizard variables for Stud Applications
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+
+CONST
+Version = '2017-04-10'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+  gm_status: INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  StudVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Stud VARS at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+
+ROUTINE srvo_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initSTUDVARS
+-- PURPOSE: to initialize application Variable associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--	
+--
+-----------------------------------------------------------------------------
+VAR
+l_equip: INTEGER
+l_gun  : INTEGER
+
+BEGIN
+
+  IF UNINIT(StudVR_Setup) THEN
+    StudVR_Setup = FALSE
+  ENDIF
+
+  -- Check Common application variable used in the program to be setupF
+  IF UNINIT(numstudctrl) THEN
+    numstudctrl = 0
+  ENDIF
+  IF UNINIT(Reset_Cell) THEN
+    Reset_Cell = FALSE
+  ENDIF
+  IF UNINIT(UseToolChngr) THEN
+    UseToolChngr = FALSE
+  ENDIF
+
+  -- Check variable associated with stud #1
+  IF UNINIT(StudSetup[1]) THEN
+    StudSetup[1] = FALSE
+  ENDIF
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+
+  -- Check variable associated with stud #2
+  IF UNINIT(StudSetup[2]) THEN
+    StudSetup[2] = FALSE
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  FOR l_equip = 1 to $spotnumeq DO  --reset GM karel variables
+    -- Initialize variables
+    FOR l_gun = 1 TO 2 DO 
+      g_servo_gun[l_equip, l_gun] = FALSE
+      pedpins[l_equip,l_gun] = FALSE
+      g_tipdress[l_equip, l_gun] = FALSE
+    ENDFOR
+  ENDFOR
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+
+END initSTUDVARS
+
+-----------------------------------------------------------------------------
+ROUTINE stud_var
+-- PURPOSE: set application variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+x:  INTEGER
+a:  STRING[4]
+
+BEGIN
+
+  Set_B_sVar('$ap_selap[2]',TRUE) --Spot application
+
+  Set_B_sVar('$RSMFST_SV.$PAUS_AT_RES', TRUE)
+
+  Set_I_sVar('$spotconfig.$wid_dsp_enb', 0)  --Weld ID not visible in SPOT instruction
+  
+  IF (bshop_proc1 = studappl) THEN --process 1 is a stud welder
+  
+    Set_B_sVar('$spoteqsetup[1].$studwelder',TRUE)
+
+    IF (stud1_backup = wizans_yes) THEN  			--has stud backup
+      Set_B_sVar('$spoteqsetup[1].$studbackup',TRUE)
+    ENDIF
+
+    IF (stud2_backup = wizans_yes) THEN --equipment 2 has stud backup
+      Set_B_sVar('$spoteqsetup[2].$studbackup',TRUE)
+    ENDIF
+
+    SELECT stud1_app OF
+      CASE(stud_rhg, stud_phg):  				-- robot held gun, ped gun
+        Set_I_sVar('$spotnumeq', 1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+        gn_montd_den[1, 1] = FALSE  --reset Karel variable
+
+        IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+          Set_I_sVar('$sgcfg[1].$equip_type', 1)
+        ENDIF
+
+      CASE(stud_spdg):					--single ped with dual guns
+        Set_I_sVar('$spotnumeq', 2) 
+        Set_I_sVar('$spotconfig.$num_wd_ctls', 2)
+        Set_B_sVar('$spoteqsetup[2].$studwelder', TRUE)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+        gn_montd_den[1, 1] = FALSE  --reset Karel variable
+        gn_montd_den[2, 1] = FALSE  --reset Karel variable
+
+        IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+          Set_I_sVar('$sgcfg[1].$equip_type', 1)
+          Set_I_sVar('$sgcfg[2].$equip_type', 1)
+        ENDIF
+
+      CASE(stud_3pg):					--three ped guns
+        Set_I_sVar('$spotnumeq', 3)
+        Set_I_sVar('$spotconfig.$num_wd_ctls', 3)
+        Set_B_sVar('$spoteqsetup[2].$studwelder', TRUE)
+        Set_B_sVar('$spoteqsetup[3].$studwelder', TRUE)
+        Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[2].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[3].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+        Set_I_sVar('$spoteqsetup[3].$weld_ctrler[1]',3)
+        Set_I_sVar('$spoteqsetup[3].$weld_ctrler[2]',3)
+        gn_montd_den[1, 1] = FALSE  --reset Karel variable
+        gn_montd_den[2, 1] = FALSE  --reset Karel variable
+        gn_montd_den[3, 1] = FALSE  --reset Karel variable
+
+        IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+          Set_I_sVar('$sgcfg[1].$equip_type', 1)
+          Set_I_sVar('$sgcfg[2].$equip_type', 1)
+          Set_I_sVar('$sgcfg[3].$equip_type', 1)
+        ENDIF
+
+      CASE(stud_4pg): 					--four ped guns
+        Set_I_sVar('$spotnumeq', 4)
+        Set_I_sVar('$spotconfig.$num_wd_ctls', 4)
+        Set_B_sVar('$spoteqsetup[2].$studwelder', TRUE)
+        Set_B_sVar('$spoteqsetup[3].$studwelder', TRUE)
+        Set_B_sVar('$spoteqsetup[4].$studwelder', TRUE)
+        Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[2].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[3].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[4].$num_guns',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+        Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+        Set_I_sVar('$spoteqsetup[3].$weld_ctrler[1]',3)
+        Set_I_sVar('$spoteqsetup[3].$weld_ctrler[2]',3)
+        Set_I_sVar('$spoteqsetup[4].$weld_ctrler[1]',4)
+        Set_I_sVar('$spoteqsetup[4].$weld_ctrler[2]',4)
+        gn_montd_den[1, 1] = FALSE  --reset Karel variable
+        gn_montd_den[2, 1] = FALSE  --reset Karel variable
+        gn_montd_den[3, 1] = FALSE  --reset Karel variable
+        gn_montd_den[4, 1] = FALSE  --reset Karel variable
+
+        IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+          Set_I_sVar('$sgcfg[1].$equip_type', 1)
+          Set_I_sVar('$sgcfg[2].$equip_type', 1)
+          Set_I_sVar('$sgcfg[3].$equip_type', 1)
+          Set_I_sVar('$sgcfg[4].$equip_type', 1)
+        ENDIF
+
+      ELSE:
+      ENDSELECT
+
+    --All stud configurations get these settings
+    Set_B_sVar('$spotweldio[1].$wc_con_pres', FALSE)  -- Weld cont always controls pressure
+ 
+    -- Stud Welding INPUTS - Weld Controller 1
+    Set_I_sVar('$SPOTWELDIO[1].$wld_comp_to', 4000)                         
+    Set_I_sVar('$SPOTWELDIO[1].$wld_inpr_to', 15000)                        
+    Set_I_sVar('$SPOTWELDIO[1].$rstwc_pulse', 1500)
+    Set_I_sVar('$spotweldio[1].$eow_type', 3)
+      	
+    IF ((stud1_app = stud_spdg) OR (stud1_app = stud_3pg) OR (stud1_app = stud_4pg)) THEN  --single ped with dual guns, three ped guns, four ped guns
+      Set_B_sVar('$spotweldio[2].$wc_con_pres', FALSE)  -- Weld cont always controlls pressure
+      Set_I_sVar('$SPOTWELDIO[2].$wld_comp_to', 4000)                       
+      Set_I_sVar('$SPOTWELDIO[2].$wld_inpr_to', 15000)                        
+      Set_I_sVar('$SPOTWELDIO[2].$rstwc_pulse', 1500) 
+      Set_I_sVar('$spotweldio[2].$eow_type', 3)
+    ENDIF
+ 			
+    IF ((stud1_app = stud_3pg) OR (stud1_app = stud_4pg)) THEN  --three ped guns, four ped guns          			
+      Set_B_sVar('$spotweldio[3].$wc_con_pres', FALSE)  -- Weld cont always controls pressure
+      Set_I_sVar('$SPOTWELDIO[3].$wld_comp_to', 4000)                         
+      Set_I_sVar('$SPOTWELDIO[3].$wld_inpr_to', 15000)                        
+      Set_I_sVar('$SPOTWELDIO[3].$rstwc_pulse', 1500)
+      Set_I_sVar('$spotweldio[3].$eow_type', 3)
+    ENDIF
+				
+    IF (stud1_app = stud_4pg) THEN  --four ped guns 			
+      Set_B_sVar('$spotweldio[4].$wc_con_pres', FALSE)  -- Weld cont always controls pressure
+      Set_I_sVar('$SPOTWELDIO[4].$wld_comp_to', 4000)                         
+      Set_I_sVar('$SPOTWELDIO[4].$wld_inpr_to', 15000)                        
+      Set_I_sVar('$SPOTWELDIO[4].$rstwc_pulse', 1500)
+      Set_I_sVar('$spotweldio[4].$eow_type', 3)
+    ENDIF
+
+  ENDIF --process 1 is a stud application
+
+  IF (bshop_proc2 = studappl) THEN --process 2 is a stud welder
+                                   --bshop_proc1 and bshop_proc2 can never both be stud per G4 specifications
+                                   --process 2 is ever only a stud when it is combined with a spot application
+				   --   per G4 specifications
+                                   --spot application setup does not account for configuring the number of equipment
+		                   --  etc. for combos, that is handled in the process 2 configuration of spottool
+				   --  for the combo.  
+
+    Set_B_sVar('$spoteqsetup[2].$studwelder',TRUE)
+
+    IF (stud1_backup = wizans_yes) THEN  			--has stud backup
+      Set_B_sVar('$spoteqsetup[2].$studbackup',TRUE)
+    ENDIF
+
+    SELECT stud1_app OF
+      CASE(stud_phg):  				        --  ped gun
+        Set_I_sVar('$spotconfig.$num_wd_ctls',2)
+        Set_I_sVar('$spotnumeq', 2)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+        Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+        gn_montd_den[2, 1] = FALSE  --reset Karel variable
+
+        IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+          Set_I_sVar('$sgcfg[2].$equip_type', 1)
+        ENDIF
+
+      ELSE:
+      ENDSELECT
+
+    --All stud configurations get these settings
+    Set_B_sVar('$spotweldio[2].$wc_con_pres', FALSE)  -- Weld cont always controls pressure
+ 
+    -- Stud Welding INPUTS - Weld Controller 1
+    Set_I_sVar('$SPOTWELDIO[2].$wld_comp_to', 4000)                         
+    Set_I_sVar('$SPOTWELDIO[2].$wld_inpr_to', 15000)                        
+    Set_I_sVar('$SPOTWELDIO[2].$rstwc_pulse', 1500)
+    Set_I_sVar('$spotweldio[2].$eow_type', 3)
+      	
+  ENDIF --process 2 is a stud application
+
+
+END stud_var
+-----------------------------------------------------------------------------
+ROUTINE set_stud_var
+-- PURPOSE: Sets application variable settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numstudctrl <> 0) THEN --application has stud welding
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(StudVR_Setup) OR (Reset_Cell) THEN
+    StudVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Stud Variables GMSTUDVR', FALSE)
+
+  IF (StudVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Stud Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Stud Vars') THEN -- ask user if they want to setup again
+      StudVR_Setup = FALSE
+    ELSE
+      WriteLog('  Stud Variables already Complete', FALSE)
+      WriteLog('GMSTUDVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines  
+  initSTUDVARS
+  stud_var
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Stud Variable Setup GMSTUDVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Stud Variable Setup completed', FALSE)
+    StudVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_stud_var
+
+-----------------------------------------------------------------------------
+BEGIN
+
+  set_stud_var
+
+END GMSTUDVR

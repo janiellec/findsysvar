@@ -1,0 +1,826 @@
+-- 
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmwizbsh
+--
+--    Description:
+--
+--      Global 4 GM bodyshop wizard questions
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: gmwizbsh.kl
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--      2016/10/18 marchaka Removed duplicate dimpapp_wiz routine
+--                          Added logic for spot + spot application and proj + dimp application.
+--      2016/10/20 marchaka Add Karel variables for text for spot + stud applications and proj + dimple applications.
+--      2016/10/26 marchaka Added all two process submenus.  Set x1app variables appropriately for combos.
+--                          Called routines appropriately. 
+--      2016/11/08 marchaka Used constant for spr2 application. 
+--      2017/05/01 marchaka Modify execution if a dispense dispense application is selected and there is only one seal equipment   
+--      2018/04/06 marchaka Change grerunwiz to gmrerunwiz due to a var declaration error
+--     2018/03/26 schoensm Added a variable to body_app_wiz dual_proc = bshop_proc2, bshop_proc2 gets overwritten.
+--      2018/09/24 marchaka If user selects servo gun change application, post message that motor setup must be done in the 
+--                          miscellaneous tools menu.   
+--      2018/10/26 marchaka Modify text for gun change application directions.  
+--      2019/08/27 marchaka Don't ask MH questions if application is servo nut weld application        
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmwizbsh
+-------------------------------------------------------------------------------------------------------------
+
+-- Softpart built-ins
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%RWACCESS
+%COMMENT='GM Bodyshop 4.3'
+
+%ENVIRONMENT sldef --sleqnum
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE KLEVCCDF -- required for the TPERROR builtin
+
+CONST
+
+Version = '2019-08-27'
+
+%INCLUDE GMCNSTNT -- all GM global variable constant declaration
+
+VAR
+
+  gm_status: INTEGER
+  ans      : INTEGER
+  looper   : BOOLEAN
+  max_ans  : INTEGER
+  menu_num : INTEGER
+  start    : INTEGER
+  finish   : INTEGER
+  menu_item: INTEGER
+
+  sgunchng     IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Servo gun tool changer option loaded
+
+
+%INCLUDE GMCFGCEL -- used for the cell vars
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop Applications
+%INCLUDE GMCFGERR -- used for the configuration error counting and handling
+%INCLUDE gmcfgmh   -- GM wizard variables for MH Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications
+%INCLUDE gmcfgtlc  -- GM wizard variables for tool changer Applications
+%INCLUDE gmcfgdsp  -- GM wizard variables for Dispense Applications
+%INCLUDE gmcfgspt  -- GM wizard variables for Spot Applications
+%INCLUDE gmcfgstd  -- GM wizard variables for Stud Applications
+%INCLUDE gmcfgfds  -- GM wizard variables for Flow Drill Screw Applications
+%INCLUDE gmcfgspr  -- GM wizard variables for SPRApplications
+%INCLUDE gmcfgpjw  -- GM wizard variables for projection weld applications
+%INCLUDE gmcfgdmp  -- GM wizard variables for dimpler applications
+
+%INCLUDE klrdutil -- needed for the Clr_Stnd_Scr routine and other karel declaration routines
+%INCLUDE gmrdutil -- Required for the many GM builting created and used throughout wizard(s)
+
+ROUTINE mh_app_wiz   FROM gmwizmh
+ROUTINE tlc_app_wiz  FROM gmwiztlc
+ROUTINE Vis_app_wiz  FROM gmwizvis
+ROUTINE disp_app_wiz FROM gmwizdp
+ROUTINE stud_app_wiz FROM gmwizstd
+ROUTINE fds_app_wiz  FROM gmwizfds
+ROUTINE spr_app_wiz  FROM gmwizspr
+ROUTINE spot_app_wiz FROM gmwizspt -- Used to Prompt Spot Application questions
+ROUTINE projwld_wiz  FROM gmwizpj
+ROUTINE dimp_wiz     FROM gmwizdmp
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-----------------------------------------------------------------------------------
+ROUTINE mhapp_wiz
+--  This routine contains the wizard questions for MH and no process applications
+-----------------------------------------------------------------------------------
+BEGIN
+
+  Use_MH_Tool = TRUE  	--Set MH and no process applciations
+  mh_app_wiz
+  tlc_app_wiz
+  Vis_app_wiz
+
+END mhapp_wiz
+-----------------------------------------------------------------------------------
+ROUTINE spotapp_wiz
+--  This routine contains the wizard questions for spot application servo and air guns
+-----------------------------------------------------------------------------------
+BEGIN
+
+  spot_app_wiz  --Run spot configuration
+
+  IF (((numwldctrl = 1) AND (wld1_app <> wld1app_cg) AND (wld1_app <> wld1app_snut)) OR (numwldctrl = 2)) THEN --pedestal application
+    mhapp_wiz
+  ENDIF --pedestal application
+
+  IF (wld1_app = wld1app_cg) THEN --ask if carried gun tool changer
+    tlc_app_wiz
+    IF ((UseToolChngr = TRUE) AND (sgunchng = TRUE)) THEN --carried servo gun change application
+  
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,swgchngapp)		 				--Servo gun change application
+        WRITE(CR,swgsetcomp1)		 				--setup must be completed
+        WRITE(CR,swgsetcomp2,'.')		 			--after robot configuration
+        WRITE(CR,m50_gmdata,',',' ',m51_gmdata,'.')			--Cold Start, then go to controlled start.
+        WRITE(CR,swgsetcomp3,' ',misc_gmdata,' ',swgwizcomp5,'.') 	--Go to Miscellaneous Tools menu.
+        WRITE(CR,swgsetcomp3,' ',swgset_gchng, ' ',swgsetcomp4)		--Go to Gun Change Setup in the
+        WRITE(CR,misc_swgset,' ',swgwizcomp5,'.',CR)			--Additional Servo Gun App Setup menu
+        WRITE(enter_gmdata)						--Press Enter to continue
+        READ TPPROMPT (CR)
+
+        spotapp_eq[1].spotgun[1].sg_ax_setup = wizans_no --prevent robot configuration from configuring 
+                                                         --gun and tip dress motors
+                                                         --user has to go to Additional Servo Gun App Setup menu
+                                                         --to finish setup
+     
+    ENDIF --carried servo gun change application
+  ENDIF  --carried tool changer?
+
+END spotapp_wiz
+-----------------------------------------------------------------------------------
+ROUTINE dispapp_wiz
+--  This routine contains the wizard questions for dispense applications
+-----------------------------------------------------------------------------------
+BEGIN
+
+  disp_app_wiz --Run dispense configurator
+
+  IF ((disp1_app = disp1_phn) OR (disp1_app = disp1_rhnmh) OR (disp2_app = disp2_dptsn) OR (disp2_app = disp2_rhphn)) THEN --run MH setup
+    mhapp_wiz
+  ENDIF
+
+END dispapp_wiz
+-----------------------------------------------------------------------------------
+ROUTINE studapp_wiz
+--  This routine contains the wizard questions for stud configurations
+-----------------------------------------------------------------------------------
+BEGIN
+
+  stud_app_wiz --Run stud configurator
+
+ --stud_rhg  --('1. Robot Held Gun',cr)
+ --stud_phg  --('2. Pedestal Held Gun',cr)
+ --stud_spdg --('3. Single Pedestal with Dual Guns',cr)
+ --stud_3pg  --('4. Three Pedestal Guns',cr)
+ --stud_4pg  --('5. Four Pedestal Guns ',cr,cr)
+
+ IF ((stud1_app = stud_phg) OR (stud1_app = stud_spdg) OR (stud1_app = stud_3pg) OR (stud1_app = stud_4pg)) THEN --run MH setup
+   mhapp_wiz
+ ENDIF
+
+END studapp_wiz
+
+-----------------------------------------------------------------------------------
+ROUTINE projapp_wiz
+-- This routine contains the wizard questions for projection weld configurations
+-----------------------------------------------------------------------------------
+BEGIN
+
+  projwld_wiz
+
+  IF (proj1_app = pjw1app_pg) THEN --pedestal application
+    mhapp_wiz 
+  ENDIF
+
+END projapp_wiz
+-----------------------------------------------------------------------------------
+ROUTINE dimpapp_wiz
+--  This routine contains the wizard questions for dimpler configurations
+-----------------------------------------------------------------------------------
+BEGIN
+
+  dimp_wiz
+
+  IF (dimp1_app = dimp1app_sp) THEN --pedestal application
+    mhapp_wiz 
+  ENDIF
+
+END dimpapp_wiz
+
+-----------------------------------------------------------------------------------
+ROUTINE fdsapp_wiz
+--  This routine contains the wizard questions for FDS configurations
+-----------------------------------------------------------------------------------
+BEGIN
+
+  fds_app_wiz --Run stud configurator
+
+  IF (fds1_app = 1) THEN --run MH setup
+   -- as of 9/8/16 FDS has no tool changer or mh questions
+   -- mhapp_wiz
+  ENDIF
+
+END fdsapp_wiz
+-----------------------------------------------------------------------------------
+ROUTINE sprapp_wiz
+--  This routine contains the wizard questions for SPR configurations
+-----------------------------------------------------------------------------------
+BEGIN
+
+  spr_app_wiz --Run SPR configurator
+
+  IF ((spr1_app = spr_rhg) AND (num_proc = 1)) THEN -- SPR is only 1 process with rhg ask only TC questions
+    tlc_app_wiz
+  ENDIF
+
+  IF ((spr1_app = spr_phg) AND (num_proc = 1)) THEN -- SPR is process 1 and pedestal gun ask MH questions
+    mhapp_wiz
+  ENDIF     
+
+  IF (numsprctrl = 2) AND (spr2_app = spr_2phg) THEN -- 2 processes both setup as phg
+    mhapp_wiz
+  ENDIF
+
+--  IF (numsprctrl = 2) AND (spr2_app = spr_rhg) THEN -- 2 processes both setup as rhg  --not used right now, new constant will have to be added when this app is added
+  --  tlc_app_wiz
+--  ENDIF
+
+END sprapp_wiz
+------------------------------------------------------------------
+ROUTINE body_app_wiz
+-------------------------------------------------------------------
+BEGIN
+
+  looper = FALSE
+  IF UNINIT(menu_item) THEN 
+    menu_item = 1
+  ENDIF
+  REPEAT
+    num_proc = 0
+    bshop_proc1 = 0
+    bshop_proc2 = 0
+    dual_proc   = 0
+    REPEAT
+      --WRITE (CR, 'How Many Processes?',CR)
+      --WRITE ('0. No Process(Material Handler)', CR)
+      --WRITE ('1. One Process', CR)
+      --WRITE ('2. Two Processes', CR)
+      --WRITE (gdata_ans,'(1-3):')
+
+      CLR_STND_SCR(gm_status)
+      WRITE(CR, proc_gmdata,CR)
+      WRITE('0. ',mh_gmdata,CR)
+      WRITE('1. ',onepc_gmdata,CR)
+      WRITE('2. ',twopc_gmdata,CR)
+      WRITE(gdata_ans,'(0-2):')
+      READ(ans)
+    UNTIL(Verify_Answr(ans,0,2))
+    num_proc = ans
+
+    IF (num_proc > 0) THEN    
+      IF (num_proc = 1) THEN --At least one process
+        REPEAT
+          CLR_STND_SCR(gm_status)
+          WRITE(proc1_title,CR) 
+          WRITE('1. ',spwd_gmdata,CR)   -- 1. 
+          WRITE('2. ',pjwd_gmdata,CR)   -- 2. 
+          WRITE('3. ',stud_gmdata,CR)   -- 3. 
+          WRITE('4. ',disp_gmdata,CR)   -- 4. 
+          WRITE('5. ',spr_gmdata,CR)    -- 5. 
+          WRITE('6. ',dmp_gmdata,CR)    -- 6. 
+          WRITE('7. ',fds_gmdata,CR)   -- 7. 
+          WRITE(gdata_ans,'(1-7):')    
+          READ(ans)
+        UNTIL(Verify_Answr(ans,1,7))
+        bshop_proc1 = ans
+      ENDIF   --num_proc <> 1 
+
+      IF (num_proc = 2) THEN --Two Processes
+        menu_num = 1  
+        REPEAT
+          IF menu_num = 1 THEN
+            start =  1
+            finish = 7 -- All the lines of data screen can hold
+          ENDIF
+          IF menu_num = 2 THEN
+            start =  10
+            finish = 15
+          ENDIF
+--          IF menu_num = 3 THEN
+--            start =  20
+--            finish = 27
+--          ENDIF
+          REPEAT
+            CLR_STND_SCR(gm_status)
+            WRITE(combo_title,CR)  
+            FOR menu_item = start TO finish DO
+              WRITE(menu_item,'. ',menu_gmdata[menu_item],CR)  
+            ENDFOR    
+            WRITE(gdata_ans,'(',start,'-',finish,',','-1 PREV',',',' 0 NEXT):')    
+            READ(ans)
+          UNTIL(((ans >= start) AND (ans <= finish)) OR ((ans = 0) OR (ans = -1)))
+
+          IF (ans = 0) THEN
+            menu_num = menu_num + 1
+            IF menu_num < 1 THEN
+              menu_num = 1
+            ENDIF
+            IF (menu_num > 2) THEN
+              menu_num = 2
+            ENDIF
+          ENDIF   
+ 
+          IF (ans = -1) THEN
+            menu_num = menu_num - 1
+            IF menu_num < 1 THEN
+              menu_num = 1
+            ENDIF
+            IF (menu_num > 2) THEN
+              menu_num = 2
+            ENDIF
+          ENDIF   
+        UNTIL (ans > 0)
+        bshop_proc2 = ans
+      ENDIF
+      looper = TRUE
+    ELSE
+      bshop_proc1 = 0
+      bshop_proc2 = 0
+      num_proc = 0
+      looper = TRUE
+    ENDIF
+    UNTIL (looper = TRUE)
+
+ IF (num_proc > 0) THEN
+   IF (num_proc = 1) THEN
+     SELECT bshop_proc1 OF
+
+       CASE(spotappl):
+         spotapp_wiz
+
+       CASE(dispappl):
+         dispapp_wiz
+
+       CASE(studappl):
+         studapp_wiz
+
+       CASE(projappl):
+         projapp_wiz
+
+       CASE(sprappl):
+         sprapp_wiz
+         
+       CASE(dimpappl):
+         dimpapp_wiz
+
+       CASE(fdsappl):
+         fdsapp_wiz
+       
+       ELSE:
+     ENDSELECT
+   ENDIF
+
+     IF (num_proc = 2) THEN 
+       IF UNINIT(bshop_proc2) THEN
+         bshop_proc2 = 0
+       ENDIF   
+-- Apps supported - Ped Spot/Ped Stud
+--                  Carried Spot/Ped Stud
+--
+--                  Ped Spot/Ped SPR
+--                  Carried Spot/Carried SPR
+--
+--                  Ped Spot/Ped Proj
+--                  Carried Spot/Carried Proj
+--
+--                  Ped Spot/Ped Disp
+--                  Carried Spot/Ped Disp
+--
+--                  Ped Stud/Ped SPR
+--                  Ped Stud/Ped Disp
+--                  Ped Disp/Ped SPR
+--                  Ped Disp/Ped Disp
+--                  Ped Proj/Ped Stud
+--                  Ped Proj/Ped Disp
+--                  Carried Proj/Carried Dimpler
+
+--                  Proj Spot SPR (rhg and phg)
+
+       --need this for case inside the display page.  
+       dual_proc = bshop_proc2
+
+       SELECT (bshop_proc2) OF
+
+         CASE(spot_spot):
+           bshop_proc1 = spotappl
+           bshop_proc2 = spotappl
+
+           --can call app routine in this program because it is a identical app combo
+           --no duplicate calls of MH wizard or TC will happen
+           spotapp_wiz
+
+         CASE(spot_projw):
+           bshop_proc1 = spotappl
+           bshop_proc2 = projappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[2],appl_gmdata,CR) --spot + proj application
+             WRITE(CR)
+             WRITE('1. ',pspot_pproj,CR) --Ped Spot + Ped Proj
+             WRITE('2. ',cspotcprojtc,CR) --Carried Spot + Carried Proj + TC
+             WRITE(gdata_ans,'(1-2):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,2))
+
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+           SELECT (ans) OF
+             CASE(1):  --ped spot + ped proj
+               wld1_app = wld1app_pg
+               proj1_app = pjw1app_pg
+
+               spot_app_wiz  --run spot configuration
+               projwld_wiz  --run projection weld configuration
+               mhapp_wiz  --run mh app
+
+             CASE(2):  --carried spot + carried proj + TC
+               wld1_app = wld1app_cg
+               proj1_app = pjw1app_cg 
+               UseToolChngr = TRUE
+
+               spot_app_wiz  --run spot configuration
+               projwld_wiz  --run projection weld configuration
+               tlc_app_wiz
+           
+             ELSE:
+           ENDSELECT
+
+
+         CASE(spot_stud):
+           bshop_proc1 = spotappl
+           bshop_proc2 = studappl
+
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[3], appl_gmdata,CR)   --spot + stud application
+             WRITE(CR) 
+             WRITE('1. ',pspot_pstud,CR)  --Ped Spot + Ped Stud 
+             WRITE('2. ',cspot_pstud,CR) --Carried Spot + Ped Stud
+             WRITE(gdata_ans,'(1-2):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,2))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+
+           SELECT ans OF
+             CASE(1): --ped spot + ped stud
+               wld1_app = wld1app_pg
+               stud1_app = stud_phg
+
+               spot_app_wiz --run spot configuration
+               stud_app_wiz --run stud configuraiton             
+               mhapp_wiz  --run mh configuraiotn
+
+             CASE(2): --carried spot + ped stud
+               wld1_app = wld1app_cg
+               stud1_app = stud_phg
+
+               spot_app_wiz --run spot configuration
+               stud_app_wiz --run stud configuration            
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT
+
+         CASE(spot_disp):
+           bshop_proc1 = spotappl
+           bshop_proc2 = dispappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[4], appl_gmdata, CR) --spot + dispense
+             WRITE(CR)
+             WRITE('1. ',pspot_pdisp,CR) --ped spot + ped dispense
+             WRITE('2. ',cspot_pdisp,CR) --carried spot + ped dispense
+             WRITE(gdata_ans,'(1-2):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,2))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution           
+
+           SELECT (ans) OF
+             CASE(1): --ped spot + ped dispense
+               wld1_app = wld1app_pg
+               disp1_app = disp1_phn
+             
+               spot_app_wiz  --Run spot configuration
+               disp_app_wiz  --Run dispense configuration
+               mhapp_wiz  --run mh configuration
+
+             CASE(2): --carried spot + ped dispense
+               wld1_app = wld1app_cg
+               disp1_app = disp1_phn
+
+               spot_app_wiz  --Run spot configuration
+               disp_app_wiz  --Run dispense configuration
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT
+
+         CASE(spot_spr):
+           bshop_proc1 = spotappl
+           bshop_proc2 = sprappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR)
+             WRITE(menu_gmdata[5], appl_gmdata,CR)
+             WRITE(CR)
+             WRITE('1. ',pspot_pspr,CR) --ped spot + ped spr
+             WRITE('2. ',cspotcspr_tc   ,CR) --carried spot + carried spr + TC
+             WRITE(gdata_ans,'(1-2):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,2))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+ 
+           SELECT (ans) OF
+             CASE(1): --ped spot + ped spr
+               wld1_app = wld1app_pg
+               spr1_app = spr_phg
+
+               spot_app_wiz  --Run spot configuration
+               spr_app_wiz --Run SPR configurator
+               mhapp_wiz  --run mh configuration
+             
+             CASE(2): --carried spot + carried spr + TC
+               wld1_app = wld1app_cg
+               spr1_app = spr_rhg
+               UseToolChngr = TRUE
+
+               spot_app_wiz  --Run spot configuration
+               spr_app_wiz --Run SPR configurator
+               tlc_app_wiz --run tool change configurator
+
+             ELSE:
+           ENDSELECT
+
+           
+         CASE(stud_disp):
+           bshop_proc1 = studappl
+           bshop_proc2 = dispappl
+
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[6], appl_gmdata,CR)   --stud + dispense
+             WRITE(CR) 
+             WRITE('1. ',pstud_pdisp,CR)  --ped stud + ped dispense
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+
+           SELECT (ans) OF
+             CASE(1): --ped stud + ped dispense
+               stud1_app = stud_phg
+               disp1_app = disp1_phn
+
+               stud_app_wiz --Run stud configurator
+               disp_app_wiz --Run dispense configurator
+               mhapp_wiz  --run mh configuration
+ 
+             ELSE:
+           ENDSELECT
+
+         CASE(stud_spr):   
+           bshop_proc1 = studappl
+           bshop_proc2 = sprappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[7], appl_gmdata,CR)   --stud + spr
+             WRITE(CR) 
+             WRITE('1. ',pstud_pspr,CR)  --ped stud + ped spr
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+
+           SELECT (ans) OF
+             CASE(1): --ped stud + ped spr
+               stud1_app = stud_phg
+               spr1_app = spr_phg
+
+               stud_app_wiz --Run stud configurator
+               spr_app_wiz --Run SPR configurator
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT
+
+         CASE(projw_stud): 
+           bshop_proc1 = projappl
+           bshop_proc2 = studappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[10], appl_gmdata,CR)   --proj + stud
+             WRITE(CR) 
+             WRITE('1. ',pproj_pstud,CR)  --ped proj + ped stud
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+
+           SELECT ans OF
+             CASE(1):  --ped proj + ped stud
+               proj1_app = pjw1app_pg 
+               stud1_app = stud_phg
+              
+               projwld_wiz  --run projection weld configuration
+               stud_app_wiz --Run stud configurator
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT
+
+
+         CASE(projw_disp):
+           bshop_proc1 = projappl
+           bshop_proc2 = dispappl
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[11], appl_gmdata,CR)   --proj + dispense
+             WRITE(CR) 
+             WRITE('1. ',pproj_pdisp,CR)  --ped proj + ped dispense
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution
+
+           SELECT ans OF
+             CASE(1): --ped proj + ped dispense
+               proj1_app = pjw1app_pg
+               disp1_app = disp1_phn
+
+               projwld_wiz  --run projection weld configuration
+               disp_app_wiz --Run dispense configurator
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT               
+
+
+         CASE(projw_dimp):
+           bshop_proc1 = projappl
+           bshop_proc2 = dimpappl
+
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[12], appl_gmdata,CR)  --projection + dimple application
+             WRITE(CR)
+             WRITE('1. ', cprojcdimptc,CR)  --carried proj + carried dimpler + TC 
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution         
+  
+           SELECT (ans) OF
+             CASE(1):
+               proj1_app = pjw1app_cg
+               dimp1_app = dimp1app_rh
+               UseToolChngr = TRUE
+
+               projwld_wiz  --run projection weld configuration
+               dimp_wiz  --run dimpler configuration
+               tlc_app_wiz  --run tool change configuration
+
+             ELSE:
+           ENDSELECT
+
+
+         CASE(disp_disp):
+           IF ($sleqnum = 1) THEN  --need to change to two equipment
+             writeLog('Seal equipment not set to 2', FALSE)
+             writeLog('Need to rerun wizard', FALSE)
+
+             --set numdispctrl to 2 so that auto keystrokes will run
+             numdispctrl = 2
+ 
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE('', g2disp_msg,CR)  -- "Setting Dispense EQ to 2" 
+             WRITe(m18_gmdata,CR) --Run robot configuration
+             WRITE(gmrerunwiz,CR)
+             WRITE(enter_gmdata,CR)
+             READ TPPROMPT(CR)
+           ELSE  --already two equiment
+             bshop_proc1 = dispappl
+             bshop_proc2 = dispappl 
+             --can call app routine in this program because it is a identical app combo
+             --no duplicate calls of MH wizard or TC will happen
+             dispapp_wiz
+           ENDIF
+
+         CASE(disp_spr):   
+           bshop_proc1 = dispappl
+           bshop_proc2 = sprappl
+
+           REPEAT
+             CLR_STND_SCR(gm_status)
+             WRITE(CR) 
+             WRITE(menu_gmdata[14], appl_gmdata,CR)  --dispense + spr application
+             WRITE(CR)
+             WRITE('1. ', pdisp_pspr,CR)  --ped disp + ped spr 
+             WRITE(gdata_ans,'(1-1):')    
+             READ(ans)
+           UNTIL(Verify_Answr(ans,1,1))
+           --call routines from their wizard, do not call wizard routines for the app from this program
+           --if you do this, you will get duplicate MH wizard runs
+           --leave app routines in this program for single process execution 
+
+           SELECT (ans) OF
+             CASE(1): --ped disp + ped spr
+
+               disp1_app = disp1_phn
+               spr1_app  = spr_phg
+
+               disp_app_wiz --Run dispense configurator
+               spr_app_wiz --Run SPR configurator
+               mhapp_wiz  --run mh configuration
+
+             ELSE:
+           ENDSELECT               
+
+
+         CASE(spr_spr):  
+           bshop_proc1 = sprappl
+           bshop_proc2 = sprappl
+
+           --can call app routine in this program because it is a identical app combo
+           --no duplicate calls of MH wizard or TC will happen
+           sprapp_wiz
+
+         ELSE:
+       ENDSELECT
+     ENDIF
+   ELSE
+     mhapp_wiz     --num_proc = 0 
+   ENDIF
+
+--  end_bs_cfg::
+
+END body_app_wiz
+-------------------------------------------------------------------------------
+BEGIN
+
+END gmwizbsh
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

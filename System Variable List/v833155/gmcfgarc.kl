@@ -1,0 +1,6 @@
+-- Used for ArcTool Laser specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+
+VAR
+
+  arclink_app    IN SHADOW FROM GMCFGARC: INTEGER   --use arclink

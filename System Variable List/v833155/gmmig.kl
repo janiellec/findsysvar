@@ -1,0 +1,183 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMMIG.KL
+--   TITLE:          GMMIG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2020/10/23
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 ArcTool specific setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.0   2020/10/23 schoensm         Created during V8.33P10  
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmmig
+
+%COMMENT = 'GM Mig V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmcfgerr  -- GM wizard error logging
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+
+CONST
+
+Version = '2020-10-23'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+  Current_Ver  IN SHADOW : STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs              : INTEGER    -- How many errors I/O error counter had when the program started
+  Mig_Setup    IN SHADOW : BOOLEAN    -- Keeps track if routine setup arc tool at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE set_mig_var FROM gmmigvr
+ROUTINE set_mig_io FROM gmmigio
+ROUTINE set_mig_pg FROM gmmigpg
+ROUTINE set_mig_reg FROM gmmigrg
+-----------------------------------------------------------------------------
+ROUTINE init_mig_set
+-- PURPOSE: to initialize variables for arc tool setup 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END init_mig_set
+-----------------------------------------------------------------------------
+ROUTINE set_mig_shop
+-- PURPOSE: set mig application
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --ArcTool General Setup
+  IF (chk_loaded('gmmigvr')) THEN
+    set_mig_var  --mig tool variables
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmmigio')) THEN
+    set_mig_io  --mig tool I/O
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmmigpg')) THEN
+    set_mig_pg  --mig tool programs
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmmigrg')) THEN
+    set_mig_reg  --mig tool registers
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+
+END set_mig_shop
+-----------------------------------------------------------------------------
+ROUTINE set_mig_cfg
+-- PURPOSE: set mig-weld
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(Mig_Setup) OR (Reset_Cell) THEN
+    Mig_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Mig Program GMMIG', FALSE)
+
+  IF (Mig_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('Mig-Weld Already Setup', FALSE)
+    IF ExecSetupAgn('Mig-Weld') THEN -- ask user if they want to setup again
+      Mig_Setup = FALSE
+    ELSE
+      WriteLog('Mig-Weld already Complete', FALSE)
+      WriteLog('GMMIG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_mig_set
+  set_mig_shop
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Mig-Weld Setup GMMIG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Mig-Weld Setup completed', FALSE)
+    Mig_Setup = TRUE
+  ENDIF
+
+ WriteLog('', FALSE)
+
+END set_mig_cfg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmmig

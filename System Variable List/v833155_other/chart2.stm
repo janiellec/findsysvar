@@ -1,0 +1,65 @@
+﻿<html>
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>Laser Start Timing</title>
+</head>
+
+<body>
+
+<p style="height: 338px; width: 710px">
+<object classid="clsid:4E93ABDB-2BBE-4CB4-8CCC-49148D0AFFFD" id="CGChart1" style="width: 630px; height: 327px">
+	<param name="Caption" value="Laser Start ">
+	<param name="FontSize" value="14">
+	<param name="width" value="630">
+	<param name="height" value="327">
+	<param name="FastLoad" value="1">
+	<param name="ChartType" value="1">
+	<param name="TrueFont" value="-1">
+	<param name="GridColor" value="16777088">
+	<param name="SampleScale" value="0,300">
+	<param name="SampleGrid" value="1">
+	<param name="SampleScaleFormat" value="%3.1f">
+	<param name="ch1_Name" value="L_PWR -  va_on_dlY">
+	<param name="ch1_Source" value="$AWLASER[1].$VA_ON_DLY">
+	<param name="ch1_State" value="1">
+	<param name="ch2_Name" value="L_ON - do_on_dlY">
+	<param name="ch2_Source" value="$AWLASER[1].$DO_ON_DLY">
+	<param name="ch2_State" value="1">
+	<param name="ch1_DataScale" value="500,-500">
+	<param name="ch1_Data" value="data">
+	<param name="ch2_DataScale" value="500,-500">
+	<param name="ch2_Data" value="data">
+	<param name="DataShowValues" value="1">
+	<param name="DataScale" value="-600,1000">
+	<param name="ch1_Color" value="65280">
+	<param name="ch2_Color" value="255">
+	<param name="ch3_Name" value="W_Cmd - va_on_dlY">
+	<param name="ch3_Color" value="33023">
+	<param name="ch3_Source" value="$AWLASER[2].$VA_ON_DLY">
+	<param name="ch3_State" value="1">
+	<param name="ch3_Data" value="data">
+	<param name="ch4_Name" value="W_ON - do_on_dlY">
+	<param name="ch4_Color" value="16711680">
+	<param name="ch4_Source" value="$AWLASER[2].$DO_ON_DLY">
+	<param name="ch4_State" value="1">
+	<param name="ch4_Data" value="data">
+	<param name="ch5_Color" value="32768">
+	<param name="ch5_Data" value="data">
+	<param name="Annotate" value="&quot;0.0&quot; Represents Robot IN Position">
+	<param name="ch5_Name" value="Rbt Mot DlY">
+	<param name="ch5_Source" value="$AWLASER_CFG.$MO_DLY_AS">
+	<param name="ch6_Name" value="Mo_DlY + On_DlY = Start of Motion">
+	<param name="ch6_Color" value="8388863">
+	<param name="ch6_State" value="1">
+	<param name="DataFontSize" value="10">
+	<param name="DataGrid" value="1">
+	<param name="CaptionFontSize" value="12">
+	<param name="AnnotateFontSize" value="10">
+	<param name="ch6_Source" value="numreg[37]">
+</object>
+</p>
+
+</body>
+
+</html>

@@ -1,0 +1,979 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPRIO.KL
+--   TITLE:          GMSPRIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Application Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the I/O file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/27 marchaka Add gmwizlog logging functionlity
+--         2016/11/08 marchaka Modified to support combos.
+--         4.1        2017/01/24 Added Home Tool adn Calibrate digital output comments
+--         4.2        2017/02/05 marchaka         Modify prompt logic for wizard rerun
+--         4.3        2018/03/26 schoensm         Changes for V833P05
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPRIO
+
+%COMMENT = 'GM SPRI/O V4.3'
+%PRIORITY = 50
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT iosetup -- Need for teh SET_PORT builtins
+--%ENVIRONMENT SLDEF
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLIOTYPS  -- need for the constant declared for IO_DIN/IO_DOUT
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gm_var    -- GM variables
+%INCLUDE gmevrs4io -- GM variables
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgspr  -- GM wizard variables for SPR Applications
+
+%INCLUDE gmcfgcel  -- has the workcell variable setting for configuration   -- Reset_Cell = FALSE
+%INCLUDE gmcfgtlc  -- GM tool change variables for configuration
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+CONST
+Version = '2018-04-04'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+Num, i,gm_status        :INTEGER -- Used for Temp vars
+Current_Ver   IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+spr_1_slot,
+spr_2_Slot       IN CMOS: INTEGER -- used for which Node or Slot the Equiptment will use Def.=Ethernet
+psve                    : INTEGER
+StrtinErs               : INTEGER   -- How many errors I/O error counter had when the program started
+SPRIO_Setup   IN SHADOW : BOOLEAN  -- Keeps track if routine setup SPR I/O at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+
+ROUTINE HenrbSPR_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenetsu
+-----------------------------------------------------------------------------
+ROUTINE initSPRVARS
+-- PURPOSE: call at cold start 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ IF UNINIT(SPRIO_Setup) THEN
+    SPRIO_Setup = FALSE
+  ENDIF
+
+END initSPRVARS
+
+-----------------------------------------------------------------------------
+ROUTINE ChkSPRInit
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  l_equip: INTEGER
+  l_gun  : INTEGER
+
+
+BEGIN
+
+  -- Check Common application variable used in the program to be setup
+  IF UNINIT(SPRCommType) THEN --set hook for multiple communications
+    SPRCommType = Ethernet -- set it to 89
+  ENDIF
+  IF UNINIT(numsprctrl) THEN
+    numsprctrl = 0
+  ENDIF
+  IF UNINIT(Reset_Cell) THEN
+    Reset_Cell = FALSE
+  ENDIF
+  IF UNINIT(UseToolChngr) THEN
+    UseToolChngr = FALSE
+  ENDIF
+
+  -- Check variable associated with SPR #1
+  IF UNINIT(SPRSetup[1]) THEN
+    SPRSetup[1] = FALSE
+  ENDIF
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(spr_1_slot) THEN
+    spr_1_slot = 9
+  ENDIF
+
+  -- Check variable associated with spr #2
+  IF UNINIT(SPRSetup[2]) THEN
+    SPRSetup[2] = FALSE
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+  IF UNINIT(spr_2_slot) THEN
+    spr_2_slot = 10
+  ENDIF
+
+END ChkSPRInit
+
+
+-----------------------------------------------------------------------------
+ROUTINE SPRSetup_IO
+-- PURPOSE: to setup and configure application equipemnt #1
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = sprappl) THEN --process 1 is an SPR application
+
+    -- Controller#1 INPUTS set the rack length so TP display is all inclusive of the 64 bits
+    SET_PORT_ASG(io_din,1025,SPRCommType, spr_1_Slot,io_din,1,  -64, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(SPRCommType)+' Slot ' +Int2str(spr_1_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+
+    -- Controller#1 OUTPUTS set the rack length so TP display is all inclusive of the 64 bits
+    SET_PORT_ASG(io_dout,1025,SPRCommType, spr_1_Slot,io_dout,1,  -64, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(SPRCommType)+' Slot ' +Int2str(spr_1_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+   
+    --***********************************************************
+    -- PLC INPUTS System#1
+    --***********************************************************
+
+    --  Input Controller 1 Node 9
+    SET_PORT_CMT(IO_DIN,75,'diP1OutOfTolAck',gm_status) -- 3-26-18 sms V833P05
+
+    SET_PORT_ASG(io_gpin,27,89,9,io_din,25,-8,gm_status) 
+    SET_PORT_CMT(io_gpin,27,'SPR1FaultCode',gm_status)
+
+    --***********************************************************
+    -- PLC OUTPUTS System#1
+    --***********************************************************
+    --  Outputs Controller 1 Node 9
+    SET_PORT_CMT(IO_DOUT,73,'doP1PunchMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,74,'doP1DieMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,75,'doP1CleanMnt',gm_status)
+    SET_PORT_CMT(IO_DOUT,76,'doP1_1M_CycMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,77,'doP1RivetsLow',gm_status)
+    SET_PORT_CMT(IO_DOUT,78,'doP1RivMonOn',gm_status) -- 3-26-18 sms V833P05
+
+    SET_PORT_ASG(io_gpout,27,89,9,io_dout,1,-4,gm_status) 
+    SET_PORT_CMT(io_gpout,27,'SPR1ToolSelect',gm_status)
+
+    SET_PORT_ASG(io_gpout,29,89,9,io_dout,25,-8,gm_status) 
+    SET_PORT_CMT(io_gpout,29,'SPR1JointNumber',gm_status)
+
+    SET_PORT_ASG(io_gpout,30,89,9,io_dout,20,-2,gm_status) 
+    SET_PORT_CMT(io_gpout,30,'SPR1Equalizer',gm_status)
+
+    SET_PORT_ASG(io_gpout,31,89,9,io_dout,7,-2,gm_status) 
+    SET_PORT_CMT(io_gpout,31,'SPR1GunOpening',gm_status)
+
+    --------------------------
+    -- application controller #1 I/O
+    --------------------------
+    -- Welding INPUTS - Weld Controller 1 
+    SET_PORT_CMT(IO_DIN,1025,'diSPR1RdyToCycle',gm_status)
+    SET_PORT_CMT(IO_DIN,1026,'diSPR1InCycle',gm_status)
+    SET_PORT_CMT(IO_DIN,1027,'diSPR1Finished',gm_status)
+    SET_PORT_CMT(IO_DIN,1028,'diSPR1Faulted',gm_status)
+    SET_PORT_CMT(IO_DIN,1029,'diSPR1RivMonON',gm_status)
+    SET_PORT_CMT(IO_DIN,1030,'diSPR1ToolOff',gm_status)
+    SET_PORT_CMT(IO_DIN,1031,'diSPR1RivetsLow',gm_status)
+    SET_PORT_CMT(IO_DIN,1032,'diSPR1ToolHome',gm_status)
+    SET_PORT_CMT(IO_DIN,1033,'diSPR1ToolOpen',gm_status)
+    SET_PORT_CMT(IO_DIN,1034,'diSPR1RivetSet',gm_status)
+    SET_PORT_CMT(IO_DIN,1035,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1036,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1037,'diSPR1BfrRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1038,'diSPR1DurRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1039,'diSPR1AftRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1040,'diSPR1SystemFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1041,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1042,'diSPR1AutoMode',gm_status)
+    SET_PORT_CMT(IO_DIN,1043,'diSPR1PunchMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1044,'diSPR1DieMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1045,'diSPR1CleanMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1046,'diSPR1_1M_CycMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1047,'diSPR1Alert',gm_status)
+    SET_PORT_CMT(IO_DIN,1048,'diSPR1Heartbeat',gm_status)
+    SET_PORT_CMT(IO_DIN,1049,'diSPR1FaultBit1',gm_status)
+    SET_PORT_CMT(IO_DIN,1050,'diSPR1FaultBit2',gm_status)
+    SET_PORT_CMT(IO_DIN,1051,'diSPR1FaultBit4',gm_status)
+    SET_PORT_CMT(IO_DIN,1052,'diSPR1FaultBit8',gm_status)
+    SET_PORT_CMT(IO_DIN,1053,'diSPR1FaultBit16',gm_status)
+    SET_PORT_CMT(IO_DIN,1054,'diSPR1FaultBit32',gm_status)
+    SET_PORT_CMT(IO_DIN,1055,'diSPR1FaultBit64',gm_status)
+    SET_PORT_CMT(IO_DIN,1056,'diSPR1FaultBit128',gm_status)
+  
+    FOR I = 1057 to 1088 DO
+	  SET_PORT_CMT(IO_DIN,I,'(Reserved)',gm_status)   -- Reserve IO for Future
+    ENDFOR     
+
+    SET_PORT_CMT(io_dout,1025,'doSPR1ToolSelct1',gm_status)
+    SET_PORT_CMT(io_dout,1026,'doSPR1ToolSelct2',gm_status)
+    SET_PORT_CMT(io_dout,1027,'doSPR1ToolSelct4',gm_status)
+    SET_PORT_CMT(io_dout,1028,'doSPR1ToolSelct8',gm_status)
+    SET_PORT_CMT(io_dout,1029,'doSPR1SlowClose',gm_status)
+    SET_PORT_CMT(io_dout,1030,'doSPR1SlowOpen',gm_status)
+    SET_PORT_CMT(io_dout,1031,'doSPR1GunOpen1',gm_status)
+    SET_PORT_CMT(io_dout,1032,'doSPR1GunOpen2',gm_status)
+    SET_PORT_CMT(io_dout,1033,'doHomeTool',gm_status)
+    SET_PORT_CMT(io_dout,1034,'doCalibrate',gm_status)
+    SET_PORT_CMT(io_dout,1035,'doSPR1CycleTool',gm_status)
+    SET_PORT_CMT(io_dout,1036,'doSPR1GotoOpn',gm_status)
+    SET_PORT_CMT(io_dout,1037,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1038,'doSPR1Cut Tape',gm_status)
+    SET_PORT_CMT(io_dout,1039,'doSPR1FltAck',gm_status)
+    SET_PORT_CMT(io_dout,1040,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1041,'doSPR1DryCycle',gm_status)
+    SET_PORT_CMT(io_dout,1042,'doSPR1NoHmAlowed',gm_status)
+    SET_PORT_CMT(io_dout,1043,'doSPR1ToolMoved',gm_status)
+    SET_PORT_CMT(io_dout,1044,'doSPR1Equalizer1',gm_status)
+    SET_PORT_CMT(io_dout,1045,'doSPR1Equalizer2',gm_status)
+    SET_PORT_CMT(io_dout,1046,'doSPR1NoManCycle',gm_status)
+    SET_PORT_CMT(io_dout,1047,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1048,'doSPR1Heartbeat',gm_status)
+    SET_PORT_CMT(io_dout,1049,'doSPR1JntNum1',gm_status)
+    SET_PORT_CMT(io_dout,1050,'doSPR1JntNum2',gm_status)
+    SET_PORT_CMT(io_dout,1051,'doSPR1JntNum4',gm_status)
+    SET_PORT_CMT(io_dout,1052,'doSPR1JntNum8',gm_status)
+    SET_PORT_CMT(io_dout,1053,'doSPR1JntNum16',gm_status)
+    SET_PORT_CMT(io_dout,1054,'doSPR1JntNum32',gm_status)
+    SET_PORT_CMT(io_dout,1055,'doSPR1JntNum64',gm_status)
+    SET_PORT_CMT(io_dout,1056,'doSPR1JntNum128',gm_status)
+
+    FOR I = 1057 to 1088 DO
+	  SET_PORT_CMT(io_dout,I,'(Reserved)',gm_status)   -- Reserve IO for Future
+    ENDFOR  
+
+    IF (SPRCommType = Ethernet) THEN
+      HenrbSPR_EIP(spr_1_slot,'SPR1','')
+    ENDIF
+  ENDIF --process 1 is an SPR application
+
+  IF (bshop_proc2 = sprappl) THEN   --process 2 is an SPR application
+
+    -- Controller#2 INPUTS set the rack lenght so TP display is all inclusive of the 64 bits
+    SET_PORT_ASG(io_din,1153,SPRCommType, spr_2_Slot,io_din,1,  -64, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(SPRCommType)+' Slot ' +Int2str(spr_2_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+
+    -- Controller#2 OUTPUTS set the rack length so TP display is all inclusive of the 64 bits
+    SET_PORT_ASG(io_dout,1153,SPRCommType, spr_2_Slot,io_dout,1,  -64, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(SPRCommType)+' Slot ' +Int2str(spr_2_slot)+' Setup FAILED', gm_status, 0) --
+      RETURN  -- Return, cant set this  leave so user will know not correct, probably wont work anyway
+    ENDIF
+ 
+    --***********************************************************
+    -- PLC INPUTS System#2
+    --***********************************************************
+
+    --  Input Controller 1 Node 10
+    SET_PORT_CMT(IO_DIN,140,'diP2OutOfTolAck',gm_status) -- 3-26-18 sms V833P05   
+    SET_PORT_ASG(io_gpin,28,89,10,io_din,25,-8,gm_status) 
+    SET_PORT_CMT(io_gpin,28,'SPR2FaultCode',gm_status)
+
+    --***********************************************************
+    -- PLC OUTPUTS System#2
+    --***********************************************************
+    --  Outputs Controller 2 Node 10
+    SET_PORT_CMT(IO_DOUT,137,'doP2PunchMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,138,'doP2DieMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,139,'doP2CleanMnt',gm_status)
+    SET_PORT_CMT(IO_DOUT,140,'doP2_1M_CycMtn',gm_status)
+    SET_PORT_CMT(IO_DOUT,141,'doP2RivetsLow',gm_status)
+    SET_PORT_CMT(IO_DOUT,142,'doP2RivMonOn',gm_status) -- 3-26-18 sms V833P05
+
+    SET_PORT_ASG(io_gpout,32,89,10,io_dout,1,-4,gm_status) 
+    SET_PORT_CMT(io_gpout,32,'SPR2ToolSelect',gm_status)
+
+    SET_PORT_ASG(io_gpout,34,89,10,io_dout,25,-8,gm_status) 
+    SET_PORT_CMT(io_gpout,34,'SPR2JointNumber',gm_status)
+
+    SET_PORT_ASG(io_gpout,35,89,10,io_dout,20,-2,gm_status) 
+    SET_PORT_CMT(io_gpout,35,'SPR2Equalizer',gm_status)
+
+    SET_PORT_ASG(io_gpout,36,89,10,io_dout,7,-2,gm_status) 
+    SET_PORT_CMT(io_gpout,36,'SPR2GunOpening',gm_status)
+		 
+    --------------------------
+    -- application controller #2 I/O
+    --------------------------
+    -- Welding INPUTS - Weld Controller 1 
+    SET_PORT_CMT(IO_DIN,1153,'diSPR2RdyToCycle',gm_status)
+    SET_PORT_CMT(IO_DIN,1154,'diSPR2InCycle',gm_status)
+    SET_PORT_CMT(IO_DIN,1155,'diSPR2Finished',gm_status)
+    SET_PORT_CMT(IO_DIN,1156,'diSPR2Faulted',gm_status)
+    SET_PORT_CMT(IO_DIN,1157,'diSPR2RivMonON',gm_status)
+    SET_PORT_CMT(IO_DIN,1158,'diSPR2ToolOff',gm_status)
+    SET_PORT_CMT(IO_DIN,1159,'diSPR2RivetsLow',gm_status)
+    SET_PORT_CMT(IO_DIN,1160,'diSPR2ToolHome',gm_status)
+    SET_PORT_CMT(IO_DIN,1161,'diSPR2ToolOpen',gm_status)
+    SET_PORT_CMT(IO_DIN,1162,'diSPR2RivetSet',gm_status)
+    SET_PORT_CMT(IO_DIN,1163,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1164,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1165,'diSPR2BfrRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1166,'diSPR2DurRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1167,'diSPR2AftRivetFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1168,'diSPR2SystemFlt',gm_status)
+    SET_PORT_CMT(IO_DIN,1169,'(Reserved)',gm_status)
+    SET_PORT_CMT(IO_DIN,1170,'diSPR2AutoMode',gm_status)
+    SET_PORT_CMT(IO_DIN,1171,'diSPR2PunchMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1172,'diSPR2DieMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1173,'diSPR2CleanMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1174,'diSPR2_1M_CycMtn',gm_status)
+    SET_PORT_CMT(IO_DIN,1175,'diSPR2Alert',gm_status)
+    SET_PORT_CMT(IO_DIN,1176,'diSPR2Heartbeat',gm_status)
+    SET_PORT_CMT(IO_DIN,1177,'diSPR2FaultBit1',gm_status)
+    SET_PORT_CMT(IO_DIN,1178,'diSPR2FaultBit2',gm_status)
+    SET_PORT_CMT(IO_DIN,1179,'diSPR2FaultBit4',gm_status)
+    SET_PORT_CMT(IO_DIN,1180,'diSPR2FaultBit8',gm_status)
+    SET_PORT_CMT(IO_DIN,1181,'diSPR2FaultBit16',gm_status)
+    SET_PORT_CMT(IO_DIN,1182,'diSPR2FaultBit32',gm_status)
+    SET_PORT_CMT(IO_DIN,1183,'diSPR2FaultBit64',gm_status)
+    SET_PORT_CMT(IO_DIN,1184,'diSPR2FaultBit128',gm_status)
+  
+    FOR I = 1185 to 1216 DO
+	  SET_PORT_CMT(IO_DIN,I,'(Reserved)',gm_status)   -- Reserve IO for Future
+    ENDFOR     
+
+    SET_PORT_CMT(io_dout,1153,'doSPR2ToolSelct1',gm_status)
+    SET_PORT_CMT(io_dout,1154,'doSPR2ToolSelct2',gm_status)
+    SET_PORT_CMT(io_dout,1155,'doSPR2ToolSelct4',gm_status)
+    SET_PORT_CMT(io_dout,1156,'doSPR2ToolSelct8',gm_status)
+    SET_PORT_CMT(io_dout,1157,'doSPR2SlowClose',gm_status)
+    SET_PORT_CMT(io_dout,1158,'doSPR2SlowOpen',gm_status)
+    SET_PORT_CMT(io_dout,1159,'doSPR2GunOpen1',gm_status)
+    SET_PORT_CMT(io_dout,1160,'doSPR2GunOpen2',gm_status)
+    SET_PORT_CMT(io_dout,1161,'doHomeTool',gm_status)
+    SET_PORT_CMT(io_dout,1162,'doCalibrate',gm_status)
+    SET_PORT_CMT(io_dout,1163,'doSPR2CycleTool',gm_status)
+    SET_PORT_CMT(io_dout,1164,'doSPR2GotoOpn',gm_status)
+    SET_PORT_CMT(io_dout,1165,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1166,'doSPR2Cut Tape',gm_status)
+    SET_PORT_CMT(io_dout,1167,'doSPR2FltAck',gm_status)
+    SET_PORT_CMT(io_dout,1168,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1169,'doSPR2DryCycle',gm_status)
+    SET_PORT_CMT(io_dout,1170,'doSPR2NoHmAlowed',gm_status)
+    SET_PORT_CMT(io_dout,1171,'doSPR2ToolMoved',gm_status)
+    SET_PORT_CMT(io_dout,1172,'doSPR2Equalizer1',gm_status)
+    SET_PORT_CMT(io_dout,1173,'doSPR2Equalizer2',gm_status)
+    SET_PORT_CMT(io_dout,1174,'doSPR2NoManCycle',gm_status)
+    SET_PORT_CMT(io_dout,1175,'(Reserved)',gm_status)
+    SET_PORT_CMT(io_dout,1176,'doSPR2Heartbeat',gm_status)
+    SET_PORT_CMT(io_dout,1177,'doSPR2JntNum1',gm_status)
+    SET_PORT_CMT(io_dout,1178,'doSPR2JntNum2',gm_status)
+    SET_PORT_CMT(io_dout,1179,'doSPR2JntNum4',gm_status)
+    SET_PORT_CMT(io_dout,1180,'doSPR2JntNum8',gm_status)
+    SET_PORT_CMT(io_dout,1181,'doSPR2JntNum16',gm_status)
+    SET_PORT_CMT(io_dout,1182,'doSPR2JntNum32',gm_status)
+    SET_PORT_CMT(io_dout,1183,'doSPR2JntNum64',gm_status)
+    SET_PORT_CMT(io_dout,1184,'doSPR2JntNum128',gm_status)
+
+    FOR I = 1185 to 1216 DO
+	  SET_PORT_CMT(io_dout,I,'(Reserved)',gm_status)   -- Reserve IO for Future
+    ENDFOR  
+
+    IF (SPRCommType = Ethernet) THEN
+      HenrbSPR_EIP(spr_2_slot,'SPR2','')
+    ENDIF
+  ENDIF
+  
+  --SPR Error Recovery Maint Output
+	SET_PORT_ASG(io_dout,2042,0,0,io_mem_boo,2042,-1,gm_status)  
+  SET_PORT_CMT(io_dout,2042,'ComboSPR_ErrOutput',gm_status)
+
+END SPRSetup_IO
+-----------------------------------------------------------------------------
+ROUTINE setSPR_intc
+-- PURPOSE: call at cold start, since parameters can only be set after a powerdown 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = sprappl) THEN    --process 1 is an SPR application
+    --SPR1 Process 1 ON Req
+    Set_B_sVar('$thrsditable[33].$thr_enb', TRUE)                        
+    Set_I_sVar('$thrsditable[33].$di_no', 65) 		     
+    Set_I_sVar('$thrsditable[33].$do_no', 65)
+  
+    --Punch Maintenance Request
+    Set_B_sVar('$thrsditable[35].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[35].$di_no', 1043)		     
+    Set_I_sVar('$thrsditable[35].$do_no', 73)
+
+    --Die Maintenance Request
+    Set_B_sVar('$thrsditable[36].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[36].$di_no', 1044)		     
+    Set_I_sVar('$thrsditable[36].$do_no', 74)
+
+    --Cleaning Maintenance Request
+    Set_B_sVar('$thrsditable[37].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[37].$di_no', 1045)		     
+    Set_I_sVar('$thrsditable[37].$do_no', 75)
+
+    --Million Cycle PM Request
+    Set_B_sVar('$thrsditable[38].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[38].$di_no', 1046)		     
+    Set_I_sVar('$thrsditable[38].$do_no', 76)
+
+    --SPR X RivietLow
+    Set_B_sVar('$thrsditable[39].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[39].$di_no', 1031)		     
+    Set_I_sVar('$thrsditable[39].$do_no', 77)
+
+    --SPR1 Heartbeat
+    Set_B_sVar('$thrsditable[45].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[45].$di_no', 1048)		     
+    Set_I_sVar('$thrsditable[45].$do_no', 1048)
+    
+    --4-4-18 sms
+    Set_B_sVar('$thrsditable[52].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[52].$di_no', 1029)		     
+    Set_I_sVar('$thrsditable[52].$do_no', 78)
+    
+  ENDIF  --process 1 is an SPR application
+
+
+  IF (bshop_proc2 = sprappl) THEN  --process 2 is an SPR application  
+    --SPR2 Process 2 ON Req
+    Set_B_sVar('$thrsditable[34].$thr_enb', TRUE)                        
+    Set_I_sVar('$thrsditable[34].$di_no', 129) 		     
+    Set_I_sVar('$thrsditable[34].$do_no', 129)
+  
+    --Punch Maintenance Request
+    Set_B_sVar('$thrsditable[47].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[47].$di_no', 1171)		     
+    Set_I_sVar('$thrsditable[47].$do_no', 137)
+
+    --Die Maintenance Request
+    Set_B_sVar('$thrsditable[48].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[48].$di_no', 1172)		     
+    Set_I_sVar('$thrsditable[48].$do_no', 138)
+
+    --Cleaning Maintenance Request
+    Set_B_sVar('$thrsditable[49].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[49].$di_no', 1173)		     
+    Set_I_sVar('$thrsditable[49].$do_no', 139)
+
+    --Million Cycle PM Request
+    Set_B_sVar('$thrsditable[50].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[50].$di_no', 1174)		     
+    Set_I_sVar('$thrsditable[50].$do_no', 140)
+
+    --SPR X RivietLow
+    Set_B_sVar('$thrsditable[51].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[51].$di_no', 1159)		     
+    Set_I_sVar('$thrsditable[51].$do_no', 141)
+
+    --SPR2 Heartbeat
+    Set_B_sVar('$thrsditable[46].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[46].$di_no', 1176)		     
+    Set_I_sVar('$thrsditable[46].$do_no', 1176)
+    
+    --4-4-18 sms
+    Set_B_sVar('$thrsditable[53].$thr_enb', TRUE)                         
+    Set_I_sVar('$thrsditable[53].$di_no', 1157)		     
+    Set_I_sVar('$thrsditable[53].$do_no', 142)
+    
+  ENDIF  --process 2 is an SPR application
+
+END setSPR_intc
+-----------------------------------------------------------------------------
+ROUTINE setspriovr
+-- PURPOSE: setup application I/O variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = sprappl) THEN  --process 1 is SPR
+    sprctrl[1].spr_gun[1].do_cl_gun_i = 1029
+    sprctrl[1].spr_gun[1].do_op_bu_i = 1030
+
+    --Config slow open/close to gun open/close keys on TP    
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]', sprctrl[1].spr_gun[1].do_cl_gun_i) --close gun
+    Set_I_sVar('$spoteqio[1].$do_op_bu_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_op_bu_i[1]', sprctrl[1].spr_gun[1].do_op_bu_i) --open gun
+
+    --initialize or you can't go to the weld I/O menu.  
+    di_cntropn_t[1] = 1
+    di_cntropn_i[1] = 0  -- Contactor Open
+    di_ctrlstp_t[1] = 1 
+    di_ctrlstp_i[1] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[1] = 1
+    di_apcpch1_i[1] = 0  -- Approaching Cap Change
+    di_apcpch2_t[1] = 1 
+    di_apcpch2_i[1] = 0  -- Approaching Cap Change
+    di_apcpch3_t[1] = 1
+    di_apcpch3_i[1] = 0  -- Approaching Cap Change
+    di_apcpch4_t[1] = 1
+    di_apcpch4_i[1] = 0  -- Approaching Cap Change
+    di_steprst_t[1] = 1
+    di_steprst_i[1] = 0  -- All Steppers Reset
+    di_steprs2_t[1] = 1
+    di_steprs2_i[1] = 0  -- All Steppers Reset
+    di_steprs3_t[1] = 1
+    di_steprs3_i[1] = 0  -- All Steppers Reset
+    di_steprs4_t[1] = 1  
+    di_steprs4_i[1] = 0  -- All Steppers Reset
+    di_tdreq1_t[1]  = 1
+    di_tdreq1_i[1] = 0   -- Tip dress request
+    di_tdreq2_t[1] = 1
+    di_tdreq2_i[1] = 0   -- Tip dress request
+    di_tdreq3_t[1] = 1
+    di_tdreq3_i[1] = 0   -- Tip dress request
+    di_tdreq4_t[1] = 1
+    di_tdreq4_i[1] = 0   -- Tip dress request
+    di_tdrest1_t[1] = 1
+    di_tdrest1_i[1] = 0
+    di_tdrest2_t[1] = 1
+    di_tdrest2_i[1] = 0
+    di_tdrest3_t[1] = 1
+    di_tdrest3_i[1] = 0
+    di_tdrest4_t[1] = 1
+    di_tdrest4_i[1] = 0
+    di_cchgrq1_t[1] = 1
+    di_cchgrq1_i[1] = 0  -- Cap Change Request
+    di_cchgrq2_t[1] = 1
+    di_cchgrq2_i[1] = 0  -- Cap Change Request
+    di_cchgrq3_t[1] = 1
+    di_cchgrq3_i[1] = 0  -- Cap Change Request
+    di_cchgrq4_t[1] = 1
+    di_cchgrq4_i[1] = 0  -- Cap Change Request
+    diQualStp_t[1]  = 1
+    diQualStp_i[1]  = 0
+    diAdptRgOn_t[1] = 1
+    diAdptRgOn_i[1] = 0 
+    diAdptMtOn_t[1] = 1
+    diAdptMtOn_i[1] = 0
+    diEndPrtRp_t[1] = 1
+    diEndPrtRp_i[1] = 0
+    diAdaptCap_t[1] = 1
+    diAdaptCap_i[1] = 0
+
+    do_cchgrq1_t[1] = 2
+    do_cchgrq1_i[1] = 0  
+    do_cchgrq2_t[1] = 2    
+    do_cchgrq2_i[1] = 0  
+    do_cchgrq3_t[1] = 2    
+    do_cchgrq3_i[1] = 0  
+    do_cchgrq4_t[1] = 2    
+    do_cchgrq4_i[1] = 0     
+    doTipDrsG1_t[1] = 2    
+    doTipDrsG1_i[1] = 0    -- Tip Dress
+    doTipDrsG2_t[1] = 2
+    doTipDrsG2_i[1] = 0    -- Tip Dress
+    doTipDrsG3_t[1] = 2
+    doTipDrsG3_i[1] = 0    -- Tip Dress
+    doTipDrsG4_t[1] = 2
+    doTipDrsG4_i[1] = 0    -- Tip Dress
+    do_tpmanq1_t[1] = 2
+    do_tpmanq1_i[1] = 0  
+    do_tpmanq2_t[1] = 2   
+    do_tpmanq2_i[1] = 0  
+    do_tpmanq3_t[1] = 2    
+    do_tpmanq3_i[1] = 0  
+    do_tpmanq4_t[1] = 2   
+    do_tpmanq4_i[1] = 0
+    doReqstPrs_t[1] = 2
+    doReqstPrs_i[1] = 0  -- Request Pressure
+    doStpRstG1_t[1] = 2
+    doStpRstG1_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[1] = 2
+    doStpRstG2_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[1] = 2
+    doStpRstG3_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[1] = 2
+    doStpRstG4_i[1] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[1] = 2
+    doPrtFinsh_i[1] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[1] = 2
+    doGunRstCk_i[1] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[1]  = 2
+    doAdptOff_i[1]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[1] = 19    -- WeldBody ID
+    goWldBdyID_i[1] = 0    -- WeldBody ID
+
+  ENDIF --process 1 is SPR
+
+  IF ((numsprctrl = 2) OR (((bshop_proc1 = spotappl) OR (bshop_proc1 = studappl)) AND (bshop_proc2 = sprappl)))  THEN --configure second SPR process I/O
+    sprctrl[2].spr_gun[1].do_cl_gun_i = 1157
+    sprctrl[2].spr_gun[1].do_op_bu_i = 1158
+
+    --Config slow open/close to gun open/close keys on TP    
+    Set_I_sVar('$spoteqio[2].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[2].$do_cl_gun_i[1]', sprctrl[2].spr_gun[1].do_cl_gun_i) --close gun
+    Set_I_sVar('$spoteqio[2].$do_op_bu_t[1]', 2)
+    Set_I_sVar('$spoteqio[2].$do_op_bu_i[1]', sprctrl[2].spr_gun[1].do_op_bu_i) --open gun
+
+    --initialize or you can't go to the weld I/O menu
+    di_cntropn_t[2] = 1
+    di_cntropn_i[2] = 0  -- Contactor Open
+    di_ctrlstp_t[2] = 1 
+    di_ctrlstp_i[2] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[2] = 1
+    di_apcpch1_i[2] = 0  -- Approaching Cap Change
+    di_apcpch2_t[2] = 1 
+    di_apcpch2_i[2] = 0  -- Approaching Cap Change
+    di_apcpch3_t[2] = 1
+    di_apcpch3_i[2] = 0  -- Approaching Cap Change
+    di_apcpch4_t[2] = 1
+    di_apcpch4_i[2] = 0  -- Approaching Cap Change
+    di_steprst_t[2] = 1
+    di_steprst_i[2] = 0  -- All Steppers Reset
+    di_steprs2_t[2] = 1
+    di_steprs2_i[2] = 0  -- All Steppers Reset
+    di_steprs3_t[2] = 1
+    di_steprs3_i[2] = 0  -- All Steppers Reset
+    di_steprs4_t[2] = 1  
+    di_steprs4_i[2] = 0  -- All Steppers Reset
+    di_tdreq1_t[2]  = 1
+    di_tdreq1_i[2] = 0   -- Tip dress request
+    di_tdreq2_t[2] = 1
+    di_tdreq2_i[2] = 0   -- Tip dress request
+    di_tdreq3_t[2] = 1
+    di_tdreq3_i[2] = 0   -- Tip dress request
+    di_tdreq4_t[2] = 1
+    di_tdreq4_i[2] = 0   -- Tip dress request
+    di_tdrest1_t[2] = 1
+    di_tdrest1_i[2] = 0
+    di_tdrest2_t[2] = 1
+    di_tdrest2_i[2] = 0
+    di_tdrest3_t[2] = 1
+    di_tdrest3_i[2] = 0
+    di_tdrest4_t[2] = 1
+    di_tdrest4_i[2] = 0
+    di_cchgrq1_t[2] = 1
+    di_cchgrq1_i[2] = 0  -- Cap Change Request
+    di_cchgrq2_t[2] = 1
+    di_cchgrq2_i[2] = 0  -- Cap Change Request
+    di_cchgrq3_t[2] = 1
+    di_cchgrq3_i[2] = 0  -- Cap Change Request
+    di_cchgrq4_t[2] = 1
+    di_cchgrq4_i[2] = 0  -- Cap Change Request
+    diQualStp_t[2]  = 1
+    diQualStp_i[2]  = 0
+    diAdptRgOn_t[2] = 1
+    diAdptRgOn_i[2] = 0 
+    diAdptMtOn_t[2] = 1
+    diAdptMtOn_i[2] = 0
+    diEndPrtRp_t[2] = 1
+    diEndPrtRp_i[2] = 0
+    diAdaptCap_t[2] = 1
+    diAdaptCap_i[2] = 0
+
+    do_cchgrq1_t[2] = 2
+    do_cchgrq1_i[2] = 0  
+    do_cchgrq2_t[2] = 2    
+    do_cchgrq2_i[2] = 0  
+    do_cchgrq3_t[2] = 2    
+    do_cchgrq3_i[2] = 0  
+    do_cchgrq4_t[2] = 2    
+    do_cchgrq4_i[2] = 0     
+    doTipDrsG1_t[2] = 2    
+    doTipDrsG1_i[2] = 0    -- Tip Dress
+    doTipDrsG2_t[2] = 2
+    doTipDrsG2_i[2] = 0    -- Tip Dress
+    doTipDrsG3_t[2] = 2
+    doTipDrsG3_i[2] = 0    -- Tip Dress
+    doTipDrsG4_t[2] = 2
+    doTipDrsG4_i[2] = 0    -- Tip Dress
+    do_tpmanq1_t[2] = 2
+    do_tpmanq1_i[2] = 0  
+    do_tpmanq2_t[2] = 2   
+    do_tpmanq2_i[2] = 0  
+    do_tpmanq3_t[2] = 2    
+    do_tpmanq3_i[2] = 0  
+    do_tpmanq4_t[2] = 2   
+    do_tpmanq4_i[2] = 0
+    doReqstPrs_t[2] = 2
+    doReqstPrs_i[2] = 0  -- Request Pressure
+    doStpRstG1_t[2] = 2
+    doStpRstG1_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[2] = 2
+    doStpRstG2_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[2] = 2
+    doStpRstG3_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[2] = 2
+    doStpRstG4_i[2] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[2] = 2
+    doPrtFinsh_i[2] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[2] = 2
+    doGunRstCk_i[2] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[2]  = 2
+    doAdptOff_i[2]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[2] = 19    -- WeldBody ID
+    goWldBdyID_i[2] = 0    -- WeldBody ID
+  ENDIF --configure second SPR process I/O
+
+  IF ((bshop_proc1 <> sprappl) AND (bshop_proc1 <> spotappl) AND (bshop_proc1 <> studappl) AND (bshop_proc2 = sprappl)) THEN  --configure second spr process, process 1 is not a spot type application
+    sprctrl[2].spr_gun[1].do_cl_gun_i = 1157
+    sprctrl[2].spr_gun[1].do_op_bu_i = 1158
+
+    --Config slow open/close to gun open/close keys on TP    
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]', sprctrl[2].spr_gun[1].do_cl_gun_i) --close gun
+    Set_I_sVar('$spoteqio[1].$do_op_bu_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_op_bu_i[1]', sprctrl[2].spr_gun[1].do_op_bu_i) --open gun
+
+    --initialize or you can't go to the weld I/O menu.  
+    di_cntropn_t[1] = 1
+    di_cntropn_i[1] = 0  -- Contactor Open
+    di_ctrlstp_t[1] = 1 
+    di_ctrlstp_i[1] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[1] = 1
+    di_apcpch1_i[1] = 0  -- Approaching Cap Change
+    di_apcpch2_t[1] = 1 
+    di_apcpch2_i[1] = 0  -- Approaching Cap Change
+    di_apcpch3_t[1] = 1
+    di_apcpch3_i[1] = 0  -- Approaching Cap Change
+    di_apcpch4_t[1] = 1
+    di_apcpch4_i[1] = 0  -- Approaching Cap Change
+    di_steprst_t[1] = 1
+    di_steprst_i[1] = 0  -- All Steppers Reset
+    di_steprs2_t[1] = 1
+    di_steprs2_i[1] = 0  -- All Steppers Reset
+    di_steprs3_t[1] = 1
+    di_steprs3_i[1] = 0  -- All Steppers Reset
+    di_steprs4_t[1] = 1  
+    di_steprs4_i[1] = 0  -- All Steppers Reset
+    di_tdreq1_t[1]  = 1
+    di_tdreq1_i[1] = 0   -- Tip dress request
+    di_tdreq2_t[1] = 1
+    di_tdreq2_i[1] = 0   -- Tip dress request
+    di_tdreq3_t[1] = 1
+    di_tdreq3_i[1] = 0   -- Tip dress request
+    di_tdreq4_t[1] = 1
+    di_tdreq4_i[1] = 0   -- Tip dress request
+    di_tdrest1_t[1] = 1
+    di_tdrest1_i[1] = 0
+    di_tdrest2_t[1] = 1
+    di_tdrest2_i[1] = 0
+    di_tdrest3_t[1] = 1
+    di_tdrest3_i[1] = 0
+    di_tdrest4_t[1] = 1
+    di_tdrest4_i[1] = 0
+    di_cchgrq1_t[1] = 1
+    di_cchgrq1_i[1] = 0  -- Cap Change Request
+    di_cchgrq2_t[1] = 1
+    di_cchgrq2_i[1] = 0  -- Cap Change Request
+    di_cchgrq3_t[1] = 1
+    di_cchgrq3_i[1] = 0  -- Cap Change Request
+    di_cchgrq4_t[1] = 1
+    di_cchgrq4_i[1] = 0  -- Cap Change Request
+    diQualStp_t[1]  = 1
+    diQualStp_i[1]  = 0
+    diAdptRgOn_t[1] = 1
+    diAdptRgOn_i[1] = 0 
+    diAdptMtOn_t[1] = 1
+    diAdptMtOn_i[1] = 0
+    diEndPrtRp_t[1] = 1
+    diEndPrtRp_i[1] = 0
+    diAdaptCap_t[1] = 1
+    diAdaptCap_i[1] = 0
+
+    do_cchgrq1_t[1] = 2
+    do_cchgrq1_i[1] = 0  
+    do_cchgrq2_t[1] = 2    
+    do_cchgrq2_i[1] = 0  
+    do_cchgrq3_t[1] = 2    
+    do_cchgrq3_i[1] = 0  
+    do_cchgrq4_t[1] = 2    
+    do_cchgrq4_i[1] = 0     
+    doTipDrsG1_t[1] = 2    
+    doTipDrsG1_i[1] = 0    -- Tip Dress
+    doTipDrsG2_t[1] = 2
+    doTipDrsG2_i[1] = 0    -- Tip Dress
+    doTipDrsG3_t[1] = 2
+    doTipDrsG3_i[1] = 0    -- Tip Dress
+    doTipDrsG4_t[1] = 2
+    doTipDrsG4_i[1] = 0    -- Tip Dress
+    do_tpmanq1_t[1] = 2
+    do_tpmanq1_i[1] = 0  
+    do_tpmanq2_t[1] = 2   
+    do_tpmanq2_i[1] = 0  
+    do_tpmanq3_t[1] = 2    
+    do_tpmanq3_i[1] = 0  
+    do_tpmanq4_t[1] = 2   
+    do_tpmanq4_i[1] = 0
+    doReqstPrs_t[1] = 2
+    doReqstPrs_i[1] = 0  -- Request Pressure
+    doStpRstG1_t[1] = 2
+    doStpRstG1_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[1] = 2
+    doStpRstG2_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[1] = 2
+    doStpRstG3_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[1] = 2
+    doStpRstG4_i[1] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[1] = 2
+    doPrtFinsh_i[1] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[1] = 2
+    doGunRstCk_i[1] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[1]  = 2
+    doAdptOff_i[1]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[1] = 19    -- WeldBody ID
+    goWldBdyID_i[1] = 0    -- WeldBody ID
+  ENDIF --configure second spr process, process 1 is not a spot type application
+
+END setspriovr
+-----------------------------------------------------------------------------
+ROUTINE set_spr_IO
+-- PURPOSE: sets application IO
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+					
+IF (numsprctrl <> 0) THEN --SPR app
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+    ErrsInShop.ErrorsIOCom = 0
+  ENDIF
+  IF UNINIT(SPRIO_Setup) OR (Reset_Cell) THEN
+    SPRIO_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the SPR I/O Program GMSPRIO', FALSE)
+
+  IF (SPRIO_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  SPR I/O Already Setup', FALSE)
+    IF ExecSetupAgn('SPR I/O') THEN -- ask user if they want to setup again
+      SPRIO_Setup = FALSE
+    ELSE
+      WriteLog('  SPR I/O already Complete', FALSE)
+      WriteLog('  GMSPRIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  initSPRVARS
+  ChkSPRInit
+  SPRSetup_IO
+  setspriovr
+  setSPR_intc
+
+  ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  SPR I/O setup Program GMSPRIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  SPR I/O setup Program completed', FALSE)
+    SPRIO_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_spr_IO
+
+
+-----------------------------------------------------------------------------
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+set_spr_IO
+
+END GMSPRIO

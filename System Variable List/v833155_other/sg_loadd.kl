@@ -1,0 +1,99 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1994
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--
+--    Program: sg_loadd 
+--    
+--    Description:
+--      This routine is used to determine from a TP program if the servo gun 
+--      option is loaded. A parameter shall be passed to the routing, that 
+--      indicated the register to pass back the answer in. 
+--        1 = Servo gun option loaded
+--        0 = Servo gun NOT loaded
+--      This routine is uesed in the TIP_RESET TP program.
+--
+--    Language: KAREL
+--    
+--    Source File:        sg_loadd.KL  
+--    
+--    Author: Bernie Herder
+--            Fanuc Robotics America, Inc.
+--            3900 W. Hamlin Road
+--            Rochester Hills, Michigan 48309-3253
+--    
+--    Modification history:
+--
+--
+--    10-15-13 jja R30iB Development
+--    2016-08-26 marchaka Changed servo option check to G4 wizard program
+--    2016-09-25 marchaka Changed g_servg_opt from GMCUSTO to GMVARS, changed number of
+--                        storage registers to 999
+------------------------------------------------------------------
+PROGRAM sg_loadd  -- Do not change the name of the program
+------------------------------------------------------------------
+%PRIORITY = 40
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='SrvGunLdChkv4.2'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+%INVISIBLE
+
+-- Softpart built-ins
+%ENVIRONMENT regope
+
+%INCLUDE etdcapsh
+
+VAR
+  real_value   : REAL
+  str_value    : STRING[15]
+  sg_ld_reg    : INTEGER
+  status       : INTEGER
+  ignore_stat  : INTEGER
+  
+-- From Other programs
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN   -- Servo gun option loaded
+
+-- Routine From other programs
+ROUTINE srvo_optn FROM gmwizspt
+
+----------------------------------------------------------------------
+BEGIN  -- sg_loadd
+----------------------------------------------------------------------
+----------------------------------------------------------------------
+
+GET_TPE_PRM(1,1, sg_ld_reg, real_value, str_value, status) -- get the model number from the TPE prog
+IF status = 0  THEN
+  IF ((sg_ld_reg <= 0) OR (sg_ld_reg > 999))  THEN
+    POST_ERR(ER_TYPEER,'parameter 1',0,2 )
+    ABORT
+  ELSE --- Reg value good check for servo gun
+    IF UNINIT(g_servog_opt) THEN
+      srvo_optn 
+    ENDIF
+    IF g_servog_opt THEN 
+      SET_INT_REG(sg_ld_reg, 1, ignore_stat)
+    ELSE
+      SET_INT_REG(sg_ld_reg, 0, ignore_stat)
+    ENDIF
+  ENDIF   
+ELSE
+  POST_ERR(ER_PARMER,'parameter',0,2 )
+  ABORT
+ENDIF
+
+END sg_loadd   -- Do not change the name of the program
+

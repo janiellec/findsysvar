@@ -1,0 +1,8 @@
+-- Used for ArcTool Mig-Weld specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+
+VAR
+
+  mig_steel   IN SHADOW FROM GMCFGMIG: INTEGER   --Mig-Weld, steel application
+  rmr_noz_det   IN SHADOW FROM GMCFGMIG: INTEGER	  --Mig-Weld, Reamer/Nozzle Detect
+  rmr_trch_wiz   IN SHADOW FROM GMCFGMIG: INTEGER	  --Mig-Weld, Reamer Torch Wizard

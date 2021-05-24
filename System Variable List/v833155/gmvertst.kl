@@ -1,0 +1,40 @@
+-------------------------------------------------------------------------------------------------------------
+PROGRAM GMVERTST
+-------------------------------------------------------------------------------------------------------------
+-- Softpart built-ins
+
+
+%NOLOCKGROUP
+%INVISIBLE
+%COMMENT='TestLGC v4.0'
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INCLUDE KLEVCCDF -- Used for TPERROR Builtin
+
+VAR
+  ans,i,gm_status          : INTEGER
+
+%INCLUDE klrdutil
+
+ROUTINE GMPT_Config FROM GMPWRTN
+ROUTINE GMPT_Setup  FROM GMPWRTN
+
+BEGIN
+
+WRITE TPERROR(CHR(cc_clear_win),'Calling Configuration Code')
+DELAY 2000
+
+   GMPT_Config
+
+WRITE TPERROR(CHR(cc_clear_win),'Configuration Code Done')
+DELAY 2000
+
+WRITE TPERROR(CHR(cc_clear_win),'Calling Setup Code')
+DELAY 2000
+
+   GMPT_Setup
+
+WRITE TPERROR(CHR(cc_clear_win),'Setup Code Done')
+DELAY 2000
+
+END GMVERTST
+

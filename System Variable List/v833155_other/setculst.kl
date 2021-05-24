@@ -1,0 +1,225 @@
+-------------------------------------------------------------------------------
+--
+--    21-Nov-2017 SETCULST.  Created by: Ron MacQuarrie
+--    used to give populate the custolst menu to 
+--    reduce the amount used.
+--             
+--    Program utilizes 3 argument(s) 
+--
+--    [AR1] Menu Number
+--    [AR2] Line Number
+--    [AR3] String
+--
+--     UPDATES / REVISIONS
+--    
+--    2019/08/28 B.Kroll(GM) Write to the user custolst array instead of the 
+--                           standard array.
+--    
+--
+-------------------------------------------------------------------------------
+PROGRAM SETCULST
+-------------------------------------------------------------------------------
+
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT= 'Populate Custolst'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+
+
+VAR
+
+  ver_num        IN SHADOW  :STRING[40]
+  mnulinestg   :STRING[40]
+  mnunum       :INTEGER        
+  mnuline      :INTEGER        
+  currentscr   :STRING[40]
+  dashes       :STRING[45]     
+  data_type    :INTEGER
+  entry        :INTEGER
+  event_no     :INTEGER
+  real_value   :REAL
+  STATUS       :INTEGER        
+  string_value :STRING[40]
+  pwrcycled    :STRING[3]
+  rk1          :STRING[40]  
+
+      
+
+%INCLUDE klrdutil
+
+
+
+ROUTINE WriteConsole(p_message : STRING) FROM swutils
+
+
+----------------------------------------------------------------------------
+ROUTINE initialize
+----------------------------------------------------------------------------
+BEGIN	
+
+   ver_num      = 'Aug 28 2019' -- set version date
+   dashes       = '----------------------------------------'
+   
+END initialize
+
+
+----------------------------------------------------------------------------
+ROUTINE tstArgument
+----------------------------------------------------------------------------
+BEGIN	
+
+  -- get parameter 3 (required parameters)
+  -- ARG[1] = Custolst menu Number
+  -- ARG[2] = line number (max 9)
+  -- ARG[3] = text string
+  
+  -- get parameter 1 (mandatory parameter)
+
+  GET_TPE_PRM(1, data_type, event_no,real_value,string_value,STATUS)
+   mnunum = event_no
+
+-- test mnunum to be valid
+
+  IF STATUS<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+   -- missing Argument
+POSTERR1::
+      FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1)
+      WRITE (CR,dashes,CR)
+      WRITE ('',CR)
+      WRITE ('SETCULST call is missing',CR)
+      WRITE ('arguments.  Please return ',CR)
+      WRITE ('and correct the call.',CR)
+      WRITE ('',CR)
+      WRITE ('Call requires a valid ',CR)
+      WRITE ('menu number',CR)
+      WRITE ('',CR)
+      WRITE TPFUNC (CR,'                                               ',CR)   -- Clear Fkey display
+    ABORT 
+
+--     POST_ERR(STATUS, '', 0, 1) 
+
+  ELSE
+    -- check to see if value is valid
+    IF (mnunum < 51) OR (mnunum > 75) THEN
+      -- INVALID ENTRY
+POSTERR2::
+      FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1)
+      WRITE (CR,dashes,CR)
+      WRITE ('',CR)
+      WRITE ('SETCULST call is out of',CR)
+      WRITE ('range.  Please return ',CR)
+      WRITE ('and correct the call.',CR)
+      WRITE ('',CR)
+      WRITE ('Call requires a valid ',CR)
+      WRITE ('menu number 51 - 75',CR)
+      WRITE ('',CR)
+      WRITE TPFUNC (CR,'                                               ',CR)   -- Clear Fkey display
+    ABORT 
+
+    ENDIF -- check to see if value is valid
+  ENDIF -- 17042 "ROUT-042 TPE parameters do not exist"
+  
+  -- get parameter 2 (Mandatory Paramater)
+  
+  GET_TPE_PRM(2, data_type, event_no,real_value,string_value,STATUS)
+   mnuline = event_no 
+   IF ((STATUS <> 0) AND (mnuline = 0))THEN
+      -- INVALID ENTRY
+  POSTERR3::
+         FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1)
+         WRITE (CR,dashes,CR)
+         WRITE ('',CR)
+         WRITE ('SETCULST call is missing',CR)
+         WRITE ('arguments.  Please return ',CR)
+         WRITE ('and correct the call.',CR)
+         WRITE ('',CR)
+         WRITE ('Call requires a valid ',CR)
+         WRITE ('response register',CR)
+         WRITE ('',CR)
+         WRITE TPFUNC (CR,'                                              ',CR)   -- Clear Fkey display
+    ABORT 
+
+  ELSE
+      -- check to see if value is valid
+      IF (mnuline = 0) OR (mnuline >9) THEN
+        -- INVALID ENTRY
+    POSTERR14::
+        FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1)
+        WRITE (CR,dashes,CR)
+        WRITE ('',CR)
+        WRITE ('SETCULST call argument is',CR)
+        WRITE ('out of range.  Please return ',CR)
+        WRITE ('and correct the call.',CR)
+        WRITE ('',CR)
+      WRITE ('Call requires a valid ',CR)
+      WRITE ('line number 1 - 9',CR)
+        WRITE ('',CR)
+        WRITE TPFUNC (CR,'                                               ',CR)   -- Clear Fkey display
+        ABORT 
+      ENDIF
+
+   ENDIF
+   
+  
+  -- get parameter 3 (Mandatory Paramater)
+
+  GET_TPE_PRM(3, data_type, event_no,real_value,string_value,STATUS)
+   mnulinestg = string_value
+
+-- test FltBit to be valid
+
+  IF ((STATUS <> 0)) THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+      -- INVALID ENTRY
+  POSTERR13::
+         FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1)
+         WRITE (CR,dashes,CR)
+         WRITE ('',CR)
+         WRITE ('SETCULST call is missing',CR)
+         WRITE ('arguments.  Please return ',CR)
+         WRITE ('and correct the call.',CR)
+         WRITE ('',CR)
+         WRITE ('Call requires a valid ',CR)
+         WRITE ('response register',CR)
+         WRITE ('',CR)
+         WRITE TPFUNC (CR,'                                              ',CR)   -- Clear Fkey display
+    ABORT 
+
+  ENDIF
+
+END tstArgument
+
+
+Routine poplist
+
+BEGIN
+
+SET_VAR(entry,'CUSTOLST','USERLST_MENU[' + int_to_strg(mnunum-50) + ','+ int_to_strg(mnuline)+']',mnulinestg,STATUS)
+
+end poplist
+
+
+----------------------------------------------------------------------------
+ROUTINE cleartpscrn
+----------------------------------------------------------------------------
+					         
+BEGIN	
+
+   WRITE ('',CR,CR,CR,CR,CR,CR,CR,CR,CR,CR)
+   WRITE TPFUNC (CR,'                                               ',CR)   -- Clear Fkey display
+   
+END cleartpscrn
+-----------------------------------------------------------------------------
+-- DCDTCH Mainline
+-----------------------------------------------------------------------------
+
+BEGIN 
+
+initialize                -- Initialize variables
+tstArgument               -- validate arguments
+poplist
+
+
+-----------------------------------------------------------------------------
+END SETCULST

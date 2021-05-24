@@ -1,0 +1,179 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+-- 
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmwizpj.kl
+--
+--    Description:
+--
+--    gmwizpj contains questions for configuring GM G4 projection weld applications
+--    
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: 
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           2016/04/04   marchaka Program created
+--           2016/10/07   marchaka projection weld wizard added
+--           2016/10/12   marchaka logic for projection weld combinations added
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmwizpj
+-------------------------------------------------------------------------------------------------------------
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT='GM ProjWeldWizG4.0'
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- Required for the configuration for GM Body Shop variables  
+%INCLUDE gmcfgspt  -- Required for the configuration for GM Spot Gun variables
+%INCLUDE gmcfgpjw  -- Required for the configuration for GM projection weld variables
+
+
+CONST
+
+Version = '2016-10-24'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+
+VAR
+  ans          : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+ROUTINE USERPAGE FROM USERPAGE  -- forces user screen to pendant
+-------------------------------------------------------------------
+ROUTINE initpjwizvar
+--intialize variables in case projection weld wizard is run not from wizard
+-------------------------------------------------------------------
+VAR
+w: INTEGER
+
+BEGIN
+  --Initialize variables
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numprojctrl) THEN
+    numprojctrl = 0
+    FOR w = 1 TO 2 DO
+      projwldapp[w].proj_ctrl = 0		--projection weld controller type
+    ENDFOR
+  ENDIF
+
+  IF UNINIT(proj_ctrl) THEN
+    proj_ctrl = 0
+  ENDIF
+
+  IF UNINIT(proj1_app) THEN
+    proj1_app = 0
+  ENDIF
+
+  IF UNINIT(proj2_app) THEN
+    proj2_app = 0
+  ENDIf
+
+END initpjwizvar
+-------------------------------------------------------------------
+ROUTINE projwld_wiz
+-------------------------------------------------------------------
+BEGIN
+
+  initpjwizvar --initialize wizard variables
+
+  IF ((bshop_proc1 = projappl) OR (bshop_proc2 = projappl))THEN  --projection weld cannot be combined with itself
+                                                                 --one projection welder is max for G4
+    numprojctrl = 1
+  ELSE
+    numprojctrl = 0
+  ENDIF
+
+  SELECT numprojctrl OF
+    CASE(1):  --one projection welder
+
+      IF (proj1_app = 0) THEN --skip application type question if combo
+                              --if combo proj1_app VAR should have already been set be set in gmwizbsh    
+                               
+        REPEAT
+          --WRITE(CR,'One Projection Weld Controller',CR)
+          --WRITE('1. Robot Held Gun',CR)
+          --WRITE('2. Single Pedestal Gun',CR)
+          --WRITE('Answer: ')
+
+          CLR_STND_SCR(gm_status)
+          WRITE(CR,p1pc_gmdata,CR)
+          WRITE('1.',rhg_gmdata,CR)
+          WRITE('2.',spg_gmdata,CR)
+          WRITE(gdata_ans,'(1-2):')
+          READ(ans)
+        UNTIL(Verify_Answr(ans,1,2))
+        proj1_app = ans
+      
+      ENDIF --skip application type question if combo
+
+      REPEAT
+        --WRITE(CR,'One Projection Weld Controller',CR)
+        --WRITE(CR,'Select Weld Controller',CR)
+        --WRITE('1. WTC Controller',CR)
+        --WRITE('0. None of th eabove',CR)
+
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,p1pc_gmdata,CR)
+        WRITE(CR,wldct_gmdata,CR)
+        WRITE('1.',wtc_gmdata,CR)
+        WRITE('0.',none_gmdata,CR)
+        WRITE(gdata_ans,'(0-1):')
+        READ(ans)
+      UNTIL(Verify_Answr(ans,0,1))
+      projwldapp[1].proj_ctrl = ans
+
+    ELSE:
+  ENDSELECT --number of projection weld controllers 
+
+END projwld_wiz
+-------------------------------------------------------------------
+BEGIN
+
+set_english
+initpjwizvar
+projwld_wiz
+
+END gmwizpj
+

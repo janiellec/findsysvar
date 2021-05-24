@@ -1,0 +1,56 @@
+-----------------------------------------------------------
+PROGRAM mnumonck
+-----------------------------------------------------------
+
+%SYSTEM
+%COMMENT=''
+%NOBUSYLAMP
+%NOLOCKGROUP
+%NOPAUSESHFT
+--%STACKSIZE = 1024
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+--%DELAY=8
+--%CMOSVARS
+
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT STRNG
+%ENVIRONMENT FLBT
+%ENVIRONMENT REGOPE
+%ENVIRONMENT MULTI
+
+--------------------------
+-- Routine declarations --
+--------------------------
+-----------------------------------------------------------
+-- Checks to see if menu_pst is running
+-----------------------------------------------------------
+ROUTINE CheckTsk
+VAR
+  Status	 : INTEGER
+  TaskStat       : INTEGER
+  AStatus        : INTEGER
+  RStatus        : INTEGER
+  
+BEGIN
+  -- Check status of menu_pst
+  GET_TSK_INFO('menu_pst', 0, TSK_STATUS, TaskStat, '', Status)
+  IF (TaskStat = PG_PAUSED) THEN
+    --Abort Task if paused
+    ABORT_TASK('menu_pst', TRUE, TRUE, AStatus)
+    DELAY 250
+  ENDIF
+
+  IF (TaskStat <> PG_RUNNING) OR (Status > 0) THEN
+    --Start Task if not already running	
+    RUN_TASK('menu_pst', 0, FALSE, FALSE, 1, RStatus)
+  ENDIF
+END CheckTsk
+
+--------------------------------------------------------------------
+--------------------------------------------------------------------
+--------------------------------------------------------------------
+BEGIN
+  CheckTsk
+END mnumonck

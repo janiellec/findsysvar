@@ -1,0 +1,635 @@
+--
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   2002
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program: pntutils - RS4 Utility Program For PaintShop Dispense
+--
+--    Description:
+--      This program is used for GM PaintShop applications.  It runs in the 
+--      background and performs custom functions required specifically for
+--      GM PaintShops.
+--
+--    Language: KAREL
+--
+--    Source File:        None
+--
+--    Author: FRIEDEMAN
+--            Fanuc Robotics Corporation
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--
+--    08-MAR-17 Friedeman Created. 
+--  
+--    24-MAR-17 Friedeman Added a condition handler to stop circulation if
+--                        the robot gets an Immediate Stop, then automatically
+--                        re-start circulation when the fault is cleared.
+-- 
+--    28-FEB-18 Friedeman Added code to force "Not At Purge" = ON at power-up.
+--                        This prevents accidental purging while not at purge 
+--                        after a cold start.
+--
+--    28-AUG-18 Friedeman Added support for iRVision functions.
+--
+
+
+------------------------------------------------------------------
+PROGRAM pntutils
+------------------------------------------------------------------
+%PRIORITY = 75
+%SYSTEM
+%COMMENT='PNTUTILS V833/03'
+%NOBUSYLAMP
+%NOLOCKGROUP
+%STACKSIZE = 5000
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+%CMOSVARS
+
+-- Softpart built-ins
+%ENVIRONMENT IOBLT    -- iovalset and iovalrd
+%ENVIRONMENT SLDEF    -- $sliomap and $slsetup
+%ENVIRONMENT SYSDEF   -- general system variables
+%ENVIRONMENT REGOPE   -- set_real_reg and set_int_reg
+%ENVIRONMENT IOSETUP  -- get_port_mod
+%ENVIRONMENT TPE      -- 
+%ENVIRONMENT MNMCDEF  -- 
+%ENVIRONMENT MULTI    -- 
+%ENVIRONMENT RIPDEF   -- $ROSIP
+%ENVIRONMENT SYREFDEF -- $REFPOS
+
+%INCLUDE kliotyps     -- 
+%INCLUDE kliouop      -- UOP I/O constants
+%INCLUDE kliosop      -- SOP I/O constants
+%INCLUDE klevkeys     -- TP I/O constants
+%INCLUDE etdccust     -- Custom Error Codes
+
+CONST
+  Version = '2017-03-24'
+  IGN_OFFLN    = 128
+  SCAN_2_ITP   = 16
+  SCAN_32_ITP  = 256
+  
+  CH_CIRC_MON  = 803
+  CH_TIP_COLL  = 804
+  CH_FLT_RESET = 805
+  CH_CLROF_REQ = 806
+  CH_JOBID_REQ = 807
+
+  TOOLX_REG    = 950
+  
+  GUI_3DMV_DAT = 904 -- Triggers transmission of 3DMV Data to GUI
+  PR_3DMV_DAT  =  77 -- PR Containing the vision offsets
+
+  SUCCESS      = 0
+  
+VAR
+  %INCLUDE gmcfgpnt
+  %INCLUDE gmpntvar
+  
+  hfo      : BOOLEAN
+  p1_press : INTEGER  -- Meter & Application pressure from SCA
+  p1_temps : INTEGER  -- Temperature Setpoint from SCA
+  p1_tempa : INTEGER  -- Temperature (Actual) from SCA
+  p1_toolx : INTEGER  -- Hem EOAT Compliance
+  
+  status   : INTEGER 
+  io_val   : INTEGER
+  
+  b_loaded      : BOOLEAN
+  dummy_bool    : BOOLEAN
+  
+  eoat_cd_dsbl  : BOOLEAN
+  toolx_positn  : REAL
+  
+  lst_rstrt_rq : INTEGER
+  
+  -- Common vars to transmit data to the GUI
+  vp_name_str  IN CMOS FROM V500_VAR : STRING[16]
+  vp_status    IN CMOS FROM V500_VAR : INTEGER
+  vp_pr_index  IN CMOS FROM V500_VAR : INTEGER
+
+  ep_tipcoldet  : BOOLEAN
+  ep_tipcddsbl  : BOOLEAN
+  
+
+
+------------------------------------------------------------------------------
+ROUTINE get_int_reg(l_reg_num:INTEGER):INTEGER -- gets int values of registers
+                                               -- returns 99999 if bad data
+------------------------------------------------------------------------------
+VAR
+  l_real_flag : BOOLEAN
+  l_int_val   : INTEGER
+  l_real_val  : REAL
+  l_status    : INTEGER
+
+BEGIN
+  GET_REG(l_reg_num, l_real_flag, l_int_val, l_real_val, l_status)
+  IF l_status <> 0 THEN
+    -- WRITE (CR,'BAD DATA FOR REG ',l_reg_num) 
+    RETURN(99999)
+  ENDIF
+  IF l_real_flag THEN
+    l_int_val = TRUNC(l_real_val)
+  ENDIF
+  RETURN(l_int_val)
+END get_int_reg
+
+-----------------------------------------------------------------------------
+ROUTINE check_port(p_io_type, p_index:INTEGER): BOOLEAN
+--
+-- Checks if a logical port is assigned.
+--
+-- Inputs:
+--   INTEGER - p_index   - logical port number
+--   INTEGER - p_io_type - logical port type (ex: io_din,io_dout,etc.)
+-- Outputs:
+--   BOOLEAN - check_port- returned value, TRUE if port defined OK, else FALSE
+-- Called By:
+--   ROUTINE init_shell - To check many IO points
+-----------------------------------------------------------------------
+VAR
+  l_i         : INTEGER
+  l_status    : INTEGER
+
+BEGIN
+  IF NOT UNINIT(p_index) AND NOT UNINIT(p_io_type) THEN
+    IF (p_index <> 0) THEN     --Cut out early
+      GET_PORT_MOD(p_io_type, p_index, l_i, l_status)
+      IF (l_status = 0) THEN
+        RETURN(TRUE)           --Port assigned
+      ENDIF --GET_PORT_MOD status good?
+    ENDIF --Index not 0
+  ENDIF
+  RETURN(FALSE)                --Port not assigned
+END check_port
+
+------------------------------------------------------------------------------
+ROUTINE clr_flt_flag -- Clears the 'Fault Posted' flag when the user presses
+                     -- the reset button
+------------------------------------------------------------------------------
+VAR
+  l_status     : INTEGER
+
+BEGIN
+
+
+  ep_tipcoldet = FALSE
+  ep_tipcddsbl = FALSE
+
+  -- Send a reset pulse to the SCA
+  l_status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1CLRFLTI,  1)
+  IF (l_status = 0) THEN  
+    PULSE DOUT[DO_P1CLRFLTI] FOR 500 NOWAIT
+  ENDIF
+	
+  ENABLE CONDITION[CH_FLT_RESET]
+END clr_flt_flag
+
+------------------------------------------------------------------------------
+ROUTINE xmit_3dmvdat -- Transmits the /3DMV data to the PLC/GUI
+------------------------------------------------------------------------------
+VAR
+  l_status         : INTEGER
+  l_entry          : INTEGER
+  l_vs_din         : INTEGER     -- Vision Master Select Bit
+  l_string         : STRING[40]  -- Match STRINGVAL1 in IRVGETOF.KL
+  l_vp_stat        : INTEGER     -- Status of vision operation.
+  gui_dat_stat     : INTEGER
+  l_ghost_val      : INTEGER
+  l_ghost_used     : BOOLEAN
+  l_vis_backup     : INTEGER
+  l_mstr_flg       : BOOLEAN
+  
+BEGIN
+
+  gui_dat_stat = GET_INT_REG(GUI_3DMV_DAT)
+
+  IF (gui_dat_stat <> 0) THEN
+    SET_INT_REG(GUI_3DMV_DAT, 0, l_status)
+
+    -- If Ghost Mode is used, make sure the GUI logs it correctly
+    l_ghost_used = FALSE 
+	GET_PORT_VAL(IO_DIN,di_ghost_i, l_ghost_val,l_status)
+    IF (l_status = SUCCESS) THEN
+      IF (l_ghost_val = 1) THEN
+	    l_ghost_used = TRUE
+        vp_name_str = 'Ghost Mode'
+		vp_status = 0
+	  ENDIF
+    ENDIF
+
+    -- Set real data if not in Ghost Mode
+    IF (l_ghost_used = FALSE) THEN  
+      GET_VAR(l_entry,'IRVGETOF','STRING_VAL1',l_string,l_status)	
+      IF (l_status = 0) THEN
+        vp_name_str = l_string -- From irvgetof
+      ENDIF
+      GET_VAR(l_entry,'IRVGETOF','STATUS',l_vp_stat,l_status)	
+      IF (l_status = 0) THEN
+	    vp_status = l_vp_stat        -- From irvgetof
+      ENDIF
+	ENDIF  
+    vp_pr_index = PR_3DMV_DAT
+    PULSE DOUT[do_data_ok_i] FOR 500 NOWAIT
+  ENDIF
+
+  l_mstr_flg = FALSE
+
+  GET_VAR(l_entry,'IRVOFFSV','VIS_SEL_DIN',l_vs_din,l_status)	
+    IF (l_status = 0) THEN
+	GET_PORT_VAL(io_din,l_vs_din, l_vis_backup,l_status)
+    IF (l_status = SUCCESS) THEN
+      -- Turn the "I Am The MASTER" bit ON if the input is OFF and I am #1 in the RIPE list.
+	  -- Turn the "I Am The MAStER" bit ON if the input is ON and I am #2 in the RIPE list.
+	  -- Else, turn the "I Am The MASTER" bit OFF.
+	  IF (($PH_ROSIP.$NUM_MEMBERS > 0) AND ($PH_ROSIP.$MY_INDEX = 1) AND(l_vis_backup = 0)) OR
+	    (($PH_ROSIP.$NUM_MEMBERS > 0) AND ($PH_ROSIP.$MY_INDEX = 2) AND (l_vis_backup = 1)) THEN
+        l_mstr_flg = TRUE
+      ENDIF
+	ENDIF
+  ENDIF
+  IF (l_mstr_flg = TRUE) THEN 
+    l_status = IOVALSET(IO_DOUT + IGN_OFFLN, do_mstrflg_i, 1)
+  ELSE
+    l_status = IOVALSET(IO_DOUT + IGN_OFFLN, do_mstrflg_i, 0)
+  ENDIF
+  
+END xmit_3dmvdat
+
+
+
+-----------------------------------------------------------------------------
+ROUTINE run_clroffst
+--
+--This routine will run the CLROFFST program.  
+-----------------------------------------------------------------------------
+VAR
+  l_status     : INTEGER
+  l_loaded     : BOOLEAN
+  dummy_bool   : BOOLEAN
+  
+BEGIN
+  LOAD_STATUS('CLROFFST', l_loaded, dummy_bool) -- program exists?  
+  IF l_loaded THEN -- if it exists                                   
+    RUN_TASK('CLROFFST', 0, FALSE, FALSE, 0, l_status)    
+    IF(l_status <> 0) THEN --Did run task fail?
+      POST_ERR(l_status,'',0,0)  
+      -- If a failure occurs, the PLC will not receive an Ack or Fault bit.
+      ABORT_TASK('CLROFFST', TRUE, TRUE, l_status) --Abort JOB
+      DELAY 50
+	  -- Retry one time... Maybe the program was previously paused or something.
+      RUN_TASK('CLROFFST', 0, FALSE, FALSE, 0, l_status)
+    ENDIF -- Run Task didn't work
+  ELSE
+    POST_ERR(ERCLROFNLOAD,'',0,0) -- iRV CLROFFST.TP Not Loaded.  
+  ENDIF                
+
+  --RUN_TASK('CLROFFST', 0, FALSE, FALSE, 0, l_status)
+  --IF(l_status <> 0) THEN --Did run task fail?
+  ---- If a failure occurs, the PLC will not receive an Ack or Fault bit.
+  --ABORT_TASK('CLROFFST', TRUE, TRUE, l_status) --Abort JOB
+  --ENDIF --Did run_task work ok?
+
+  ENABLE CONDITION[CH_CLROF_REQ]
+END run_clroffst
+
+
+
+-----------------------------------------------------------------------------
+ROUTINE run_irvjobid
+--
+--This routine will run the IRVJOBID program.  
+-----------------------------------------------------------------------------
+VAR
+  l_status     : INTEGER
+  l_loaded     : BOOLEAN
+  dummy_bool   : BOOLEAN
+  
+BEGIN
+  LOAD_STATUS('IRVJOBID', l_loaded, dummy_bool) -- program exists?  
+  IF l_loaded THEN -- if it exists                                   
+    RUN_TASK('IRVJOBID', 0, FALSE, FALSE, 0, l_status)    
+    IF(l_status <> 0) THEN --Did run task fail?
+      POST_ERR(l_status,'',0,0)  
+      -- If a failure occurs, the PLC will not receive an Ack or Fault bit.
+      ABORT_TASK('IRVJOBID', TRUE, TRUE, l_status) --Abort JOB
+      DELAY 50
+	  -- Retry one time... Maybe the program was previously paused or something.
+      RUN_TASK('IRVJOBID', 0, FALSE, FALSE, 0, l_status)
+    ENDIF -- Run Task didn't work
+  ELSE
+    POST_ERR(ERJOBIDNLOAD,'',0,0) -- iRVJOBID.TP Not Loaded.  
+  ENDIF                
+
+  ENABLE CONDITION[CH_JOBID_REQ]
+END run_irvjobid
+
+
+
+--------------------------------------------------------------------------
+ROUTINE periodic_sub  -- Executes every 200ms
+--------------------------------------------------------------------------
+VAR
+  l_status     : INTEGER
+  l_bool1      : BOOLEAN
+  l_int1       : INTEGER
+  l_entry      : INTEGER
+  l_rstrt_req  : INTEGER
+  
+BEGIN
+  IF (pnt_dsp_used = TRUE) THEN 
+    -- Pass the current pressure, temperature setpoint and actual temperature
+    -- values from the SCA to the PLC.
+	GET_PORT_VAL(IO_GPIN,GI_P1PRESS_I, p1_press, l_status)
+    IF (l_status = 0) THEN
+      l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1PRESS_I,  p1_press)
+    ELSE	
+	  l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1PRESS_I,  0)
+    ENDIF	
+
+	GET_PORT_VAL(IO_GPIN,GI_P1TEMPS_I, p1_temps, l_status)
+    IF (l_status = 0) THEN
+      l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1TEMPS_I,  p1_temps)
+    ELSE
+      l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1TEMPS_I,  0)
+    ENDIF	
+
+	GET_PORT_VAL(IO_GPIN,GI_P1TEMPA_I, p1_tempa, l_status)
+    IF (l_status = 0) THEN
+      l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1TEMPA_I,  p1_tempa)
+    ELSE
+      l_status=iovalset(IO_GPOUT + IGN_OFFLN, GO_P1TEMPA_I,  0)
+    ENDIF	
+  ENDIF
+
+  -- Post a warning if the EOAT Tip Collision Detection is disabled.
+  -- This isn't part of the condition handler so it doesn't impact CPU performance.
+  IF (appl_type = 3) OR (appl_type = 2) THEN -- 2 = PVC, 3 = Hem.
+    IF (eoat_cd_dsbl = TRUE) THEN 
+      IF (ep_tipcddsbl = FALSE) THEN
+	    POST_ERR(ER_TIPCDDSBL,'',0,0) -- warning
+	    ep_tipcddsbl = TRUE -- posted
+  	  ENDIF
+    ENDIF	
+  ENDIF
+
+  -- For Hem applications, monitor the position of the compliance tool.
+  IF (appl_type = 3) THEN
+	GET_PORT_VAL(IO_ANIN,AI_TOOLX_I, p1_toolx, l_status)
+    IF (l_status = 0) THEN  
+	  -- 24.76mm travel.  Range = 200 ticks to 3400 ticks.
+	  -- So... 3200 Ticks / 24.76 mm travel = .0077375 mm/tick.
+      toolx_positn = (p1_toolx - 200) * .0077375
+	  SET_REAL_REG(TOOLX_REG, toolx_positn, l_status)
+	ELSE
+	  SET_REAL_REG(TOOLX_REG, 0, l_status)
+	ENDIF
+  ENDIF	
+
+  -- Disable Original Path Resume if the TP is on, so the robot doesn't
+  -- move backwards and startle the Process Engineer.  
+  $SCR.$ORG_PTH_RSM = NOT TPIN[tpi_enable]  
+  
+  -- If REFPOS[2] (Purge) is set up and enabled, set "Not At Purge Position"
+  -- based on the opposite state of the "At Purge" output.
+  IF (DO_P1_NAPP_I <> 0) AND ($REFPOS1[2].$DOUT_INDX <> 0) AND 
+     ($REFPOS1[2].$ENABLED = TRUE) THEN
+	IF ($REFPOS1[2].$ATPERCH = TRUE) THEN
+      status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_NAPP_I,  0)
+	ELSE
+      status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_NAPP_I,  1)  
+	ENDIF
+  ENDIF	
+  
+  -- Allow the PLC to request a Remote SCA Start, while still allowing the 
+  -- robot to request this through TP programs.  (Can't just use interconnect)
+  GET_PORT_VAL(IO_DIN,DI_P1_RSR_I, l_rstrt_req, l_status) -- PLC Remote SCA Start Request
+  IF (l_status = 0) THEN
+    IF (l_rstrt_req = 1) THEN
+      l_status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_STRT_I,  1)
+	  lst_rstrt_rq = 1
+    ELSE
+      IF (lst_rstrt_rq = 1) THEN	
+        l_status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_STRT_I,  0)
+		lst_rstrt_rq = 0
+	  ENDIF	
+    ENDIF	
+  ENDIF
+  
+  xmit_3dmvdat
+  
+END periodic_sub  
+  
+ --=====================================================================  
+ROUTINE hem_coll_det 
+--
+-- This routine runs when the software an input indicating that the Hem
+-- Flange gun tip has collided with part.
+--
+--=====================================================================  
+BEGIN
+  IF (ep_tipcoldet = FALSE) THEN
+    ep_tipcoldet = TRUE
+    POST_ERR(ER_TIPCOLDET,'',0,1)  -- EOAT Collision Detect
+  ENDIF
+  ENABLE CONDITION[CH_TIP_COLL]
+END hem_coll_det
+ 
+--------------------------------------------------------------------------
+BEGIN  -- pntutils main code
+--------------------------------------------------------------------------
+  hfo = FALSE
+
+  IF UNINIT(eoat_cd_dsbl) THEN
+    eoat_cd_dsbl = FALSE
+	ep_tipcoldet = FALSE
+	ep_tipcddsbl = FALSE
+  ENDIF	
+
+  IF UNINIT(gi_p1press_i) THEN
+    gi_p1press_i = 54  -- Meter/Application Pressure from SCA
+  ENDIF
+  
+  IF UNINIT(go_p1press_i) THEN
+    go_p1press_i = 54  -- Meter/Application Pressure Echo to PLC
+  ENDIF
+
+  IF UNINIT(gi_p1temps_i) THEN
+    gi_p1temps_i = 55  -- Temperature Setpoint from SCA
+  ENDIF
+
+  IF UNINIT(go_p1temps_i) THEN
+    go_p1temps_i = 55  -- Temperature Setpoint Echo to PLC
+  ENDIF
+
+  IF UNINIT(gi_p1tempa_i) THEN
+    gi_p1tempa_i = 56  -- Actual Temperature from SCA
+  ENDIF
+
+  IF UNINIT(go_p1tempa_i) THEN
+    go_p1tempa_i = 56  -- Actual Temperature Echo to PLC
+  ENDIF
+
+  IF UNINIT(do_mstrflg_i) THEN
+    do_mstrflg_i = 497 -- I am the Vision Master
+  ENDIF
+  
+  IF UNINIT(do_data_ok_i) THEN
+    do_data_ok_i = 499 -- Vision Data is ready.
+  ENDIF
+  
+  IF UNINIT(do_p1_circ_i) THEN
+    do_p1_circ_i = 1071 -- Circulation Request To SCA
+  ENDIF
+
+  IF UNINIT(do_p1_napp_i) THEN
+    do_p1_napp_i = 1057 -- Not At Purge Position to SCA
+  ENDIF
+
+  IF UNINIT(do_p1clrflti) THEN
+    do_p1clrflti = 1062 -- Dispenser Fault Reset
+  ENDIF
+  
+  IF UNINIT(do_p1_strt_i) THEN
+    do_p1_strt_i = 1063 -- Dispenser Remote Start
+  ENDIF
+
+  IF UNINIT(di_p1_rsr_i) THEN
+    di_p1_rsr_i  = 67 -- Remote Start Request from PLC to SCA
+  ENDIF  
+  
+  IF UNINIT(di_clrrqst_i) THEN
+    di_clrrqst_i  = 506 -- Clear Offsets Request.
+  ENDIF  
+  
+  IF UNINIT(di_irvjbid_i) THEN
+    di_irvjbid_i  = 329 -- iRV Job ID Request.
+  ENDIF  
+  
+  IF UNINIT(di_ghost_i) THEN
+    di_ghost_i  = 507 -- Run Without Offsets
+  ENDIF  
+  
+  IF UNINIT(di_eoatcd_i) THEN
+    di_eoatcd_i  = 1602 -- EOAT Collision Detect
+  ENDIF
+  
+  IF UNINIT(ai_toolx_i) THEN
+    ai_toolx_i   = 1    -- EOAT X Compliance Input
+  ENDIF
+  
+  -- Force Circulation OFF at Power-Up.
+  status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_CIRC_I,  0)
+
+  -- Force Remote Start OFF at Power-Up.
+  status=iovalset(IO_DOUT + IGN_OFFLN, DO_P1_STRT_I,  0)
+  lst_rstrt_rq = 0
+  
+  IF (appl_type = 2) THEN -- PVC Tool
+    -- Run the TCU task
+    RUN_TASK('TCU_TASK', 1, FALSE, FALSE, 0, status)
+    IF status <> 0 THEN
+      POST_ERR(status, '', 0, 0)
+    ELSE
+      -- Delay to allow the task to start
+      DELAY 1000
+    ENDIF
+  ENDIF
+
+  -- Run iRVision Offset Server if the program is loaded.
+  LOAD_STATUS('IRVOFFSV', b_loaded, dummy_bool) -- program exists?  
+  IF b_loaded THEN -- if it exists                                   
+    RUN_TASK('IRVOFFSV', 0, FALSE, FALSE, 0, status)  
+    IF status <> 0 THEN
+      POST_ERR(status, '', 0, 0)
+    ELSE
+      -- Delay to allow the task to start
+      DELAY 1000
+    ENDIF
+  ENDIF  
+  
+  -- For the Hem Tool, the Collision Detect signal is OFF when a collision occurs.  
+  IF (appl_type = 3) THEN -- Hem
+    -- Make sure the I/O is valid.
+    GET_PORT_VAL(IO_DIN,DI_EOATCD_I, io_val, status)
+    IF (status = 0) THEN	
+      -- Post a fault on a falling edge if someone is jogging or trying to 
+      -- recover from a Tip Collision. Always post the fault if the TP is OFF.
+      CONDITION[CH_TIP_COLL]: WITH $SCAN_TIME = SCAN_2_ITP
+        WHEN DIN[DI_EOATCD_I]-  AND (TPIN[tpi_enable] = TRUE) AND (eoat_cd_dsbl = FALSE) DO
+          hem_coll_det
+        WHEN (DIN[DI_EOATCD_I] = FALSE) AND (TPIN[tpi_enable] = FALSE) AND (eoat_cd_dsbl = FALSE) DO
+          hem_coll_det
+      ENDCONDITION
+      ENABLE CONDITION[CH_TIP_COLL]
+    ENDIF
+  ENDIF
+
+  -- For the PVC Tool, the Collision Detect signal is ON when a collision occurs.
+  -- The signal is not failsafe, but the Electrical Engineers couldn't figure out
+  -- how to wire it so that it works the way it is supposed to.  
+  IF (appl_type = 2) THEN -- PVC
+    -- Make sure the I/O is valid.
+    GET_PORT_VAL(IO_DIN,DI_EOATCD_I, io_val, status)
+    IF (status = 0) THEN	
+      -- Post a fault on a rising edge if someone is jogging or trying to 
+      -- recover from a Tip Collision. Always post the fault if the TP is OFF.
+      CONDITION[CH_TIP_COLL]: WITH $SCAN_TIME = SCAN_2_ITP
+        WHEN DIN[DI_EOATCD_I]+  AND (TPIN[tpi_enable] = TRUE) AND (eoat_cd_dsbl = FALSE) DO
+          hem_coll_det
+        WHEN (DIN[DI_EOATCD_I] = TRUE) AND (TPIN[tpi_enable] = FALSE) AND (eoat_cd_dsbl = FALSE) DO
+          hem_coll_det
+      ENDCONDITION
+      ENABLE CONDITION[CH_TIP_COLL]
+    ENDIF
+  ENDIF
+
+  CONDITION[CH_FLT_RESET]: WITH $SCAN_TIME = SCAN_32_ITP -- Wait for reset
+    WHEN ERROR[0] DO
+      clr_flt_flag
+  ENDCONDITION
+  ENABLE CONDITION[CH_FLT_RESET]  
+
+  -- Run the ClearOffset Request TP program on a rising edge of the request.
+  IF NOT UNINIT(di_clrrqst_i) THEN
+    IF (di_clrrqst_i <> 0) THEN
+      CONDITION[CH_CLROF_REQ]: WITH $SCAN_TIME = SCAN_2_ITP
+        WHEN DIN[di_clrrqst_i]+ DO
+          run_clroffst
+      ENDCONDITION
+      ENABLE CONDITION[CH_CLROF_REQ]
+    ENDIF
+  ENDIF
+  
+  -- Run the iRVision JOB ID TP program on a rising edge of the request.
+  IF NOT UNINIT(di_irvjbid_i) THEN
+    IF (di_irvjbid_i <> 0) THEN
+      CONDITION[CH_JOBID_REQ]: WITH $SCAN_TIME = SCAN_2_ITP
+        WHEN DIN[di_irvjbid_i]+ DO
+          run_irvjobid
+      ENDCONDITION
+      ENABLE CONDITION[CH_JOBID_REQ]
+    ENDIF
+  ENDIF
+  
+  REPEAT
+    periodic_sub
+	DELAY 200
+  UNTIL hfo = TRUE 
+END pntutils

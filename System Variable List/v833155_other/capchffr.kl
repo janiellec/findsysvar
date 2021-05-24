@@ -1,0 +1,218 @@
+-------------------------------------------------------------------------------
+--
+--    13-NOV-2008 CapLoss.
+--    GM-GRS-4 Replacement to menu utility for CapLoss during Cap Change.
+--    03-10-10 Steedlj BODYSHOP/Metal Add SET_VAR and repost function
+--    09-23-11 Steedlj BODYSHOP change text for new tip growth check because
+--	       caploss is not called for servo gun water off cap changes
+--	       Text will still work and program to be called for air gun.
+--    09-13-13 Cap Change in FFR -  gives the ability to perform a Tip Dress in FFR
+--    10-15-13 jja R30iB Development
+--    2016/10/24 marchaka process_def changed to be from GMVARS instead of GMCUSTO
+-------------------------------------------------------------------------------
+PROGRAM capchffr
+-------------------------------------------------------------------------------
+
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT= 'Capchffr v4.1'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+%PRIORITY = 90
+
+-- Softpart built-ins
+%ENVIRONMENT SWGDEF
+%ENVIRONMENT SGDEF1
+%ENVIRONMENT proddef
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT strng
+%ENVIRONMENT REGOPE
+%ENVIRONMENT UIF
+%ENVIRONMENT ioblt
+%ENVIRONMENT IOSETUP
+
+CONST
+
+  -- GM RS4 Constants
+  CH_RPOST      = 675
+  io_sopout     = 12   -- Same as io_sopout
+  tpi_enable    = 249 
+  io_sopin      = 11   -- Same as io_opin   
+  io_din        =  1   -- Digital input
+  io_tpin       = 14 
+  io_opin       = 11  
+  tpi_edit      = 145
+  io_uopin      = 20   -- User operator's panel input   
+  tpi_reset     = 153  -- TP RESET
+  IGNOR_OFFLIN  = 128
+  io_dout       =  2   -- Digital output   
+
+VAR
+  ans 	      IN SHADOW :INTEGER
+  done        IN SHADOW :BOOLEAN
+  status      IN SHADOW :INTEGER
+  ans_status  IN SHADOW :INTEGER
+  edt_status  IN SHADOW :INTEGER
+  ans2_status IN SHADOW :INTEGER
+  gm_status   IN SHADOW :INTEGER
+  g_status   : INTEGER 
+  psve       : INTEGER
+  screen                :STRING[4]  
+  dashes     IN SHADOW :STRING[45]
+  title1     IN SHADOW :STRING[45]  
+  cp_text1   IN SHADOW :STRING[45] 
+  cp_text2   IN SHADOW :STRING[45] 
+  cp_text3   IN SHADOW :STRING[45]
+  cp_text4   IN SHADOW :STRING[45]
+  cp_text5   IN SHADOW :STRING[45]
+  cp_text6   IN SHADOW :STRING[45]
+
+  cycle_strt   IN SHADOW : BOOLEAN
+  g_intrface   IN SHADOW FROM GMCUSTO : INTEGER
+  process_def  IN SHADOW FROM GMVARS : ARRAY[5] OF STRING[10]
+  prmpt_back   IN SHADOW FROM GMCUSTO  : BOOLEAN
+  dnet64size   IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+%INCLUDE kliosop
+%INCLUDE klrdutil
+%INCLUDE klrdread
+
+ROUTINE WriteConsole(p_message : string) from swutils
+
+-----------------------------------------------------------------------------
+ROUTINE repost
+-- DESCRIPTION: 
+--   This routine is called by Cycle Start to repost 
+--   User Screen for Cap Loss selection questions.
+-----------------------------------------------------------------------------
+VAR
+
+  l_status: INTEGER
+
+BEGIN
+
+IF done = FALSE THEN
+
+IF dnet64size = FALSE THEN
+  SET_VAR(psve, '*system*', '$PRMPDSPON', TRUE, gm_status)
+  --Turn on ManInterventReqTP 
+   g_status = iovalset(IO_DOUT,55, 1)
+   prmpt_back = TRUE
+ENDIF
+
+ l_status = iovalrd(IO_DIN, 6, ans_status)  --jja Start Input
+ l_status = iovalrd(IO_TPIN, 153, edt_status)
+ l_status = iovalrd(IO_OPIN, 1, ans2_status)
+ --writeconsole('[repost] Read I/O')
+ IF (ans_status = 1) OR (edt_status = 1) OR (ans2_status = 1) THEN
+ --writeconsole('[repost] Read I/O TRUE')
+  cycle_strt = TRUE
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+ ELSE
+  cycle_strt = FALSE
+ ENDIF  
+ENDIF
+ ENABLE CONDITION[CH_RPOST]
+
+END repost
+
+-----------------------------------------------------------------------------
+-- Caploss
+-----------------------------------------------------------------------------
+BEGIN 
+
+ IF dnet64size = FALSE THEN
+    $PRMPDSPON= TRUE    
+    --Turn on ManInterventReqTP 
+    gm_status = iovalset(IO_DOUT,55, 1)
+    prmpt_back = TRUE
+ ENDIF
+
+ ans = 0
+
+IF UNINIT(dashes) THEN
+  dashes   = '--Resume from Sptwld FFR Pos Prompt--' --jja
+  title1   = 'WERE THE CAPS CHANGED AT THE FFR POS, '
+  cp_text1   = '  OR IS A TIP DRESS NEEDED?'
+  cp_text2 = '  SELECT:'
+  cp_text3 = ' #1 = YES CAPS WERE CHANGED'
+  cp_text4 = ' #0 = NO CAPS WERE NOT CHANGED'
+  cp_text6 = ' #2 = TIP DRESS IS NEEDED' --jja
+  cp_text5 = 'Return to user screen after debug'
+  done = FALSE
+ENDIF
+
+-- Cap Loss Detection:
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+  done = FALSE
+  cycle_strt = FALSE
+  
+  REPEAT  
+    REPEAT
+loop1:: 
+ 
+-- Start Repost Condition
+  IF (g_intrface = 1) AND ((process_def[1] = 'Spot') OR (process_def[2] = 'Spot') AND (done = FALSE)) THEN
+   IF (ans < 1) THEN
+    --IF $TP_INUSER <> TRUE THEN
+     CONDITION[CH_RPOST]: WITH $SCAN_TIME = 150
+     WHEN (OPIN[sopi_remote]=ON) AND (NOT TPIN[tpi_enable]) DO
+       repost
+     ENDCONDITION
+     ENABLE CONDITION[CH_RPOST]
+    --ENDIF
+   ENDIF
+  ENDIF
+
+      WRITE (cr,dashes,cr)
+      WRITE (title1,cr)
+      WRITE (cp_text1,cr)
+      WRITE (cp_text2,cr)
+      WRITE (cp_text4,cr)
+      WRITE (cp_text3,cr)
+      WRITE (cp_text6,cr,cr) --jja
+--jja      WRITE (cp_text5,cr)
+--jja      WRITE (dashes,cr)
+      WRITE ('SELECTION  = ')
+      READ (ans)
+    UNTIL (ans = 1) OR (ans = 0) OR (ans = 2) OR (cycle_strt = TRUE)  --jja
+	
+	-- Case for Re-post
+    IF ( (cycle_strt = TRUE) AND (done = FALSE) ) THEN
+      goto loop1    
+    ENDIF
+	-- Case for valid answer
+    IF (ans = 1) OR (ans = 0) OR (ans = 2) THEN   
+      done = TRUE
+      cycle_strt = FALSE
+      SET_INT_REG(40, ans, gm_status)
+      DISABLE CONDITION[CH_RPOST]
+      PURGE CONDITION[CH_RPOST]
+      IF dnet64size = FALSE THEN
+        --Turn off ManInterventReqTP 
+        gm_status = iovalset(IO_DOUT,55, 0)
+        $PRMPDSPON = FALSE
+        prmpt_back = FALSE
+      ENDIF     
+    ENDIF
+	-- Case for invalid answer
+	IF (ans > 2) THEN
+	  done = FALSE
+	  cycle_strt = FALSE
+	  goto loop1
+	ENDIF
+	  --Edit Mode
+      FORCE_SPMENU(tp_panel,SPI_TPTCH,1)
+  UNTIL done
+-----------------------------------------------------------------------------
+END capchffr
+	
+
+
+
+
+
+
+
+

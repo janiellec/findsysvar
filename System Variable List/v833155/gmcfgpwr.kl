@@ -1,0 +1,18 @@
+-- Used for Powertrain specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+
+  Use_GMPT_Log IN SHADOW FROM GMCFGPWR: BOOLEAN -- will create a log for the completed setup
+  EnblIgnrFlts IN SHADOW FROM GMCFGPWR: BOOLEAN -- Allow IGNORE faults in Alarm recovery for MH Grip Errors
+  Use_Prog_Mon IN SHADOW FROM GMCFGPWR: BOOLEAN -- If Program monitoring is used
+  Use_RZIC     IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicator the Rail Zone Interference Checking required
+  RZIC_Type    IN SHADOW FROM GMCFGPWR: INTEGER -- determine rail robot hand Left=1, Right =1
+  Use_Dispense IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicated the Dispense application is required
+  PromptToOpen IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicated the user should be prompted when gripper open manually
+  Load_Templts IN SHADOW FROM GMCFGPWR: BOOLEAN -- INdicate if the user wanted to load Template programs
+  Num_PickTmpl IN SHADOW FROM GMCFGPWR: INTEGER -- The number of Pick Templates the User would like to load
+  Num_PlacTmpl IN SHADOW FROM GMCFGPWR: INTEGER -- The number of Place Templates the User would like to load
+  LoadPlltTmpl IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicates if the user wanted to load Palletizing Template programs
+  LoadShelTmpl IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicates if the user wanted to load Shell Template programs
+  Use_Fastener IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicated the Fastener application is required (nut running etc)
+  LoadFstnTmpl IN SHADOW FROM GMCFGPWR: BOOLEAN -- Indicates if the user wanted to load Fastening Template programs
+  Num_FstnTmpl IN SHADOW FROM GMCFGPWR: INTEGER -- The number of Fastener Templates the User would like to load

@@ -1,0 +1,712 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMDIMPIO.KL
+--   TITLE:          GMDIMPIO PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Projection Weld Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--              4.1   2017/02/05 marchaka         Modify so rerun will prompt for setup if required
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMDIMPIO
+
+%COMMENT = 'GM DIMP I/O V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- body shop variables
+%INCLUDE gmcfgdmp  -- dimpler variables
+%INCLUDE gm_var    -- GM variables
+%INCLUDE gmevrs4io -- GM variables
+
+CONST
+
+Version = '2017-02-05'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  DimpIO_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Dimpler I/O at least first time
+
+  gm_status: INTEGER
+
+  cig_slot: INTEGER --spot weld carried integrated gun ENET slot
+  cig2_slot: INTEGER --spot weld carried integrated gun 2 ENET slot
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+-----------------------------------------------------------------------------
+ROUTINE initDIMP_IO
+-- PURPOSE: to initialize Programs associated with I/O setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(DimpIO_Setup) THEN
+    DimpIO_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numdimpctrl) THEN
+    numdimpctrl = 0
+  ENDIF
+
+  IF UNINIT(dimp1_app) THEN
+    dimp1_app = 0
+  ENDIF
+
+  IF UNINIT(dimpcommtype) THEN
+    dimpcommtype = 89  --ENET
+  ENDIF
+
+  IF UNINIT(cig_slot) THEN
+    cig_slot = 45
+  ENDIF
+  IF UNINIT(cig2_slot) THEN
+    cig2_slot = 51
+  ENDIF
+
+END initDIMP_IO
+-----------------------------------------------------------------------------
+ROUTINE dimp_io
+-- PURPOSE: setup dimpler I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = dimpappl) THEN --process 1 is a dimpler
+
+    SET_PORT_ASG(IO_DIN,  1665,dimpcommtype,cig_slot,IO_DIN, 17,-8,  gm_status) 
+    SET_PORT_ASG(IO_DOUT, 1665,dimpcommtype,cig_slot,IO_DOUT,17, -8, gm_status)
+
+    SET_PORT_CMT(IO_DIN, 1665, 'diG1Opened', gm_status)
+    SET_PORT_CMT(IO_DIN, 1666, 'diG1Closed', gm_status)
+    SET_PORT_CMT(IO_DIN, 1667, 'diG1EqHome', gm_status)
+    SET_PORT_CMT(IO_DIN, 1668, '(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN, 1669, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1670, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1671, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1672, '(Reserved)', gm_status)
+
+    SET_PORT_CMT(IO_DOUT, 1665, 'doCloseG1', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1666, 'doOpenG1', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1667, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1668, '(Reserved)',  gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1669, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1670, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1671, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1672, '(Reserved)', gm_status)
+
+    IF (dimpcommtype = Ethernet) THEN
+      TURK_IO_EIP(cig_slot,'DIMP1')
+    ENDIF
+
+  ENDIF --process 1 is a dimpler
+
+  IF ((bshop_proc1 <> dimpappl) AND (bshop_proc1 <> spotappl) AND (bshop_proc1 <> projappl) AND (bshop_proc1 <> studappl) AND (bshop_proc2 = dimpappl)) THEN --process is not a spot configured app and process 2 is a dimpler
+
+    SET_PORT_ASG(IO_DIN,  1713,dimpcommtype,cig2_slot,IO_DIN, 17,-8,  gm_status) 
+    SET_PORT_ASG(IO_DOUT, 1713,dimpcommtype,cig2_slot,IO_DOUT,17, -8, gm_status)
+
+    SET_PORT_CMT(IO_DIN, 1713, 'diG1Opened', gm_status)
+    SET_PORT_CMT(IO_DIN, 1714, 'diG1Closed', gm_status)
+    SET_PORT_CMT(IO_DIN, 1715, 'diG1EqHome', gm_status)
+    SET_PORT_CMT(IO_DIN, 1716, '(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN, 1717, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1718, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1719, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1720, '(Reserved)', gm_status)
+
+    SET_PORT_CMT(IO_DOUT, 1713, 'doCloseG1', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1714, 'doOpenG1', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1715, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1716, '(Reserved)',  gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1717, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1718, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1719, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1720, '(Reserved)', gm_status)
+
+    IF (dimpcommtype = Ethernet) THEN
+      TURK_IO_EIP(cig2_slot,'DIMP2')
+    ENDIF
+
+  ENDIF--process is not a spot configured app and process 2 is a dimpler 
+
+  IF ((bshop_proc1 <> dimpappl) AND (((bshop_proc1 = spotappl) OR (bshop_proc1 = projappl) OR (bshop_proc1 = studappl)) AND (bshop_proc2 = dimpappl))) THEN --process is a spot configured app and process 2 is a dimpler
+
+    SET_PORT_ASG(IO_DIN,  1713,dimpcommtype,cig2_slot,IO_DIN, 17,-8,  gm_status) 
+    SET_PORT_ASG(IO_DOUT, 1713,dimpcommtype,cig2_slot,IO_DOUT,17, -8, gm_status)
+
+    SET_PORT_CMT(IO_DIN, 1713, 'diG2Opened', gm_status)
+    SET_PORT_CMT(IO_DIN, 1714, 'diG2Closed', gm_status)
+    SET_PORT_CMT(IO_DIN, 1715, 'diG2EqHome', gm_status)
+    SET_PORT_CMT(IO_DIN, 1716, '(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN, 1717, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1718, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1719, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DIN, 1720, '(Reserved)', gm_status)
+
+    SET_PORT_CMT(IO_DOUT, 1713, 'doCloseG2', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1714, 'doOpenG2', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1715, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1716, '(Reserved)',  gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1717, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1718, '(Reserved)', gm_status)
+    SET_PORT_CMT(IO_DOUT, 1719, '(Reserved)', gm_status)  
+    SET_PORT_CMT(IO_DOUT, 1720, '(Reserved)', gm_status)
+
+    IF (dimpcommtype = Ethernet) THEN
+      TURK_IO_EIP(cig2_slot,'DIMP2')
+    ENDIF
+
+  ENDIF --process is a spot configured app and process 2 is a dimpler
+
+END dimp_io
+-----------------------------------------------------------------------------
+ROUTINE setdimpiovr
+-- PURPOSE: dimpler I/O variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = dimpappl) THEN --process 1 is a dimpler
+
+    dimpctrl[1].dimp_gun[1].di_bucld_i = 1665  --gun open
+    dimpctrl[1].dimp_gun[1].di_gucld_i = 1666  --gun closed
+
+    dimpctrl[1].dimp_gun[1].do_cl_gun_i = 1665 --close gun
+
+    Set_I_sVar('$spoteqio[1].$di_bucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[1].$di_bucld_i[1]',dimpctrl[1].dimp_gun[1].di_bucld_i) 
+    Set_I_sVar('$spoteqio[1].$di_gucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[1].$di_gucld_i[1]', dimpctrl[1].dimp_gun[1].di_gucld_i)  --gun closed
+
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]', dimpctrl[1].dimp_gun[1].do_cl_gun_i) --close gun
+
+    do_OPgn_t[1,1] = 2      
+    do_OPgn_i[1,1] = 1666  --open gun
+    do_OPexh_i[1,1] = 0 
+
+    --initialize or you can't go to the weld I/O menu.  
+    di_cntropn_t[1] = 1
+    di_cntropn_i[1] = 0  -- Contactor Open
+    di_ctrlstp_t[1] = 1 
+    di_ctrlstp_i[1] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[1] = 1
+    di_apcpch1_i[1] = 0  -- Approaching Cap Change
+    di_apcpch2_t[1] = 1 
+    di_apcpch2_i[1] = 0  -- Approaching Cap Change
+    di_apcpch3_t[1] = 1
+    di_apcpch3_i[1] = 0  -- Approaching Cap Change
+    di_apcpch4_t[1] = 1
+    di_apcpch4_i[1] = 0  -- Approaching Cap Change
+    di_steprst_t[1] = 1
+    di_steprst_i[1] = 0  -- All Steppers Reset
+    di_steprs2_t[1] = 1
+    di_steprs2_i[1] = 0  -- All Steppers Reset
+    di_steprs3_t[1] = 1
+    di_steprs3_i[1] = 0  -- All Steppers Reset
+    di_steprs4_t[1] = 1  
+    di_steprs4_i[1] = 0  -- All Steppers Reset
+    di_tdreq1_t[1]  = 1
+    di_tdreq1_i[1] = 0   -- Tip dress request
+    di_tdreq2_t[1] = 1
+    di_tdreq2_i[1] = 0   -- Tip dress request
+    di_tdreq3_t[1] = 1
+    di_tdreq3_i[1] = 0   -- Tip dress request
+    di_tdreq4_t[1] = 1
+    di_tdreq4_i[1] = 0   -- Tip dress request
+    di_tdrest1_t[1] = 1
+    di_tdrest1_i[1] = 0
+    di_tdrest2_t[1] = 1
+    di_tdrest2_i[1] = 0
+    di_tdrest3_t[1] = 1
+    di_tdrest3_i[1] = 0
+    di_tdrest4_t[1] = 1
+    di_tdrest4_i[1] = 0
+    di_cchgrq1_t[1] = 1
+    di_cchgrq1_i[1] = 0  -- Cap Change Request
+    di_cchgrq2_t[1] = 1
+    di_cchgrq2_i[1] = 0  -- Cap Change Request
+    di_cchgrq3_t[1] = 1
+    di_cchgrq3_i[1] = 0  -- Cap Change Request
+    di_cchgrq4_t[1] = 1
+    di_cchgrq4_i[1] = 0  -- Cap Change Request
+    diQualStp_t[1]  = 1
+    diQualStp_i[1]  = 0
+    diAdptRgOn_t[1] = 1
+    diAdptRgOn_i[1] = 0 
+    diAdptMtOn_t[1] = 1
+    diAdptMtOn_i[1] = 0
+    diEndPrtRp_t[1] = 1
+    diEndPrtRp_i[1] = 0
+    diAdaptCap_t[1] = 1
+    diAdaptCap_i[1] = 0
+
+    do_cchgrq1_t[1] = 2
+    do_cchgrq1_i[1] = 0  
+    do_cchgrq2_t[1] = 2    
+    do_cchgrq2_i[1] = 0  
+    do_cchgrq3_t[1] = 2    
+    do_cchgrq3_i[1] = 0  
+    do_cchgrq4_t[1] = 2    
+    do_cchgrq4_i[1] = 0     
+    doTipDrsG1_t[1] = 2    
+    doTipDrsG1_i[1] = 0    -- Tip Dress
+    doTipDrsG2_t[1] = 2
+    doTipDrsG2_i[1] = 0    -- Tip Dress
+    doTipDrsG3_t[1] = 2
+    doTipDrsG3_i[1] = 0    -- Tip Dress
+    doTipDrsG4_t[1] = 2
+    doTipDrsG4_i[1] = 0    -- Tip Dress
+    do_tpmanq1_t[1] = 2
+    do_tpmanq1_i[1] = 0  
+    do_tpmanq2_t[1] = 2   
+    do_tpmanq2_i[1] = 0  
+    do_tpmanq3_t[1] = 2    
+    do_tpmanq3_i[1] = 0  
+    do_tpmanq4_t[1] = 2   
+    do_tpmanq4_i[1] = 0
+    doReqstPrs_t[1] = 2
+    doReqstPrs_i[1] = 0  -- Request Pressure
+    doStpRstG1_t[1] = 2
+    doStpRstG1_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[1] = 2
+    doStpRstG2_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[1] = 2
+    doStpRstG3_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[1] = 2
+    doStpRstG4_i[1] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[1] = 2
+    doPrtFinsh_i[1] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[1] = 2
+    doGunRstCk_i[1] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[1]  = 2
+    doAdptOff_i[1]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[1] = 19    -- WeldBody ID
+    goWldBdyID_i[1] = 0    -- WeldBody ID    
+
+  ENDIF --process 1 is a dimpler
+
+  IF ((bshop_proc1 <> dimpappl) AND (bshop_proc1 <> spotappl) AND (bshop_proc1 <> projappl) AND (bshop_proc1 <> studappl) AND (bshop_proc2 = dimpappl)) THEN --process is not a spot configured app and process 2 is a dimpler
+
+    dimpctrl[1].dimp_gun[1].di_bucld_i = 1713  --gun open
+    dimpctrl[1].dimp_gun[1].di_gucld_i = 1714  --gun closed
+
+    dimpctrl[1].dimp_gun[1].do_cl_gun_i = 1713 --close gun
+
+    Set_I_sVar('$spoteqio[1].$di_bucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[1].$di_bucld_i[1]',dimpctrl[1].dimp_gun[1].di_bucld_i) 
+    Set_I_sVar('$spoteqio[1].$di_gucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[1].$di_gucld_i[1]', dimpctrl[1].dimp_gun[1].di_gucld_i)  --gun closed
+
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]', dimpctrl[1].dimp_gun[1].do_cl_gun_i) --close gun
+
+    do_OPgn_t[1,1] = 2      
+    do_OPgn_i[1,1] = 1714 --open gun 
+    do_OPexh_i[1,1] = 0 
+
+    --initalize or you can't go to th weld I/O menu
+    di_cntropn_t[1] = 1
+    di_cntropn_i[1] = 0  -- Contactor Open
+    di_ctrlstp_t[1] = 1 
+    di_ctrlstp_i[1] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[1] = 1
+    di_apcpch1_i[1] = 0  -- Approaching Cap Change
+    di_apcpch2_t[1] = 1 
+    di_apcpch2_i[1] = 0  -- Approaching Cap Change
+    di_apcpch3_t[1] = 1
+    di_apcpch3_i[1] = 0  -- Approaching Cap Change
+    di_apcpch4_t[1] = 1
+    di_apcpch4_i[1] = 0  -- Approaching Cap Change
+    di_steprst_t[1] = 1
+    di_steprst_i[1] = 0  -- All Steppers Reset
+    di_steprs2_t[1] = 1
+    di_steprs2_i[1] = 0  -- All Steppers Reset
+    di_steprs3_t[1] = 1
+    di_steprs3_i[1] = 0  -- All Steppers Reset
+    di_steprs4_t[1] = 1  
+    di_steprs4_i[1] = 0  -- All Steppers Reset
+    di_tdreq1_t[1]  = 1
+    di_tdreq1_i[1] = 0   -- Tip dress request
+    di_tdreq2_t[1] = 1
+    di_tdreq2_i[1] = 0   -- Tip dress request
+    di_tdreq3_t[1] = 1
+    di_tdreq3_i[1] = 0   -- Tip dress request
+    di_tdreq4_t[1] = 1
+    di_tdreq4_i[1] = 0   -- Tip dress request
+    di_tdrest1_t[1] = 1
+    di_tdrest1_i[1] = 0
+    di_tdrest2_t[1] = 1
+    di_tdrest2_i[1] = 0
+    di_tdrest3_t[1] = 1
+    di_tdrest3_i[1] = 0
+    di_tdrest4_t[1] = 1
+    di_tdrest4_i[1] = 0
+    di_cchgrq1_t[1] = 1
+    di_cchgrq1_i[1] = 0  -- Cap Change Request
+    di_cchgrq2_t[1] = 1
+    di_cchgrq2_i[1] = 0  -- Cap Change Request
+    di_cchgrq3_t[1] = 1
+    di_cchgrq3_i[1] = 0  -- Cap Change Request
+    di_cchgrq4_t[1] = 1
+    di_cchgrq4_i[1] = 0  -- Cap Change Request
+    diQualStp_t[1]  = 1
+    diQualStp_i[1]  = 0
+    diAdptRgOn_t[1] = 1
+    diAdptRgOn_i[1] = 0 
+    diAdptMtOn_t[1] = 1
+    diAdptMtOn_i[1] = 0
+    diEndPrtRp_t[1] = 1
+    diEndPrtRp_i[1] = 0
+    diAdaptCap_t[1] = 1
+    diAdaptCap_i[1] = 0
+
+    do_cchgrq1_t[1] = 2
+    do_cchgrq1_i[1] = 0  
+    do_cchgrq2_t[1] = 2    
+    do_cchgrq2_i[1] = 0  
+    do_cchgrq3_t[1] = 2    
+    do_cchgrq3_i[1] = 0  
+    do_cchgrq4_t[1] = 2    
+    do_cchgrq4_i[1] = 0     
+    doTipDrsG1_t[1] = 2    
+    doTipDrsG1_i[1] = 0    -- Tip Dress
+    doTipDrsG2_t[1] = 2
+    doTipDrsG2_i[1] = 0    -- Tip Dress
+    doTipDrsG3_t[1] = 2
+    doTipDrsG3_i[1] = 0    -- Tip Dress
+    doTipDrsG4_t[1] = 2
+    doTipDrsG4_i[1] = 0    -- Tip Dress
+    do_tpmanq1_t[1] = 2
+    do_tpmanq1_i[1] = 0  
+    do_tpmanq2_t[1] = 2   
+    do_tpmanq2_i[1] = 0  
+    do_tpmanq3_t[1] = 2    
+    do_tpmanq3_i[1] = 0  
+    do_tpmanq4_t[1] = 2   
+    do_tpmanq4_i[1] = 0
+    doReqstPrs_t[1] = 2
+    doReqstPrs_i[1] = 0  -- Request Pressure
+    doStpRstG1_t[1] = 2
+    doStpRstG1_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[1] = 2
+    doStpRstG2_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[1] = 2
+    doStpRstG3_i[1] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[1] = 2
+    doStpRstG4_i[1] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[1] = 2
+    doPrtFinsh_i[1] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[1] = 2
+    doGunRstCk_i[1] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[1]  = 2
+    doAdptOff_i[1]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[1] = 19    -- WeldBody ID
+    goWldBdyID_i[1] = 0    -- WeldBody ID 
+
+  ENDIF  --process is not a spot configured app and process 2 is a dimpler
+
+  IF ((bshop_proc1 <> dimpappl) AND (((bshop_proc1 = spotappl) OR (bshop_proc1 = projappl) OR (bshop_proc1 = studappl)) AND (bshop_proc2 = dimpappl))) THEN --process is a spot configured app and process 2 is a dimpler
+
+    dimpctrl[1].dimp_gun[1].di_bucld_i = 1713  --gun open
+    dimpctrl[1].dimp_gun[1].di_gucld_i = 1714  --gun closed
+
+    dimpctrl[1].dimp_gun[1].do_cl_gun_i = 1713 --close gun
+
+    Set_I_sVar('$spoteqio[2].$di_bucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[2].$di_bucld_i[1]',dimpctrl[1].dimp_gun[1].di_bucld_i) 
+    Set_I_sVar('$spoteqio[2].$di_gucld_t[1]', 1)
+    Set_I_sVar('$spoteqio[2].$di_gucld_i[1]', dimpctrl[1].dimp_gun[1].di_gucld_i)  --gun closed
+
+    Set_I_sVar('$spoteqio[2].$do_cl_gun_t[1]', 2)
+    Set_I_sVar('$spoteqio[2].$do_cl_gun_i[1]', dimpctrl[1].dimp_gun[1].do_cl_gun_i) --close gun
+
+    do_OPgn_t[2,1] = 2      
+    do_OPgn_i[2,1] = 1714 --open gun 
+    do_OPexh_i[2,1] = 0
+
+    --initialize or you can't go to the weld I/O menu
+    di_cntropn_t[2] = 1
+    di_cntropn_i[2] = 0  -- Contactor Open
+    di_ctrlstp_t[2] = 1 
+    di_ctrlstp_i[2] = 0  -- Ctrl Stop NO
+    di_apcpch1_t[2] = 1
+    di_apcpch1_i[2] = 0  -- Approaching Cap Change
+    di_apcpch2_t[2] = 1 
+    di_apcpch2_i[2] = 0  -- Approaching Cap Change
+    di_apcpch3_t[2] = 1
+    di_apcpch3_i[2] = 0  -- Approaching Cap Change
+    di_apcpch4_t[2] = 1
+    di_apcpch4_i[2] = 0  -- Approaching Cap Change
+    di_steprst_t[2] = 1
+    di_steprst_i[2] = 0  -- All Steppers Reset
+    di_steprs2_t[2] = 1
+    di_steprs2_i[2] = 0  -- All Steppers Reset
+    di_steprs3_t[2] = 1
+    di_steprs3_i[2] = 0  -- All Steppers Reset
+    di_steprs4_t[2] = 1  
+    di_steprs4_i[2] = 0  -- All Steppers Reset
+    di_tdreq1_t[2]  = 1
+    di_tdreq1_i[2] = 0   -- Tip dress request
+    di_tdreq2_t[2] = 1
+    di_tdreq2_i[2] = 0   -- Tip dress request
+    di_tdreq3_t[2] = 1
+    di_tdreq3_i[2] = 0   -- Tip dress request
+    di_tdreq4_t[2] = 1
+    di_tdreq4_i[2] = 0   -- Tip dress request
+    di_tdrest1_t[2] = 1
+    di_tdrest1_i[2] = 0
+    di_tdrest2_t[2] = 1
+    di_tdrest2_i[2] = 0
+    di_tdrest3_t[2] = 1
+    di_tdrest3_i[2] = 0
+    di_tdrest4_t[2] = 1
+    di_tdrest4_i[2] = 0
+    di_cchgrq1_t[2] = 1
+    di_cchgrq1_i[2] = 0  -- Cap Change Request
+    di_cchgrq2_t[2] = 1
+    di_cchgrq2_i[2] = 0  -- Cap Change Request
+    di_cchgrq3_t[2] = 1
+    di_cchgrq3_i[2] = 0  -- Cap Change Request
+    di_cchgrq4_t[2] = 1
+    di_cchgrq4_i[2] = 0  -- Cap Change Request
+    diQualStp_t[2]  = 1
+    diQualStp_i[2]  = 0
+    diAdptRgOn_t[2] = 1
+    diAdptRgOn_i[2] = 0 
+    diAdptMtOn_t[2] = 1
+    diAdptMtOn_i[2] = 0
+    diEndPrtRp_t[2] = 1
+    diEndPrtRp_i[2] = 0
+    diAdaptCap_t[2] = 1
+    diAdaptCap_i[2] = 0
+
+    do_cchgrq1_t[2] = 2
+    do_cchgrq1_i[2] = 0  
+    do_cchgrq2_t[2] = 2    
+    do_cchgrq2_i[2] = 0  
+    do_cchgrq3_t[2] = 2    
+    do_cchgrq3_i[2] = 0  
+    do_cchgrq4_t[2] = 2    
+    do_cchgrq4_i[2] = 0     
+    doTipDrsG1_t[2] = 2    
+    doTipDrsG1_i[2] = 0    -- Tip Dress
+    doTipDrsG2_t[2] = 2
+    doTipDrsG2_i[2] = 0    -- Tip Dress
+    doTipDrsG3_t[2] = 2
+    doTipDrsG3_i[2] = 0    -- Tip Dress
+    doTipDrsG4_t[2] = 2
+    doTipDrsG4_i[2] = 0    -- Tip Dress
+    do_tpmanq1_t[2] = 2
+    do_tpmanq1_i[2] = 0  
+    do_tpmanq2_t[2] = 2   
+    do_tpmanq2_i[2] = 0  
+    do_tpmanq3_t[2] = 2    
+    do_tpmanq3_i[2] = 0  
+    do_tpmanq4_t[2] = 2   
+    do_tpmanq4_i[2] = 0
+    doReqstPrs_t[2] = 2
+    doReqstPrs_i[2] = 0  -- Request Pressure
+    doStpRstG1_t[2] = 2
+    doStpRstG1_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG2_t[2] = 2
+    doStpRstG2_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG3_t[2] = 2
+    doStpRstG3_i[2] = 0  -- Data 1 (Stepper Reset)
+    doStpRstG4_t[2] = 2
+    doStpRstG4_i[2] = 0  -- Data 1 (Stepper Reset)   
+    doPrtFinsh_t[2] = 2
+    doPrtFinsh_i[2] = 0  -- Data 1 (Adaptive Welding) 
+    doGunRstCk_t[2] = 2
+    doGunRstCk_i[2] = 0  -- Data 1 (Adaptive Welding)
+    doAdptOff_t[2]  = 2
+    doAdptOff_i[2]  = 0  -- Data 1 (Adaptive Welding) 
+
+    goWldBdyID_t[2] = 19    -- WeldBody ID
+    goWldBdyID_i[2] = 0    -- WeldBody ID
+
+  ENDIF  --process is a spot configured app and process 2 is a dimpler
+
+END setdimpiovr
+-----------------------------------------------------------------------------
+ROUTINE dimp_intcnt
+-- PURPOSE: setup dimpler interconnects
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END dimp_intcnt
+-----------------------------------------------------------------------------
+ROUTINE dimpiocold
+-- PURPOSE: setup dimpler I/O on way to cold start
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = dimpappl) THEN --process 1 is a dimpler
+    SET_PORT_MOD(IO_DOUT, 1665, 2, gm_status)           -- Complementary I/O
+  ENDIF --process 1 is a dimpler
+
+  IF (bshop_proc2 = dimpappl) THEN -- process 2 is a dimpler
+    SET_PORT_MOD(IO_DOUT, 1713, 2, gm_status)           -- Complementary I/O
+  ENDIF --process 2 is a dimpler
+
+
+END dimpiocold
+-----------------------------------------------------------------------------
+ROUTINE set_dimp_io
+-- PURPOSE: setup dimpler I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numdimpctrl <> 0) THEN --appication has dimpler application
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+    ErrsInShop.ErrorsIOCom = 0
+  ENDIF
+  IF UNINIT(DimpIO_Setup) OR (Reset_Cell) THEN
+    DimpIO_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Dimpler I/O Program GMDIMPIO', FALSE)
+
+  IF (DimpIO_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Dimpler I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Dimpler I/O') THEN -- ask user if they want to setup again
+      DimpIO_Setup = FALSE
+    ELSE
+      WriteLog('  Dimpler I/O already Complete', FALSE)
+      WriteLog('  GMDIMPIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initDIMP_IO
+  dimp_io
+  setdimpiovr
+  dimp_intcnt
+
+  ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Dimpler I/O setup Program GMDIMPIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Dimpler I/O Setup Program completed', FALSE)
+    DimpIO_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numdimpctrl
+
+END set_dimp_io
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMDIMPIO

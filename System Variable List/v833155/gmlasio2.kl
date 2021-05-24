@@ -1,0 +1,542 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASIO2.KL
+--   TITLE:          GMLASIO2 PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2018/03/19
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser I/O Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.1   2019/09/16 marchaka         Move gas_gmstd_io from gmlasio.kl to this program due to
+--                                                program size restrictions.
+--
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlasio2
+
+%COMMENT = 'GM LASER I/O 2 V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps  
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas -- GM laser wizard variables
+%INCLUDE gmatvar   -- GM variables
+
+
+CONST
+
+  Version = '2019-09-16'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn -- GM Arc Tool constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  LasIO2_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup laser i/o at least first time
+
+  lasrcommtype,
+  prcmon_slot   IN CMOS: INTEGER --ENET comm type, ENET slot
+
+  gasbox_slot1,
+  gasbox_slot2 IN CMOS FROM GMLASIO: INTEGER  --ENET comm type, ENET slot
+  
+  gm_status : INTEGER
+
+  do_lslnexct IN SHADOW FROM INTERUPT: INTEGER  --Interupt EXTERNAL CONTROL
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE lessproc_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE plwmproc_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE SMC_OUT_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_las2_io
+-- PURPOSE: to initialize variables for laser I/O setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(lasrcommtype) THEN
+  lasrcommtype = Ethernet
+ENDIF
+
+IF UNINIT(prcmon_slot) THEN
+  prcmon_slot = 13
+ENDIF
+
+IF UNINIT(gasbox_slot1) THEN
+  gasbox_slot1 = 34
+ENDIF
+
+IF UNINIT (gasbox_slot2) THEN
+  gasbox_slot2 = 14
+ENDIF
+
+END init_las2_io
+-----------------------------------------------------------------------------
+ROUTINE set_lesm_io
+-- PURPOSE: sets I/O for all Lesmuller process monitor
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1137,lasrcommtype,prcmon_slot,io_din,1,-32,gm_status)
+
+  SET_PORT_CMT(io_din,1137,'Ready',gm_status)
+  SET_PORT_CMT(io_din,1138,'Fault',gm_status)
+  SET_PORT_CMT(io_din,1139,'NOK0',gm_status)
+  SET_PORT_CMT(io_din,1140,'NOK1',gm_status)
+  SET_PORT_CMT(io_din,1141,'NOK2',gm_status)
+  SET_PORT_CMT(io_din,1142,'NOK3',gm_status)
+  SET_PORT_CMT(io_din,1143,'NOK4',gm_status)
+  SET_PORT_CMT(io_din,1144,'Status',gm_status)
+  SET_PORT_CMT(io_din,1145,'Heartbeat',gm_status)
+  SET_PORT_CMT(io_din,1146,'SINK Warn',gm_status)
+  SET_PORT_CMT(io_din,1147,'SKIP Warn',gm_status)
+  SET_PORT_CMT(io_din,1148,'RISE Warn',gm_status)
+  SET_PORT_CMT(io_din,1149,'SingleProcFlt',gm_status)
+  SET_PORT_CMT(io_din,1150,'GeneralProcFlt',gm_status)
+  SET_PORT_CMT(io_din,1151,'Opticheck1Flt',gm_status)
+  SET_PORT_CMT(io_din,1152,'Opticheck2Flt',gm_status)
+  SET_PORT_CMT(io_din,1153,'RobotSpeedFlt',gm_status)
+  SET_PORT_CMT(io_din,1154,'ScanSonicTAFlt',gm_status)
+  SET_PORT_CMT(io_din,1155,'ScanSonicSAFlt',gm_status)
+  SET_PORT_CMT(io_din,1156,'ScanSonicLAFlt',gm_status)
+  SET_PORT_CMT(io_din,1157,'LaserPowerFlt',gm_status)
+  SET_PORT_CMT(io_din,1158,'WireCurntMF1Flt',gm_status)
+  SET_PORT_CMT(io_din,1159,'WireCurntMDRIVEFlt',gm_status)
+  SET_PORT_CMT(io_din,1160,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1161,'TIMESTAMPFltTrigrd',gm_status)
+  SET_PORT_CMT(io_din,1162,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1163,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1164,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1165,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1166,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1167,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_din,1168,'ProcMon Reserved',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1137,lasrcommtype,prcmon_slot,io_dout,1,-8,gm_status)
+  SET_PORT_ASG(io_dout,1145,lasrcommtype,prcmon_slot,io_dout,177,-8,gm_status)
+
+  SET_PORT_CMT(io_dout,1137,'Part',gm_status)
+  SET_PORT_CMT(io_dout,1138,'Weld Process',gm_status)
+  SET_PORT_CMT(io_dout,1139,'Part Clone',gm_status)
+  SET_PORT_CMT(io_dout,1140,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1141,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1142,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1143,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1144,'ProcMon Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1145,'Protect Circuit',gm_status)
+  SET_PORT_CMT(io_dout,1146,'Laser Prg Start',gm_status)
+  SET_PORT_CMT(io_dout,1147,'Laser Prg Active',gm_status)
+  SET_PORT_CMT(io_dout,1148,'Laser Emiss On',gm_status)
+  SET_PORT_CMT(io_dout,1149,'AIR or GAS ON',gm_status)
+  SET_PORT_CMT(io_dout,1150,'Wire FF ON',gm_status)
+  SET_PORT_CMT(io_dout,1151,'Wire FB ON',gm_status)
+  SET_PORT_CMT(io_dout,1152,'ProcMon Reserved',gm_status)
+
+  FOR i = 1153 TO 1168 DO
+    SET_PORT_CMT(io_dout,i,'Reserved', gm_status)
+  ENDFOR
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,42,lasrcommtype,prcmon_slot,io_dout,17,-16,gm_status)
+  SET_PORT_ASG(io_gpout,43,lasrcommtype,prcmon_slot,io_dout,33,-16,gm_status)
+  SET_PORT_ASG(io_gpout,44,lasrcommtype,prcmon_slot,io_dout,49,-16,gm_status)
+  SET_PORT_ASG(io_gpout,45,lasrcommtype,prcmon_slot,io_dout,65,-16,gm_status)
+  SET_PORT_ASG(io_gpout,46,lasrcommtype,prcmon_slot,io_dout,81,-16,gm_status)
+  SET_PORT_ASG(io_gpout,47,lasrcommtype,prcmon_slot,io_dout,97,-16,gm_status)
+  SET_PORT_ASG(io_gpout,48,lasrcommtype,prcmon_slot,io_dout,113,-16,gm_status)
+  SET_PORT_ASG(io_gpout,49,lasrcommtype,prcmon_slot,io_dout,129,-16,gm_status)
+  SET_PORT_ASG(io_gpout,50,lasrcommtype,prcmon_slot,io_dout,145,-16,gm_status)
+  SET_PORT_ASG(io_gpout,51,lasrcommtype,prcmon_slot,io_dout,161,-16,gm_status)
+
+  SET_PORT_CMT(io_gpout,42,'Weld Process #',gm_status)
+  SET_PORT_CMT(io_gpout,43,'Part #',gm_status)
+  SET_PORT_CMT(io_gpout,44,'Data Actual Wire Feed',gm_status)
+  SET_PORT_CMT(io_gpout,45,'Data TCP Speed',gm_status)
+  SET_PORT_CMT(io_gpout,46,'Data Laser Power',gm_status)
+  SET_PORT_CMT(io_gpout,47,'Data M-Current_Gas Flow',gm_status)
+  SET_PORT_CMT(io_gpout,48,'Data TA Position',gm_status)
+  SET_PORT_CMT(io_gpout,49,'Data SA Position',gm_status)
+  SET_PORT_CMT(io_gpout,50,'Data S-Current',gm_status)
+  SET_PORT_CMT(io_gpout,51,'LA Position',gm_status)
+
+  --ENET settings
+  lessproc_eip(prcmon_slot,'Proc Mon','')
+
+END set_lesm_io
+-----------------------------------------------------------------------------
+ROUTINE set_plwm_io
+-- PURPOSE: sets I/O for all Precitec LWM process monitor
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1137,lasrcommtype,prcmon_slot,io_din,1,-16,gm_status)
+
+  SET_PORT_CMT(io_din,1137,'Auto Mode OK',gm_status)
+  SET_PORT_CMT(io_din,1138,'Mark Failure',gm_status)
+  SET_PORT_CMT(io_din,1139,'Mark Failure INV',gm_status)
+  SET_PORT_CMT(io_din,1140,'ProgBit Echo #0',gm_status)
+  SET_PORT_CMT(io_din,1141,'ProgBit Echo #1',gm_status)
+  SET_PORT_CMT(io_din,1142,'ProgBit Echo #2',gm_status)
+  SET_PORT_CMT(io_din,1143,'ProgBit Echo #3',gm_status)
+  SET_PORT_CMT(io_din,1144,'ProgBit Echo #4',gm_status)
+  SET_PORT_CMT(io_din,1145,'Bad Process',gm_status)
+  SET_PORT_CMT(io_din,1146,'Bad Process INV',gm_status)
+  SET_PORT_CMT(io_din,1147,'System Activated OK',gm_status)
+  SET_PORT_CMT(io_din,1148,'Error Signal OFF',gm_status)
+  SET_PORT_CMT(io_din,1149,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1150,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1151,'Trigger OK',gm_status)
+  SET_PORT_CMT(io_din,1152,'Reserved',gm_status)
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,42,lasrcommtype,prcmon_slot,io_din,4,-5,gm_status)
+
+  SET_PORT_CMT(io_gpin,42,'LWM PRG#',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1137,lasrcommtype,prcmon_slot,io_dout,1,-16,gm_status)
+
+  SET_PORT_CMT(io_dout,1137,'System Activated',gm_status)
+  SET_PORT_CMT(io_dout,1138,'Start',gm_status)
+  SET_PORT_CMT(io_dout,1139,'ProgBit IN 0',gm_status)
+  SET_PORT_CMT(io_dout,1140,'ProgBit IN 1',gm_status)
+  SET_PORT_CMT(io_dout,1141,'ProgBit IN 2',gm_status)
+  SET_PORT_CMT(io_dout,1142,'ProgBit IN 3',gm_status)
+  SET_PORT_CMT(io_dout,1143,'ProgBit IN 4',gm_status)
+  SET_PORT_CMT(io_dout,1144,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1145,'Auto Mode Stop',gm_status)
+  SET_PORT_CMT(io_dout,1146,'Auto Mode',gm_status)
+  SET_PORT_CMT(io_dout,1147,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1148,'Skip',gm_status)
+  SET_PORT_CMT(io_dout,1149,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1150,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1151,'Rserved',gm_status)
+  SET_PORT_CMT(io_dout,1152,'Reserved',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,42,lasrcommtype,prcmon_slot,io_dout,3,-5,gm_status)
+
+  SET_PORT_CMT(io_gpout,42,'LWM PRG #',gm_status)
+
+  --ENET settings
+  plwmproc_eip(prcmon_slot,'Proc Mon','')
+
+END set_plwm_io
+-----------------------------------------------------------------------------
+ROUTINE set_plasm_io
+-- PURPOSE: sets I/O for Plasmo process monitor applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+a: STRING[4]
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1137,lasrcommtype,prcmon_slot,io_din,9,-8,gm_status)
+
+  SET_PORT_CMT(io_din,1137,'Plasmo Ready',gm_status)
+  SET_PORT_CMT(io_din,1138,'Part Ok',gm_status)
+  SET_PORT_CMT(io_din,1139,'Part Not OK',gm_status)
+  SET_PORT_CMT(io_din,1140,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1141,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1142,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1143,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1144,'Reserved',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1137,lasrcommtype,prcmon_slot,io_dout,1,-16,gm_status)
+
+  SET_PORT_CMT(io_dout,1137,'Part Bit 1',gm_status)
+  SET_PORT_CMT(io_dout,1138,'Part Bit 2',gm_status)
+  SET_PORT_CMT(io_dout,1139,'Part Bit 4',gm_status)
+  SET_PORT_CMT(io_dout,1140,'Part Bit 8',gm_status)
+  SET_PORT_CMT(io_dout,1141,'Part Bit 16',gm_status)
+  SET_PORT_CMT(io_dout,1142,'Part Bit 32',gm_status)
+  SET_PORT_CMT(io_dout,1143,'Part Bit 64',gm_status)
+  SET_PORT_CMT(io_dout,1144,'Part Bit 128',gm_status)
+  SET_PORT_CMT(io_dout,1145,'Trigger Signal A',gm_status)
+  SET_PORT_CMT(io_dout,1146,'Part Active',gm_status)
+  SET_PORT_CMT(io_dout,1147,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1148,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1149,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1150,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1151,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1152,'Reserved',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,42,lasrcommtype,prcmon_slot,io_dout,1,-8,gm_status)
+
+  SET_PORT_CMT(io_gpout,42,'Part ID',gm_status)
+
+  --ENET settings
+  --Don't have settings, for now name the slot
+  CNV_INT_STR(prcmon_slot, 1, 0, a)
+  a = SUB_STR(a, 2, 3)
+  Set_S_Svar('$EIP_CONN['+ a +'].$DESC','Proc Mon')
+
+END set_plasm_io
+-----------------------------------------------------------------------------
+ROUTINE gas_gmstd_io
+-- PURPOSE: sets I/O for all GM standard gas box applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i: INTEGER
+Con_String :STRING[3]
+
+BEGIN
+
+  init_las2_io  --initialize variables because this routine is actually called from gmlasio
+                --need to initialize some variable prior to execution setup  
+
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+      --Digital Inputs
+      SET_PORT_ASG(io_din,1177,lasrcommtype,gasbox_slot1,io_din,17,-8,gm_status)
+
+      SET_PORT_CMT(io_din,1177,'Clutch OK',gm_status)
+      SET_PORT_CMT(io_din,1178,'Spare',gm_status)
+      SET_PORT_CMT(io_din,1179,'Gas Flow OK',gm_status)
+      SET_PORT_CMT(io_din,1180,'Spare',gm_status)
+      SET_PORT_CMT(io_din,1181,'Cross Jet FlowOK',gm_status)
+      SET_PORT_CMT(io_din,1182,'Spare',gm_status)
+      SET_PORT_CMT(io_din,1183,'Spare',gm_status)
+      SET_PORT_CMT(io_din,1184,'Spare',gm_status)
+
+      FOR i = 1169 TO 1176 DO
+        SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+      ENDFOR
+
+      --Digital Outputs
+      SET_PORT_ASG(io_dout,1169,lasrcommtype,gasbox_slot2,io_dout,1,-8,gm_status)
+      SET_PORT_ASG(io_dout,1177,lasrcommtype,gasbox_slot1,io_dout,17,-8,gm_status)
+
+      SET_PORT_CMT(io_dout,1169,'Cross Jet ON',gm_status)
+      SET_PORT_CMT(io_dout,1170,'Cross Jet OFF',gm_status)
+      SET_PORT_CMT(io_dout,1171,'Clutch HiPressure',gm_status)
+      SET_PORT_CMT(io_dout,1172,'Clutch LwPressure',gm_status)
+      SET_PORT_CMT(io_dout,1173,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1174,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1175,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1176,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1177,'Gas ON',gm_status)
+      SET_PORT_CMT(io_dout,1178,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1179,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1180,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1181,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1182,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1183,'Spare',gm_status)
+      SET_PORT_CMT(io_dout,1184,'Spare',gm_status)
+
+      --setup ENET for gas box
+      TURK_IO_EIP(gasbox_slot1,'GasBox Con1')
+      Con_String = int2str(gasbox_slot1)
+      Set_I_sVar('$eip_conn[' + Con_String + '].$err_sv',1) --WARN
+      SMC_OUT_EIP(gasbox_slot2,'GasBox Con2')
+      Con_String = int2str(gasbox_slot2)
+      Set_I_sVar('$eip_conn[' + Con_String + '].$err_sv',1)  --WARN
+
+      --Set  interupt monitoring welding is active input
+      dimonsetio16 = 1177  -- Laser mon_set[16] IO num for Interrupt program
+			
+      Set_I_PVar('INTERUPT', 'MON_SET[16].IO_TYPE', 1)
+      Set_I_PVar('INTERUPT', 'MON_SET[16].IO_NUM', dimonsetio16)	
+
+    CASE(lashd_ipfo):
+      --Digital Outputs
+      SET_PORT_ASG(io_dout,1169,lasrcommtype,gasbox_slot2,io_dout,1,-8,gm_status)
+
+      SET_PORT_CMT(io_dout,1169,'Cross Jet ON',gm_status)
+      SET_PORT_CMT(io_dout,1170,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1171,'MDE ON',gm_status)
+      SET_PORT_CMT(io_dout,1172,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1173,'SmokeBell ON',gm_status)
+      SET_PORT_CMT(io_dout,1174,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1175,'N/C',gm_status)
+      SET_PORT_CMT(io_dout,1176,'N/C',gm_status)
+
+      SMC_OUT_EIP(gasbox_slot2,'GasBox')
+      Con_String = int2str(gasbox_slot2)
+      Set_I_sVar('$eip_conn[' + Con_String + '].$err_sv',1) --WARN
+
+    ELSE:
+  ENDSELECT --laser head
+
+END gas_gmstd_io
+-----------------------------------------------------------------------------
+ROUTINE laser2_io
+-- PURPOSE: sets I/O for all laser applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Process Monitor I/O
+  SELECT procmontype OF
+    CASE(procm_lesm):
+      set_lesm_io
+    CASE(procm_plwm):
+      set_plwm_io
+    --CASE(procm_plasm):  --NOT SUPPORTED ON G4 YET
+      --set_plasm_io
+    ELSE:
+  ENDSELECT
+
+END laser2_io
+-----------------------------------------------------------------------------
+ROUTINE set_las_io2
+-- PURPOSE: set lsr i/o
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(LasIO2_Setup) OR (Reset_Cell) THEN
+    LasIO2_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser Program GMLASIO2', FALSE)
+
+  IF (LasIO2_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser2 I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Laser2 I/O') THEN -- ask user if they want to setup again
+      LasIO2_Setup = FALSE
+    ELSE
+      WriteLog('  Laser2 I/O already Complete', FALSE)
+      WriteLog('  GMLASIO2 Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_las2_io
+  laser2_io
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Laser2 I/O Setup GMLASIO2 had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser2 I/O Setup completed', FALSE)
+    LasIO2_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+END set_las_io2
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlasio2

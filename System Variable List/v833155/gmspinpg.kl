@@ -1,0 +1,199 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program:
+--
+--    Description: Copied from swwizio4 due to size requirements.
+--				   Origional creator L. Steed
+--
+--    GMSPINPG -- program for loading all unique program that are specific to SpinTop applications
+-------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------
+--    Other Application files:
+--    GMSPINIO -- program to setup and comment the SpinTop I/O GMCELLIO is also required to setup workcell interface
+--    GMSPINRG -- program for setting registers and position registers comments and default values
+--    GMSPINVR -- program for setting variables specific to SpinTop application
+-------------------------------------------------------------------------------
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author: Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--    11/19/16  R.Kosaski Release
+--    08/08/18  R.Kosaski updated to accomadate the new SpinTop Files
+--
+-----------------------------------------------------------------------------
+PROGRAM GMSPINPG
+-----------------------------------------------------------------------------
+%ENVIRONMENT ATCLDEF -- required for the $Style_name variables
+%ENVIRONMENT mnmcdef -- required for the macro table system variables
+%ENVIRONMENT SYSDEF  -- required for the $group[1]. variable
+%ENVIRONMENT TPE -- required for the set_attr tp program header
+
+%COMMENT = 'SpinTop ProgsV4.0'
+%ALPHABETIZE
+%NOLOCKGROUP
+--%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+
+ Version = '2018-10-10 RK'
+%INCLUDE gmcnstnt -- used for all GM wizard constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  gm_status    : INTEGER
+  psve         : INTEGER
+  dummy        : INTEGER
+--  gpmac_done   : BOOLEAN
+  entry,        -- used for the GET_VAR command
+  ans          : INTEGER
+  prog_nam     : STRING[12]
+  l_stat       : INTEGER
+  l_status     : INTEGER
+  h,I          : INTEGER
+  StrtinErs    : INTEGER  -- How many errors I/O error counter had when the program started
+
+loaded,initialized  : BOOLEAN -- Used for LOAD_STATUS builtin
+
+SpinPrgsDone IN SHADOW FROM GMSPINPG: BOOLEAN -- if the programs has ran completly
+
+-- Variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- Variables declares for Shop specifics
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications -- Needed for USE_SPIN_TOP
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+-----------------------------------------------------------------------------
+ROUTINE LoadSpinTmpl
+-- PURPOSE: to load all the standard Spintop template programs based on the user
+--          selected configuration
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+-- any programs that loaded by base system need to be unlock to can overwrite
+  -- load the macro programs so names can be set
+  WriteLog('   SpinTop LoadSpinTmpl Routine Started', FALSE)
+
+   Load_File('FRS:','SPINTOP.PC',1) -- interface for operation
+   Load_File('FRS:','SPINTOPBGR.PC',1)-- Looping Program
+   Load_File('FRS:','SPINTOPPATH.PC',1)-- Path Programs
+   Load_File('FRS:','CRC16.PC',1)-- Check Sum
+   Load_File('FRS:','SPINTOPUTIL.PC',1)-- setup configuration for I/O from VMT (supplier of equip)
+
+   Load_File('FRS:','GMPUNDTA.PC',1)-- setup for Passing Pun from SR[2] to SpinTop.
+
+   Load_File('FRS:','ST_ENABLE.TP',1)
+   Load_File('FRS:','ST_START.TP',1)
+   Load_File('FRS:','ST_STOP.TP',1)
+   Load_File('FRS:','ST_STROTA.TP',1)
+   Load_File('FRS:','ST_STOPROT.TP',1)
+   Load_File('FRS:','ST_FREZANG.TP',1)
+   Load_File('FRS:','ST_OVRANG.TP',1)
+   Load_File('FRS:','ST_OVROFF.TP',1)
+   Load_File('FRS:','ST_DATAREAD.TP',1)
+   Load_File('FRS:','ST_DATASEND.TP',1)
+   Load_File('FRS:','ST_DATACLEAR.TP',1)
+   Load_File('FRS:','ST_DATAERROR.TP',1)
+   Load_File('FRS:','TMDWSTPROC1.TP',1)
+
+   Load_File('FRS:','GMPUNVIN.TP',1)
+
+ --  Load_File('FRS:','ST_TRACKTEST.TP',1) --Testing TP
+
+ --  Load_File('FRS:','MENU402.VR',1) -- SpinTop Display Menu
+
+   WriteLog('   SpinTop LoadSpinTmpl Routine Completed', FALSE)
+
+  RETURN
+
+END LoadSpinTmpl
+---------------------------------------------------------------------------
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+-- Check these here instead of a routine so can return to calling routine
+IF UNINIT(Use_Spin_Top) THEN
+  POST_ERR(38000, 'Use_Spin_Top not setup in GMSPINPG program', 0, 0) --
+  RETURN
+ENDIF
+IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+  ErrsInShop.ErrorsPrgrms = 0
+ENDIF
+
+IF UNINIT(SpinPrgsDone) THEN
+  SpinPrgsDone = FALSE
+ENDIF
+
+   WriteLog(' SpinTop PROGRAMS setup Started', FALSE)
+
+  IF (SpinPrgsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('SpinTop PROGRAMS Already Setup', FALSE)
+    IF ExecSetupAgn('SpinTop PROGRAMS') THEN -- ask user if they want to setup again
+      SpinPrgsDone = FALSE
+    ELSE
+      WriteLog('SpinTop PROGRAM already Complete', FALSE)
+      WriteLog('GMSPINPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+-- log how many errors starting with
+ StrtinErs = ErrsInShop.ErrorsPrgrms
+ ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+-- Start executing the setup routines
+
+  LoadSpinTmpl -- load SpinTop template programs common for all SpinTop robots
+
+ -- Get all errors in utility program that was used to any program errors
+ ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms + (AddUtltyErrs)
+
+ IF (ErrsInShop.ErrorsPrgrms-StrtinErs) > 0 THEN -- check for I/O setup errors
+   POST_ERR(38000, 'GMSPINPG had '+int2str((ErrsInShop.ErrorsPrgrms - StrtinErs))+' Errors while executing',0, 0) --
+   WriteLog('SpinTop Program setup GMSPINPG had ' + int2str((ErrsInShop.ErrorsPrgrms - StrtinErs))+'  Errors while executing', TRUE)
+ ELSE
+   WriteLog(' SpinTop programs setup Program completed', FALSE)
+   SpinPrgsDone = TRUE
+ ENDIF
+
+END GMSPINPG
+

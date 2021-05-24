@@ -1,0 +1,693 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmwizspt2.kl
+--
+--    Description:
+--
+--    gmwizspt2 contains questions for configuring GM G4 spot weld applications
+--    
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: 
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           2016/04/04   marchaka Program created
+--           2018/09/24   marchaka Modify program to support additional servo gun setup in miscellaneous tools menu
+--           2018/10/26   marchaka Do not ask if the tip dressers are servo dressers if there are no tip dressers being used
+-- 	     2019/08/10   marchaka Add servo gun pressure question for guns 2 to 4
+--           2019/10/01	  marchaka Modify display of servo gun pressure to not be in engineering format.  Add question for C or
+--                                 X gun type.
+-- 	     2020/20/01   schoensm Add Aluminum-Welding Questions during V8.33P10
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmwizspt2
+-------------------------------------------------------------------------------------------------------------
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT='GM SpotWldWiz2G4.3'
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgspt  -- Required for the configuration for GM Spot Gun variables
+%INCLUDE gm_var --required for spotctrl array
+
+CONST
+
+Version = '2020-10-01'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+
+VAR
+  ans          : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+  mtr_cfg      : ARRAY[4] OF STRING[35]
+
+  srvo_td_opt  IN SHADOW FROM GMCUSTO  : BOOLEAN --servo tip dresser option loaded on the robot
+  num_tipdrs   IN SHADOW FROM GMCUSTO: INTEGER
+  srvo_dress   IN SHADOW FROM GMCUSTO: INTEGER
+  swgtc_tipdrs IN SHADOW FROM GMCUSTO: INTEGER  --stored value of number of tipdrssers
+
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil
+
+ROUTINE set_english FROM gmlang1 -- setup variable for the user prompts
+ROUTINE USERPAGE FROM USERPAGE  -- forces user screen to pendant
+ROUTINE srvotd_optn FROM gmwizspt --check if servo tip dress option is installed
+ROUTINE set_spotvar3  FROM gmspotvr3  --setup servo gun and servo tip dress motors
+ROUTINE set_gunchng FROM gmswgtc --setup guns and tip dressers
+-----------------------------------------------------------------------------
+ROUTINE init_swgtc
+-- PURPOSE: Initialize all necessary items
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY: 
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  FOR i = 1 to 4 DO
+    IF UNINIT(mtr_cfg[i]) THEN
+      mtr_cfg[i] = ''
+    ENDIF
+  ENDFOR
+
+  IF UNINIT(swgtcnumguns) THEN
+    swgtcnumguns = 0
+  ENDIF
+
+  sp_eqnum = 1 --always is 1 for servo gun change applications
+
+  IF UNINIT(srvo_td_opt) THEN
+    srvotd_optn
+  ENDIF
+
+  IF UNINIT(swgtcmtrcomp) THEN
+    swgtcmtrcomp = FALSE
+  ENDIF
+
+  FOR i = 1 TO 9 DO  --reset servo gun servo tip dresser assignment
+    swgsrvotdasg[i] = 0 
+  ENDFOR
+
+END init_swgtc
+-----------------------------------------------------------------------------
+ROUTINE mtr_cfg_dply
+-- PURPOSE: Format motor selection for display
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY: 
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  sp_gnnum = 1 --reset for loop
+
+  FOR sp_gnnum = 1 TO 4 DO --for the possibility of all four servo guns
+    SELECT spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_motr OF
+      CASE(tol_sw44):
+        mtr_cfg[sp_gnnum] = 'Tol SW44'
+      CASE(tol_HT23):
+        mtr_cfg[sp_gnnum] = 'Tol HT23'
+      CASE(gswa_201_202):
+        mtr_cfg[sp_gnnum] = 'GSWA 201/202-ARO3G'
+      CASE(gswa_101):
+        mtr_cfg[sp_gnnum] = 'GSWA 101-Tol'
+      CASE(gswa_ima44):
+        mtr_cfg[sp_gnnum] = 'GSWA 102/103/202/203/IMA44-Tol'
+      CASE(gswa_ima33):
+        mtr_cfg[sp_gnnum] = 'GSWA 201/301/302/IMA33-Tol'
+      CASE(fac_4000):        
+        SELECT spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_mot2 OF
+          CASE(fac_4000_40):
+            mtr_cfg[sp_gnnum] = 'FANUC ACa8/4000iS-40A'
+          CASE(fac_4000_80):
+           mtr_cfg[sp_gnnum] = 'FANUC ACa8/4000iS-80A'
+          ELSE:
+            mtr_cfg[sp_gnnum] =''        
+        ENDSELECT      
+      ELSE:
+        mtr_cfg[sp_gnnum] =''
+    ENDSELECT             
+  ENDFOR    
+
+END mtr_cfg_dply
+-----------------------------------------------------------------------------
+ROUTINE set_swgmtr
+-- PURPOSE: Setup for all servo gun tool change motors and tip dressers.  No 
+--          motor setup will occur during normal wizard execution for servo
+--          gun chnage applications.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY: gmwizmis
+--
+--
+-----------------------------------------------------------------------------
+VAR
+gun_strt:  INTEGER
+
+BEGIN
+
+  init_swgtc  --intiialize all variables
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,swgset_gchng)		--Gun Change Setup
+    WRITE(CR,swgset_mtr,CR)		--Motor Setup
+    WRITE(CR,swg_mtr1,' ?')		--How many servo guns will be used?
+    WRITE(CR,m31_gmdata,' 1-4: ')	--Enter Selection 1-4
+    READ(swgtcnumguns)			
+  UNTIL(Verify_Answr(swgtcnumguns,1,4)) 
+
+  IF (swgtcnumguns <> 1) THEN
+    gun_strt = 2
+    goto mtr_slction
+  ELSE
+    goto mtr_dsply --display motor selections
+  ENDIF
+
+  mtr_slction::
+
+  sp_gnnum = 1 --reset for loop       
+  FOR sp_gnnum = gun_strt TO swgtcnumguns DO --get motor selection for all requested guns
+    REPEAT
+      --Select Motor Type from List
+      --Motor list: For Gun # On Equipment #
+      
+      CLR_STND_SCR(gm_status)
+      WRITE(CR,motor_gmdata,forgn_gmdata,sp_gnnum,oneq_gmdata,sp_eqnum,'?',CR)
+      WRITE('1 = Tol SW44',CR)
+      WRITE('2 = Tol HT23',CR)
+      WRITE('3 = GSWA 201/202-ARO3G',CR)
+      WRITE('4 = GSWA 101-Tol',CR)
+      WRITE('5 = GSWA 102/103/202/203/IMA44-Tol',CR)
+      WRITE('6 = GSWA 201/301/302/IMA33-Tol',CR)
+      WRITE('7 = FANUC ACa8/4000iS-40A/80A',CR)
+      WRITE(gdata_ans,':')
+      READ(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_motr)
+    UNTIL (Verify_Answr(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_motr,1,7))		 
+			   
+    IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_motr = fac_4000) THEN  --FANUC ACa8/4000iS-40/80A
+      REPEAT
+        --Motor list: For Gun # On Equipment #
+			   
+	CLR_STND_SCR(gm_status)
+        WRITE (CR,motor_gmdata,forgn_gmdata,sp_gnnum,oneq_gmdata,sp_eqnum,'?',CR)
+        WRITE (CR,'1 = FANUC ACa8/4000iS-40A',CR)
+        WRITE ('2 = FANUC ACa8/4000iS-80A',CR)
+        WRITE(gdata_ans,': ')
+        READ(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_mot2)
+      UNTIL (Verify_Answr(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_mot2,1,2))		   
+    ENDIF  
+  ENDFOR
+
+  mtr_dsply::
+
+  mtr_cfg_dply --setup variables for display of motor selection
+
+  REPEAT --display selected servo gun motors
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,swg_mtr2,CR) 				--Motor Selection
+      IF (swgtcnumguns >= 1) THEN
+        WRITE(CR,swg_mtr3,' 1: ',mtr_cfg[1])		--Gun 1 motor selection is:
+      ENDIF
+      IF (swgtcnumguns >= 2) THEN
+        WRITE(CR,swg_mtr3,' 2: ',mtr_cfg[2])		--Gun 1 motor selection is:
+      ENDIF
+      IF (swgtcnumguns >= 3) THEN
+        WRITE(CR,swg_mtr3,' 3: ',mtr_cfg[3])		--Gun 1 motor selection is:
+      ENDIF
+      IF (swgtcnumguns >= 4) THEN
+        WRITE(CR,swg_mtr3,' 4: ',mtr_cfg[4])		--Gun 1 motor selection is:  
+      ENDIF
+    WRITE(CR,swg_mtr4,' ',swg_mtr5,'?')                 --Change gun motor selection(s)?
+    WRITE(CR,'1.', yes_gmdata)       			-- '1. YES
+    WRITE(CR,'2.', no_gmdata)        			-- '2. NO
+    WRITE(CR,gdata_ans,'(1-2):')        		-- 'Answer(1-2):  
+    READ(ans)   
+  UNTIL (Verify_Answr(ans,1,2))
+
+  IF (ans = wizans_yes) THEN
+    gun_strt = 1
+    goto mtr_slction
+  ENDIF
+
+  --How many tip dressers?
+  REPEAT
+    CLR_STND_SCR(gm_status) 
+    WRITE (CR,swgtd_data1)		--Enter Total Number
+    WRITE (CR,swgtd_data2)		--of Tipdresser(s)
+    WRITE(CR,gdata_ans,'(0-4):')        -- 'Answer(0-4): 
+    READ (num_tipdrs)
+  UNTIL(Verify_Answr(num_tipdrs,0,4))
+
+  swgtc_tipdrs = num_tipdrs  --store value in memory for tdwebmon, num_tipdrs has to be reset for wizard rerun execution
+
+  IF (srvo_td_opt = TRUE) THEN --servo tip dresser option 
+    IF (swgtc_tipdrs <> 0) THEN  --if tip dressers are being used
+
+      REPEAT
+        CLR_STND_SCR(gm_status)			  
+        WRITE(CR,tipyn_srvgm,'?',CR)  	--Is a servo tip dresser used?
+        WRITE('1.',yes_gmdata,CR)		--yes
+        WRITE('2.',no_gmdata,CR)		--no
+        WRITE(gdata_ans,'(1-2):')		--answer
+        READ(servotipdrs)
+      UNTIL (Verify_Answr(servotipdrs,1,2))
+
+      srvo_dress = servotipdrs --set additional variable
+
+    ELSE
+      servotipdrs = wizans_no
+    ENDIF
+
+  ELSE --can't use a servo tip dresser
+
+    srvo_dress = wizans_no
+
+  ENDIF 
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,swg_mtr6,' ',swgset_mtr,CR)   --Execute motor setup
+    WRITE('1.',yes_gmdata,CR)		--yes
+    WRITE('2.',no_gmdata,CR)		--no
+    WRITE(gdata_ans,'(1-2):')		--answer
+    READ(spotapp_eq[1].spotgun[1].sg_ax_setup)  
+  UNTIL (Verify_Answr(spotapp_eq[1].spotgun[1].sg_ax_setup,1,2))
+
+  IF (spotapp_eq[1].spotgun[1].sg_ax_setup = wizans_yes) THEN --setup motors
+    swgtcmtrcomp = FALSE
+    set_spotvar3 --execute servo gun and servo tip dress motor setup
+    swgtcmtrcomp = TRUE --servo gun tool change motor setup complete
+  ENDIF
+
+END set_swgmtr
+-----------------------------------------------------------------------------
+ROUTINE set_guntc
+-- PURPOSE: Setup I/O, programs, gun and servo tip dress settings for servo gun
+--          change applications.  The contents of the setup is similar to what 
+--          previously resided in the G4 version of srvo_tc.pc. 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY: gmwizmis
+--
+--
+-----------------------------------------------------------------------------
+VAR
+gun_assg:  INTEGER
+tot_tipdrs:  STRING[2]
+swg_equip:  INTEGER
+sgmaxpr_disp:  STRING[10]
+sg_type_disp:  STRING[10]
+wd_type_disp:  STRING[30]  --weld type display, increased from 10 to 30 during v8.33p10
+
+BEGIN
+
+  init_swgtc
+
+  swg_equip = 1 --set equipment number used to 1
+
+  CNV_INT_STR(num_tipdrs,1,0,tot_tipdrs)  --convert total number of tip dressers into string for text
+
+  --Check if motor setup has been completed
+  IF (swgtcmtrcomp = FALSE) THEN --motors not setup for guns, cannot do reset of setup
+
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,swgset_mtr, ' ',swgguntd1,'.',CR)		--Motor Setup not completed.
+    WRITE(CR,swg_mtr6, ' ',swgset_mtr, ' ', swgguntd2)	--Execute Motor Setup and return to 
+    WRITE(CR,swgguntd3, ' ', swgsetguntip,'.')		--complete Gun and Tipdress Setup
+    WRITE TPPROMPT(CR,enter_gmdata,'.')			--Press Enter to continue.
+    READ TPPROMPT(CR)
+    RETURN
+
+  ELSE --motors for guns and tip dressers configured
+
+    press_selc::
+
+    sp_gnnum = 1 --reset loop
+    FOR sp_gnnum = 1 TO swgtcnumguns DO
+
+      REPEAT
+        -- *********************************************************  
+        -- Ask for Max Pressure?
+        -- Must find how to set max pressure
+        -- 1 pound = .45359237 kg
+        -- 1 pound = 4.4482216 Newton(s)
+        -- *********************************************************           
+			   
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,'GUN # ',sp_gnnum,CR)  
+        WRITE(press_gmdata,CR) 						--Enter Max Pressure from GUN Tag
+        WRITE(forgn_gmdata,sp_gnnum,oneq_gmdata,swg_equip,'?',CR) 	--For gun#',p_gun,' on equipment#',p_equip
+        WRITE('Units (nwt)',CR) 					--Pressure units (nwt)  
+        WRITE(gdata_ans,':')   						--Answer: 
+        READ(spotapp_eq[swg_equip].spotgun[sp_gnnum].sg_maxpr)
+      UNTIL((spotapp_eq[swg_equip].spotgun[sp_gnnum].sg_maxpr > 0.0) AND (spotapp_eq[swg_equip].spotgun[sp_gnnum].sg_maxpr < 10000.0)) 
+         spotctrl[swg_equip].spot_gun[sp_gnnum].sg_maxpr = spotapp_eq[swg_equip].spotgun[sp_gnnum].sg_maxpr --store max pressure
+    ENDFOR
+
+    REPEAT --display selected pressures
+      CLR_STND_SCR(gm_status)
+        IF (swgtcnumguns >= 1) THEN
+          sgmaxpr_disp = real2str(spotapp_eq[swg_equip].spotgun[1].sg_maxpr)
+          WRITE(CR,swgmax_press, ' ',swg_mtr3,' 1: ',sgmaxpr_disp)
+        ENDIF				
+        IF (swgtcnumguns >= 2) THEN
+          sgmaxpr_disp = real2str(spotapp_eq[swg_equip].spotgun[2].sg_maxpr)	
+          WRITE(CR,swgmax_press, ' ',swg_mtr3,' 2: ',sgmaxpr_disp)
+        ENDIF					
+        IF (swgtcnumguns >= 3) THEN
+          sgmaxpr_disp = real2str(spotapp_eq[swg_equip].spotgun[3].sg_maxpr)	
+          WRITE(CR,swgmax_press, ' ',swg_mtr3,' 3: ',sgmaxpr_disp)
+        ENDIF						
+        IF (swgtcnumguns >= 4) THEN
+          sgmaxpr_disp = real2str(spotapp_eq[swg_equip].spotgun[4].sg_maxpr)	
+          WRITE(CR,swgmax_press, ' ',swg_mtr3,' 4: ',sgmaxpr_disp)
+        ENDIF
+      WRITE(CR,swg_mtr4, ' ',swgmax_press,'?')				--Change Gun Max Pressure?
+      WRITE(CR,'1.', yes_gmdata)       					-- '1. YES
+      WRITE(CR,'2.', no_gmdata)        					-- '2. NO
+      WRITE(CR,gdata_ans,'(1-2):')        				-- 'Answer(1-2):  
+      READ(ans)   
+    UNTIL (Verify_Answr(ans,1,2))
+
+    IF (ans = wizans_yes) THEN
+      goto press_selc
+    ENDIF
+
+
+    guntyp_selc::
+
+    sp_gnnum = 1 --reset loop
+    FOR sp_gnnum = 1 TO swgtcnumguns DO
+
+      REPEAT
+        --WRITE(CR,'What type of Servo gun is use',CR)
+        --WRITE('For gun#',sp_gnnum,' on equipment#',sp_eqnum,CR)
+        --WRITE('1. C gun type',CR)
+        --WRITE('2. X gun type')          
+			   
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,'GUN # ',sp_gnnum,CR)  
+        WRITE(srvtp_gmdata,CR) 						--What type of servo gun is use
+        WRITE(forgn_gmdata,sp_gnnum,oneq_gmdata,swg_equip,'?',CR) 	--For gun#',p_gun,' on equipment#',p_equip
+        WRITE('1. C - Gun ',CR)
+        WRITE('2. X - Gun ',CR)
+        WRITE(gdata_ans,'(1-2):')
+        READ(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_guntyp)
+      UNTIL (Verify_Answr(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_guntyp,1,2))	
+    ENDFOR
+
+    REPEAT --display selected gun type
+      CLR_STND_SCR(gm_status)
+        IF (swgtcnumguns >= 1) THEN
+          SELECT (spotapp_eq[swg_equip].spotgun[1].sg_guntyp) OF
+            CASE(srvo_cgun):
+              sg_type_disp = 'C - Gun'
+            CASE(srvo_xgun):
+              sg_type_disp = 'X - Gun'
+            ELSE:
+              sg_type_disp = '       '
+          ENDSELECT
+          WRITE(CR,swg_mtr3, ' ',' 1: ',sg_type_disp)  --
+        ENDIF				
+
+        IF (swgtcnumguns >= 2) THEN
+          SELECT (spotapp_eq[swg_equip].spotgun[2].sg_guntyp) OF
+            CASE(srvo_cgun):
+              sg_type_disp = 'C - Gun'
+            CASE(srvo_xgun):
+              sg_type_disp = 'X - Gun'
+            ELSE:
+              sg_type_disp = '       '
+          ENDSELECT
+          WRITE(CR,swg_mtr3, ' ',' 2: ',sg_type_disp)
+        ENDIF		
+			
+        IF (swgtcnumguns >= 3) THEN
+          SELECT (spotapp_eq[swg_equip].spotgun[3].sg_guntyp) OF
+            CASE(srvo_cgun):
+              sg_type_disp = 'C - Gun'
+            CASE(srvo_xgun):
+              sg_type_disp = 'X - Gun'
+            ELSE:
+              sg_type_disp = '       '
+          ENDSELECT
+          WRITE(CR,swg_mtr3, ' ',' 3: ',sg_type_disp)
+        ENDIF	
+					
+        IF (swgtcnumguns >= 4) THEN
+          SELECT (spotapp_eq[swg_equip].spotgun[4].sg_guntyp) OF
+            CASE(srvo_cgun):
+              sg_type_disp = 'C - Gun'
+            CASE(srvo_xgun):
+              sg_type_disp = 'X - Gun'
+            ELSE:
+              sg_type_disp = '       '
+          ENDSELECT
+          WRITE(CR,swg_mtr3, ' ',' 4: ',sg_type_disp)
+        ENDIF
+
+      WRITE(CR,swg_mtr4, ' ',swggunty2,'?')				--Change gun type assignment(s)?
+      WRITE(CR,'1.', yes_gmdata)       					-- '1. YES
+      WRITE(CR,'2.', no_gmdata)        					-- '2. NO
+      WRITE(CR,gdata_ans,'(1-2):')        				-- 'Answer(1-2):  
+      READ(ans)   
+    UNTIL (Verify_Answr(ans,1,2))   
+
+    IF (ans = wizans_yes) THEN
+      goto guntyp_selc 
+    ENDIF     
+        
+    --V8.33P10 9-29-2020 schoensm added Aluminum Welding Question to Wizard
+    metal_selc::
+
+    sp_gnnum = 1 --reset loop
+    FOR sp_gnnum = 1 TO swgtcnumguns DO
+      REPEAT
+        --WRITE(CR,'GUN # ',sp_gnnum,CR)
+        --WRITE('Servo gun Setup',CR)
+        --WRITE('Is gun #',sp_gnnum,' on equipment# ',sp_eqnum,CR)
+        --WRITE('Aluminum-Welding?',CR)
+        --WRITE('1. Yes',CR)
+        --WRITE('2. No'CR)
+        --WRITE('Answer: ')
+	
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,'GUN # ',sp_gnnum,CR)
+        WRITE(spset_gmdata,CR)
+        WRITE(isgun_gmdata,sp_gnnum,oneq_gmdata,sp_eqnum,CR)
+        WRITE(alum_gmdata,'?',CR)
+        WRITE('1.',yes_gmdata,CR)
+        WRITE('2.',no_gmdata,CR)
+        WRITE(gdata_ans,': ')
+        READ(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ispare3)
+      UNTIL (Verify_Answr(spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ispare3,1,2))
+    ENDFOR
+
+    REPEAT --display selected gun type
+      CLR_STND_SCR(gm_status)
+      IF (swgtcnumguns >= 1) THEN
+        IF (spotapp_eq[swg_equip].spotgun[1].ispare3 = 1) THEN
+          wd_type_disp = ' = Aluminum-Welding'
+	ELSE
+          wd_type_disp = ' = Steel-Welding'
+	ENDIF
+        WRITE(CR,swg_mtr3, ' ',' 1: ',wd_type_disp)  --
+      ENDIF				
+
+      IF (swgtcnumguns >= 2) THEN
+        IF (spotapp_eq[swg_equip].spotgun[2].ispare3 = 1) THEN
+          wd_type_disp = ' = Aluminum-Welding'
+	ELSE
+          wd_type_disp = ' = Steel-Welding'
+	ENDIF
+        WRITE(CR,swg_mtr3, ' ',' 2: ',wd_type_disp)  --
+      ENDIF				
+			
+      IF (swgtcnumguns >= 3) THEN
+        IF (spotapp_eq[swg_equip].spotgun[3].ispare3 = 1) THEN
+          wd_type_disp = ' = Aluminum-Welding'
+	ELSE
+          wd_type_disp = ' = Steel-Welding'
+	ENDIF
+        WRITE(CR,swg_mtr3, ' ',' 3: ',wd_type_disp)  --
+      ENDIF				
+					
+      IF (swgtcnumguns >= 4) THEN
+        IF (spotapp_eq[swg_equip].spotgun[4].ispare3 = 1) THEN
+          wd_type_disp = ' = Aluminum-Welding'
+	ELSE
+          wd_type_disp = ' = Steel-Welding'
+	ENDIF
+        WRITE(CR,swg_mtr3, ' ',' 4: ',wd_type_disp)  --
+      ENDIF				
+
+      WRITE(CR,swg_mtr4, ' ',swggunty3,'?')				--Change gun Metal-Type(s)?
+      WRITE(CR,'1.', yes_gmdata)       					-- '1. YES
+      WRITE(CR,'2.', no_gmdata)        					-- '2. NO
+      WRITE(CR,gdata_ans,'(1-2):')        				-- 'Answer(1-2):  
+      READ(ans)   
+    UNTIL (Verify_Answr(ans,1,2))
+
+    IF (ans = wizans_yes) THEN
+      goto metal_selc 
+    ENDIF
+
+    IF (srvo_dress = wizans_yes) THEN --servo tip dress setup
+      IF (swgtcnumguns > 1) THEN --multiple guns 
+
+        IF (num_tipdrs > 1) THEN --multiple servo tip dressers
+
+          tipdrs_assg::
+
+          FOR gun_assg = 1 TO swgtcnumguns DO
+            REPEAT
+              CLR_STND_SCR(gm_status)
+              WRITE(CR,swgguntd4,CR)					--Assign gun to servo tip dresser
+              WRITE(CR,swgguntd5,gun_assg, ' ',swgguntd6,'?')	--What tip dresser will gun x use?
+              WRITE(CR,gdata_ans,'(1 -' + tot_tipdrs + '):')			--Answer 1 - number of tip dressers:
+              READ(swgsrvotdasg[gun_assg])
+            UNTIL (Verify_Answr(swgsrvotdasg[gun_assg],1,num_tipdrs))
+          ENDFOR
+
+          REPEAT
+            CLR_STND_SCR(gm_status)
+            WRITE(CR,swg_mtr3, ' 1 ',swgguntd7,' ',swgsrvotdasg[1])	--Gun 1 assigned to tip dresser x
+            IF (swgtcnumguns >= 2) THEN					
+              WRITE(CR,swg_mtr3, ' 2 ',swgguntd7,' ',swgsrvotdasg[2])	--Gun 2 assigned to tip dresser x 
+            ENDIF
+            IF (swgtcnumguns >= 3) THEN 					
+              WRITE(CR,swg_mtr3, ' 3 ',swgguntd7,' ',swgsrvotdasg[3])	--Gun 3 assigned to tip dresser x  
+            ENDIF
+            IF (swgtcnumguns >= 4) THEN 					
+              WRITE(CR,swg_mtr3, ' 4 ',swgguntd7,' ',swgsrvotdasg[4])	--Gun 2 assigned to tip dresser x  
+            ENDIF
+            WRITE(CR,swgguntd8,'?')                 			--Change tip dresser assignment(s)?
+            WRITE(CR,'1.', yes_gmdata)       				-- '1. YES
+            WRITE(CR,'2.', no_gmdata)        				-- '2. NO
+            WRITE(CR,gdata_ans,'(1-2):')        			-- 'Answer(1-2):  
+            READ(ans)   
+          UNTIL (Verify_Answr(ans,1,2))
+
+         IF (ans = wizans_yes) THEN
+           gun_assg = 1  --reset
+           goto tipdrs_assg
+         ENDIF          
+        
+        ELSE --one or less servo tip dresser
+
+          IF (num_tipdrs = 1) THEN --only one servo tip dresser
+
+            FOR gun_assg = 1 TO swgtcnumguns DO  --assign all guns to servo 
+              swgsrvotdasg[gun_assg] = 1
+            ENDFOR
+
+            CLR_STND_SCR(gm_status)
+            WRITE(CR,swg_mtr3, ' 1 ',swgguntd7,' ',swgsrvotdasg[1])	--Gun 1 assigned to tip dresser x
+            IF (swgtcnumguns >= 2) THEN					
+              WRITE(CR,swg_mtr3, ' 2 ',swgguntd7,' ',swgsrvotdasg[2])	--Gun 2 assigned to tip dresser x 
+            ENDIF
+            IF (swgtcnumguns >= 3) THEN 					
+              WRITE(CR,swg_mtr3, ' 3 ',swgguntd7,' ',swgsrvotdasg[3])	--Gun 3 assigned to tip dresser x  
+            ENDIF
+            IF (swgtcnumguns >= 4) THEN 					
+              WRITE(CR,swg_mtr3, ' 4 ',swgguntd7,' ',swgsrvotdasg[4])	--Gun 2 assigned to tip dresser x  
+            ENDIF
+            WRITE TPPROMPT(CR,enter_gmdata,'.')			    	--Press Enter to continue.
+            READ TPPROMPT(CR)
+        
+          ENDIF --only one servo tip dresser
+        ENDIF --multiple servo tip dressers
+      
+      ELSE --only one gun, can only assign dresser one
+    
+        swgsrvotdasg[1] = 1 --assign gun 1 to servo tip dresser 1
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,swg_mtr3, ' 1 ',swgguntd7,' ',swgsrvotdasg[1])	--Gun 1 assigned to tip dresser x
+        WRITE TPPROMPT(CR,enter_gmdata,'.')			    	--Press Enter to continue.
+        READ TPPROMPT(CR)
+
+      ENDIF  --multiple servo tip dressers are used
+    ENDIF  --servo tip dressers are used
+ 
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE(CR,swg_mtr6,' ',swgsetguntip,CR)   --Execute Gun and Tipdress Setup
+      WRITE('1.',yes_gmdata,CR)		--yes
+      WRITE('2.',no_gmdata,CR)		--no
+      WRITE(gdata_ans,'(1-2):')		--answer
+      READ(ans)  
+    UNTIL (Verify_Answr(ans,1,2))
+
+    IF (ans = wizans_yes) THEN --setup motors
+      tcguntdcomp = FALSE  --reset complete var for servo gun tool change gun and tip dresser setup
+      set_gunchng
+      tcguntdcomp = TRUE   --servo gun tool change gun and tip dresser setup complete
+    ENDIF  
+
+  ENDIF --motors setup for guns and tip dressers 
+
+
+  --RESET all necessary variables
+  --srvo_dress = 0 --evaluate how this effects this menu, maybe only reset if completed gun and tip dress setup? I think this will work
+
+END set_guntc
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmwizspt2
+

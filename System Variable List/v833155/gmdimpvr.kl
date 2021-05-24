@@ -1,0 +1,242 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMDIMPVR.KL
+--   TITLE:          GMDIMPVR PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Projection Weld Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--              4.1   2017/02/05 marchaka         Modify prompt logic for wizard rerun
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMDIMPVR
+
+%COMMENT = 'GM DIMP VAR V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- body shop variables
+%INCLUDE gmcfgdmp  -- dimpler variables
+
+CONST
+Version = '2017-02-05'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  DimpVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Dimpler variables at least first time
+
+  gm_status: INTEGER
+
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN   -- Servo gun option loaded
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initDIMPvars
+-- PURPOSE: to initialize variables needed for dimpler variable setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(DimpVR_Setup) THEN
+    DimpVR_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numdimpctrl) THEN
+    numdimpctrl = 0
+  ENDIF
+
+  IF UNINIT(dimp1_app) THEN
+    dimp1_app = 0
+  ENDIF
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+END initDIMPvars
+-----------------------------------------------------------------------------
+ROUTINE dimp_var
+-- PURPOSE: sets the dimpler variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  
+  Set_B_sVar('$ap_selap[2]', TRUE)  -- Spot
+
+  IF (bshop_proc1 = dimpappl)  THEN --process 1 is a dimple application
+
+    Set_B_sVar('$spoteqsetup[1].$det_bu_cl[1]', TRUE)
+    Set_B_sVar('$spoteqsetup[1].$det_gun_cl[1]', TRUE)
+
+    IF (g_servog_opt = TRUE) THEN --robot has servo gun option installed
+      Set_I_sVar('$SGCFG[1].$EQUIP_TYPE', 1)
+    ENDIF
+
+    Set_S_sVar('$MIX_BG[6].$PROG_NAME', 'SETSTRK1')
+    Set_I_sVar('$MIX_BG[6].$MODE', 2)
+    Set_I_sVar('$MIX_BG[6].$STATUS', 2)
+ 
+  ENDIF --process 1 is a dimple application
+
+  IF ((bshop_proc1 <> dimpappl) AND (bshop_proc1 <> spotappl) AND (bshop_proc1 <> projappl) AND (bshop_proc1 <> studappl) AND (bshop_proc2 = dimpappl)) THEN --process is not a spot configured app and process 2 is a dimpler
+
+    Set_B_sVar('$spoteqsetup[1].$det_bu_cl[1]', TRUE)
+    Set_B_sVar('$spoteqsetup[1].$det_gun_cl[1]', TRUE)
+
+    IF (g_servog_opt = TRUE) THEN --servo gun option installed on the robot
+      Set_I_sVar('$SGCFG[1].$EQUIP_TYPE', 1)
+    ENDIF
+
+    Set_S_sVar('$MIX_BG[6].$PROG_NAME', 'SETSTRK2')
+    Set_I_sVar('$MIX_BG[6].$MODE', 2)
+    Set_I_sVar('$MIX_BG[6].$STATUS', 2)
+ 
+  ENDIF --process is not a spot configured app and process 2 is a dimpler
+
+  IF ((bshop_proc1 <> dimpappl) AND (((bshop_proc1 = spotappl) OR (bshop_proc1 = projappl) OR (bshop_proc1 = studappl)) AND (bshop_proc2 = dimpappl))) THEN --process is a spot configured app and process 2 is a dimpler
+                                                                    --spot application setup does not account for configuring the number of equipment
+		                                                    --  etc. for combos, that is handled in the process 2 configuration of spottool
+				                                    --  for the combo.                                                                    
+    Set_I_sVar('$spotnumeq', 2)
+
+    Set_B_sVar('$spoteqsetup[2].$det_bu_cl[1]', TRUE)
+    Set_B_sVar('$spoteqsetup[2].$det_gun_cl[1]', TRUE)
+
+    IF (g_servog_opt = TRUE) THEN --servo gun option installed on the robot
+      Set_I_sVar('$SGCFG[2].$EQUIP_TYPE', 1)
+    ENDIF
+
+    Set_S_sVar('$MIX_BG[6].$PROG_NAME', 'SETSTRK2')
+    Set_I_sVar('$MIX_BG[6].$MODE', 2)
+    Set_I_sVar('$MIX_BG[6].$STATUS', 2)
+
+  ENDIF --process is a spot configured app and process 2 is a dimpler
+
+END dimp_var
+-----------------------------------------------------------------------------
+ROUTINE set_dimp_var
+-- PURPOSE: setup dimpler variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numdimpctrl <> 0) THEN --application has dimpler
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(DimpVR_Setup) OR (Reset_Cell) THEN
+    DimpVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Dimpler Variables GMDIMPVR', FALSE)
+
+  IF (DimpVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Dimpler Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Dimpler Vars') THEN -- ask user if they want to setup again
+      DimpVR_Setup = FALSE
+    ELSE
+      WriteLog('  Dimpler Variables already Complete', FALSE)
+      WriteLog('GMDIMPVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initDIMPvars
+  dimp_var
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Dimpler Variable Setup GMDIMPVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Dimpler Variable Setup completed', FALSE)
+    DimpVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numdimpctrl
+
+END set_dimp_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMDIMPVR

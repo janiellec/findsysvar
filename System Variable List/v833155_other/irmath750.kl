@@ -1,0 +1,1925 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   2000
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:  iRMath  
+--    
+--    Language: KAREL
+--    
+--    Source File:   iRMath.KL   19-Apr-2007   09:22
+-- 
+--    Description - 
+--    From a TP program, send data to this program which performs Matrix math
+--      
+--
+--    SYNTAX:
+--    CALL iRMath(FC,R1,R2,PR1,PR2,PR3,PR4,PR5,PR6,PR7)
+--      FC : Function code               Integer
+--
+--      R1 : Status/Integer Result Register Number 1      Integer
+--           =0 is a success
+--      R2 : Status/Real Result Register Number 2     Integer
+--          
+--      PR : Position register Number    Integer
+--
+--    Author: Tom Nemmers 
+--            Fanuc Robotics Corporation
+--            2000 South Adams Road
+--            Auburn Hills, Michigan    48326-2800
+--    
+--    Modification history:
+--	04-19-2007 T. Nemmers - Begin
+--  Ver 4.0 11-10-2007 T. Nemmers - add DeQueue Visual Tracking
+--  ver 5.0 11-16-2007 T. Nemmers - add Move Int and Move Real
+--  Ver 7.0 11-16-2007 T. Nemmers - add TP HELP
+--  Ver 8.0 11-16-2007 T. Nemmers - add grp_no for MovPR
+--  Ver 9.0 11-20-2007 T. Nememrs - Add group Mask, delete grp_no 
+--  Ver 10.0 11-30-2007 T.Nemmers - IN_RANGE now supports group numbers
+--  Ver 11.0 11-30-2007 T.Nemmers - Add more group masks max groups = 5
+--  Ver 12.0 12-03-2007 T.Nemmers - Add TP macros
+--  Ver 13.0 12-05-2007 T.Nemmers - Add Get/Set VAR, Localize TPERROR
+--  Ver 14.0 12-11-2007 T.Nemmers - Rename some macros add CVIS
+--  Ver 15.0 12-12-2007 T.Nemmers - Add irPowers function
+--  Ver 16.0 12-13-2007 T.Nemmers - Add point = line intersect plane
+--  Ver 17.0 12-14-2007 T.Nemmers - Remove Help1, help2, Change FcReQueue/fcHelp to 28/29
+--                                - All iR*.TP have type set to MACRO instead of None
+--  ver 17.1 12-14-2007 t.Nemmers - make correction to Points to Line
+--  ver 18   12-18-2007 T.Nemmers - Add Logging functions
+--  ver 19   04-03-2008 T.Nemmers - Change Points to line to create correct formula differs
+--  ver 20   04-04-2008 T.Nemmers - Add points to frame
+--  ver 21   04-09-2008 T.Nemmers - fix bug in distance function
+--  ver 21.2 04-09-2008 T.Nemmers - Allow Joint position in the input PRs
+--  ver 21.4 05-13-2008 T.Nemmers - fix macro name length for function 36
+--  ver 22.0 05-20-2008 T.Nemmers - Change loggong to CSV files.
+--  ver 22.1 05-27-2008 T.Nemmers - log when ATAN2 x and y both 0 return 0
+--  ver 22.2 05-27-2008 T.Nemmers - remove sint variable, replace with sreg (bug in set var)
+--  ver 22.3 05-28-2008 T.Nemmers - fix bug for Mset Var XX to last member of ring
+--  ver 22.4 09-16-2008 T.Nemmers - fix bug in FrameOX
+--  ver 22.5 09-16-2008 T.Nemmers - Add ReadParm
+--  ver 22.6 10-09-2008 T.Nemmers - In_Range status returns 1/0 for T/F (was 0/-1)
+--  ver 22.7 13-09-2008 T.Nemmers - Increase stack size from default of 300 to 500 (or 2000 bytes)
+--  ver 23   13-09-2008 T.Nemmers - Check if tool number/ frame number 0 and frame offset or tool offset passed
+--  ver 23.1 10-19-2008 T.Nemmers - Add dummy data in GET_VAR PR for stack over flow. Remove %StackSize
+--  ver 24.0 10-30-2008 T.Nemmers - Modify LogOpen to accept FileName[16], Add LogS, fix bug in Pts 2 Line
+--  ver 25.0 01-23-2009 T.Nemmers - Add COS, Sin, TAN functions
+--  Ver 26.0 01-27-2009 T.Nemmers - Add Planes 2 Line function
+--  Ver 26.1 01-30-2009 T.Nemmers - Add new items to fcHelp, if fc = 0 set to fcHelp
+--  Ver 27.0 02-03-2009 T.Nemmers - Add new Functions Lines to Point (fcLns2Pt)
+--  Ver 27.1 02-19-2009 T.Nemmers - Add LogInit function to initialize LogOpened Boolean
+--  Ver 27.2 05-04-2009 T.Nemmers - Add 2nd optional PR for arc Tangent function
+--  Ver 27.3 05-05-2009 T.Nemmers - Add optional distance for Points to point function
+--  Ver 27.4 07-21-2009 T.Nemmers - LOG R logs INT in real format, LOG I rounds a Real and logs as int format,
+--                                                     Help text FOR LOC CR now LOG D&T
+--  Ver 28   09-25-2009  T Nemmers - remove initialize macro function. Make it irHelp.kl
+--  Ver 28.1   10-20-2009  T Nemmers - add fc_missing call irhelp
+--  Ver 29   11/11/09  T Nemmers - add backLash routine
+--  Ver 30  12/10/2009 T Nemmers add Point2Line
+--  Ver 30.1  12/10/2009 T Nemmers add GET_VR_x functions
+--  Ver 30.2  12/15/2009 T Nemmers check V1 input to see if unit vector in MAKELINE
+--  Ver 30.3  12/16/2009 T Nemmers Fix LogCR routine
+-- Ver 30.4 12/17/2009 T nemmers added comments to ProjPoint routine, Check for P1 = p2
+-- Ver 30.5 12/17/2009 T Nemmers fix bug in MakeLine (make all vars local, check for 0 length vector)
+-- Ver 30.6 12/17/2009 T Nemmers add uninint debugFlag to LogErrCR
+--  Ver 30.7  12/10/2009 T Nemmers fix bug in GET_VR_x functions (was only returning r in x and 0 in yzwpr
+--  Ver 31.0  12/10/2009 T Nemmers Add Hires parameter for LogR and LogPR
+--  Ver 31.3  1/21/2010 T Nemmers Add  fcDeleteFIle to irhelp
+-- Ver 31.4 2/1/2010 T. Nemmers Add LogLock and Log Unlock function
+-- Ver 31.5 2/1/2010 T.Nemmers Remove LogLock and LogUnlock
+-- Ver 31.6 2/9/2010 T.Nemmers Add CalcParm
+-- Ver 31.7 2/10/2010 T.Nemmers Add CalcMinX, Add Pts2Line
+-- Ver 31.8 2/11/2010 T.Nemmers Add Quick Tool
+-- ver 31.9 11mar2010 tnemmers ProjPoint distance measurement corrected
+-- ver 31.10 25mar2010 tnemmers check for 0 points in CalcParm
+--ver 31.11 13apr 2010 tnemmers fix get_vr_real
+-- ver 31.12i  23apr201 tnemmers make invisible
+-- ver 31.13i 29apr2010 tnemmers add SetGrpMask and BitMask Routines
+-- ver 32.1  Post_err in CheckStatus,
+--		 grouped functions that use PR parameter together, 
+--		remove GetNextRobID  
+--		Add SphereLine  FcSphereLine
+-- ver 32.2 add GetFunction to irHelp
+-- ver 32.3 26jul2010 t nemmers add set_grp_no
+-- ver 33.0 11/30/2010 nemmerst add irLogger for holding logging functions
+-- ver 33.1 11/30/2010 nemmerst add fcOZFrame function
+-- ver 34.0 1/25/2011 nemmerst Back to Irhelp and irmath files
+-- ver 34.2 3/3/2011 nemmerst Add Carrousel function
+-- ver 34.3v 3/14/2011 add posn type 5 matrix
+-- ver 34.4v 3/23/2011 add Best fit Plane and best fit circle
+-- ver 34.5v 3/28/2011 add Best Carrousel. start of Best paraboloid
+-- ver 34.6v 3/29/2011 modify fcClear function to optionally set xyzwpr to non zero
+-- ver 34.7v 4/12/2011 add logging to TPDISPLAY
+--    10-15-13 jja R30iB Development ver 3.0
+------------------------------------------------------------------
+PROGRAM iRMATH
+------------------------------------------------------------------
+%ALPHABETIZE
+%COMMENT = 'iRmath  v4.0'
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOLOCKGROUP 
+%NOBUSYLAMP
+%RWACCESS
+--%INVISIBLE
+
+%ENVIRONMENT sysdef
+%ENVIRONMENT ripdef -- you may need to copy ripdef.ev to compile
+%ENVIRONMENT REGOPE 
+%ENVIRONMENT VECTR 
+%ENVIRONMENT CVIS 
+%ENVIRONMENT TIM
+
+--%ENVIRONMENT PBCORE
+
+%INCLUDE irCons
+%INCLUDE irvars  
+
+
+---- local results -----
+
+Integer1	: INTEGER
+Real1		: REAL
+Real2		: REAL
+i		: INTEGER
+Plane0		: xyzwprext
+Dist		: REAL
+
+a1,b1,deltaA,deltab	: REAL
+xbar,ybar		: REAL
+Lbar,LAbar,LBbar	: REAL
+xa	: REAL
+yb	: REAL
+L	: REAL
+Stest	: ARRAY [3,4] of real
+
+--------------------------------------------- 
+ROUTINE irHelpExt FROM irHelp
+ROUTINE GetFunction   (s : STRING ) : INTEGER FROM irHelp
+ROUTINE capitalize ( RawString : STRING) :STRING from irHelp
+ROUTINE ReadParm(MaxParm: INTEGER; data_type,int_value : ARRAY OF INTEGER;--
+real_value: ARRAY OF REAL; string_value: ARRAY OF STRING --
+no_of_data : INTEGER): BOOLEAN FROM irHelp
+ROUTINE LogError ( TextIn : STRING; Int_data : INTEGER; DataType : INTEGER) FROM irhelp
+ROUTINE LogErrCr ( TextIn : STRING) FROM irhelp
+ROUTINE LogErrS  ( TextIn : STRING) FROM irhelp
+ROUTINE LogErrI ( Int_data : INTEGER)  FROM irhelp
+ROUTINE CheckStatus(StatusIn : INTEGER; text : STRING; Ivalue : INTEGER) : BOOLEAN FROM irhelp
+ROUTINE CheckEC (text : STRING) : BOOLEAN  FROM irhelp
+ROUTINE LogInit  FROM irhelp
+ROUTINE LogOpen FROM irhelp
+ROUTINE LogCR  FROM irhelp
+ROUTINE LogDate (delim : INTEGER)  FROM irhelp
+ROUTINE LogI (i : INTEGER; delim : INTEGER)  FROM irhelp
+ROUTINE LogR (r : REAL; delim : INTEGER) FROM irhelp
+ROUTINE LogRh (r : REAL; delim : INTEGER) FROM irhelp
+ROUTINE LogS (s : STRING; delim : INTEGER) FROM irhelp
+ROUTINE LogPR (E: XYZWPREXT; Delim : INTEGER) FROM irhelp
+ROUTINE LogPRh (E: XYZWPREXT; Delim : INTEGER)  FROM irhelp
+ROUTINE LogV (v: VECTOR; Delim : INTEGER) FROM irhelp
+ROUTINE LogClose FROM irhelp
+ROUTINE get_reg_int(reg: INTEGER) : INTEGER FROM irhelp
+ROUTINE get_reg_real(reg: INTEGER) : REAL FROM irhelp
+ROUTINE get_reg_any(reg: INTEGER; int_val : INTEGER; real_val : REAL) : BOOLEAN FROM irhelp
+ROUTINE putposr (PrReg: INTEGER; PrIn : XYZWPREXT)  FROM irhelp
+ROUTINE PutIntReg (Reg : INTEGER;  Value: INTEGER)  FROM irhelp
+ROUTINE PutRealReg (Reg : INTEGER;  Value: REAL)  FROM irhelp
+ROUTINE MSet_Var_Int(ring_mask, Reg_num : INTEGER; int_data : INTEGER ) FROM irhelp
+ROUTINE Get_Var_Int(robot_id, Reg_num : INTEGER ): INTEGER FROM irhelp
+ROUTINE GET_VR_BarC(VRN: INTEGER; BarCode :STRING) : BOOLEAN FROM irhelp
+ROUTINE MSet_Vr_Real(ring_mask, Reg_num : INTEGER; real_data : REAL) FROM irhelp
+ROUTINE Get_Var_Real(robot_id, Reg_num : INTEGER ): REAL FROM irhelp
+ROUTINE GET_VR_Meas(VRN, MeasNo: INTEGER;  Meas : REAL) : BOOLEAN FROM irhelp
+ROUTINE GET_VR_Model(VRN, ViewNo: INTEGER; model_ID :INTEGER) : BOOLEAN FROM irhelp
+ROUTINE Get_VR_View(VRN, GN,ViewNo : INTEGER; e : XYZWPREXT) : BOOLEAN FROM irhelp
+ROUTINE Get_VR_Str(var_name, s : STRING) : BOOLEAN FROM irhelp
+ROUTINE Get_VR_Int(var_name : STRING; i : INTEGER) : BOOLEAN FROM irhelp
+ROUTINE Get_VR_Real(var_name : STRING; r : REAL) : BOOLEAN FROM irhelp
+ROUTINE getposr (PrReg : INTEGER;PrIn : XYZWPREXT) FROM irhelp
+ROUTINE Get_Var_PR(robot_id, Reg_num : INTEGER ): XYZWPREXT FROM irhelp
+ROUTINE MSet_Var_PR(ring_mask, Reg_num : INTEGER ; posext_data : XYZWPREXT) FROM irhelp
+ROUTINE Getnparms FROM irhelp
+-----------------------------------------------------------------------
+
+----------------------------------------------------
+ROUTINE ClearPR : XYZWPREXT
+----------------------------------------------------
+BEGIN
+Return($MOR_GRP[grp_no].$NILPOS)
+END ClearPR
+-----------------------------------------------------------
+Routine MakeVector (x,y,z :REAL) : VECTOR
+-----------------------------------------------------------
+BEGIN
+V.x = x
+V.y = y
+V.z = z
+RETURN(v)
+End MakeVector
+
+-------------------------------------------------------------------------------------------
+ROUTINE UnitVector(v : VECTOR) :Boolean -- false if zero length
+-------------------------------------------------------------------------------------------
+VAR
+ d	: REAL
+ 
+BEGIN
+d = SQRT(v@v)
+IF d =0 THEN
+	RETURN(FALSE)
+ENDIF
+v=v/d
+RETURN( true)
+END UnitVector
+
+-------------------------------------------------------------------------------------------------------------------
+ROUTINE GetLocation (PrIn : XYZWPREXT) : VECTOR -- get location vector from xyzwpr
+-------------------------------------------------------------------------------------------------------------------
+BEGIN
+RETURN( MakeVector(PrIn.x,PrIn.y,PrIn.z) )
+END GetLocation
+
+-------------------------------------------------------------------------------------------------------------------------
+ROUTINE MakeApproach (PrIn1,PrIn2 : XYZWPREXT) : VECTOR -- make Approach from two locations
+-------------------------------------------------------------------------------------------------------------------------
+VAR
+Vout : VECTOR
+
+BEGIN
+Vout = MakeVector( PrIn2.x - PrIn1.x, PrIn2.y - PrIn1.y, PrIn2.z - PrIn1.z)
+If  UnitVector(Vout) THEN
+	LogErrCr('Get Vector from 2 pts failed - same pts')
+	ok = FALSE
+ENDIF
+RETURN( Vout)
+END MakeApproach
+
+---------------------------------------------------------------------------------------------------------------------------
+ROUTINE MovePt (PrIn1 : XYZWPREXT; direction : VECTOR; Distance : REAL) : XYZWPREXT
+---------------------------------------------------------------------------------------------------------------------------
+VAR
+  prout : XYZWPREXT
+  
+BEGIN
+prout = prin1
+prout.x = prout.x + direction.x * Distance 
+prout.y = prout.y + direction.y * Distance 
+prout.z = prout.z + direction.z * Distance 
+RETURN( prout)
+END MovePt
+
+-------------------------------------------------------------------------------------------
+ROUTINE Frame2 (Pr1In, Pr2In : XYZWPREXT) : XYZWPREXT -- make frame from 2 pts on X axis assume Z is up
+-------------------------------------------------------------------------------------------
+VAR
+  pr1,pr2,pr3,pr4 : XYZWPREXT
+  vx,vy,vz    : VECTOR
+BEGIN
+
+vx = MakeApproach(pr1in,pr2in)
+IF ok THEN
+	IF (vx.z=1) THEN
+		-- Vx = application Z, set Vy to application Y
+		vy = MakeVector(0,200,0)
+	ELSE 
+		-- set Vz to Application frame Z, calculate Vy
+		
+		vz = MakeVector(0,0,200)
+		vy = vz#vx
+	ENDIF
+    
+	pr1 = Pr1In
+	pr2 = movept(pr1,vx,100)
+	pr3 = movept(pr1,vy,100)
+	pr4 = FRAME((pr1),(pr2),(pr3))
+else
+	pr4 = ClearPR
+ENDIF
+RETURN( pr4)
+END Frame2
+
+-------------------------------------------------------------------------------------------
+ROUTINE FrameZ (Pr1In, Pr2In , Pr3In : XYZWPREXT) : XYZWPREXT -- make frame from O, X, Z
+-- Z axis is defined by p1 and P3, X axis shifts in the YZ plane
+-------------------------------------------------------------------------------------------
+VAR
+  pr1,pr2,pr3,pr4 : XYZWPREXT
+  v1,v2,v3    : VECTOR
+BEGIN
+
+v1 = MakeApproach(pr1in,pr2in)
+pr3 = pr3in
+v3 = MakeApproach(pr1in,pr3)
+IF ok THEN
+	v2 = v3#v1
+	v1 = v2#v3
+	pr1 = pr1in
+	pr2 = movept(pr1,v1,100)
+	pr3 = movept(pr1,v2,100)
+	pr4 = FRAME((pr1),(pr2),(pr3))
+else
+	pr4 = $MOR_GRP[grp_no].$NILPOS
+ENDIF
+RETURN( pr4)
+END FrameZ
+
+---------------------------------------------------------------------------------------------
+ROUTINE FrameZ2 (OriginPt, ZaxisPt : XYZWPREXT) : XYZWPREXT -- make frame from 2 pts on Z axis assume Y is left
+-------------------------------------------------------------------------------------------
+VAR
+  XaxisPt : XYZWPREXT
+  YaxisPt : XYZWPREXT
+  vx,vy,vz    : VECTOR
+BEGIN
+Vx = MakeVector(1,0,0) -- assume Vx is Xaxis
+vz = MakeApproach(OriginPt,ZaxisPt)
+IF NOT ok THEN
+	Return(ClearPR)
+ENDIF
+	
+IF ABS(Vz.x) > .99 THEN -- if  OriginPt to ZaxisPt near  Xaxis make Vx = Y axis
+	VX = MakeVector(0,1,0)
+Endif
+
+--- update the Vx and Vy axix so they are normal to Vz -----
+
+Vy = Vz # Vx
+Vx = Vy # Vz
+
+XaxisPt =MovePT (OriginPt, Vx, 100)
+YaxisPt = MovePT (OriginPt, Vy,100)
+RETURN( FRAME( (OriginPt),(XaxisPt),(YAxisPt) ))
+END FrameZ2
+-------------------------------------------------------------------------
+ROUTINE MakeLine(v0 : VECTOR) : XYZWPREXT
+-------------------------------------------------------------------------
+-- Note the Position.location is (0,0,0), Approach is unit vector , X axis is near (0,0,1)
+VAR
+  prOrigin, prXaxis, prYaxis : XYZWPREXT
+  vx,vy,vz      : VECTOR
+  
+BEGIN 
+vz = v0 
+prOrigin = ClearPr -- init as frame origin
+IF UnitVector(vz) THEN
+	IF vz.z <> 1 THEN -- if cross product is straight up then nilpos is the answer
+	 	 IF vz.z  = -1 THEN -- then cross product straight down, rotate nilpos 180 degrees
+	    		prOrigin = POS(0,0,0,180,0,0,$MOR_GRP[grp_no].$NILPOS.Config_data)
+	 	 ELSE
+	 	 	IF ABS(vz.x) = 1 THEN
+	 	 		Vx = MakeVector(0,0,1)
+	 	 	ELSE
+	 	 		Vx = MakeVector(1,0,0)
+	 	 	ENDIF
+			vy = vz # vx --y axis is the cross product
+			vx = vy # vz -- x axis is the cross product
+				      -- note that the Vz direction has never changed
+			prXaxis = MovePt(prOrigin,vx,100)
+			PrYaxis = MovePt(PrOrigin,vy,100)
+			prOrigin = FRAME ((prOrigin),(prXaxis),(prYaxis)) -- prOrigin is now a point with calculated approach axis 
+		  ENDIF
+	ENDIF
+ENDIF
+RETURN (prOrigin)
+END MakeLine
+
+------------------------------------------------------------------------------
+ROUTINE Pts2Line (p1,p2 : XYZWPREXT) : XYZWPREXT
+------------------------------------------------------------------------------
+--- the resulting line is an XYZWPREXT  with p1.location and approach p1 to p2
+VAR
+e10	: XYZWPREXT
+
+BEGIN
+e10 = MakeLine(MakeApproach(p1,p2))
+e10.x = p1.x
+e10.y = p1.y
+e10.z = p1.z
+RETURN (e10)
+END Pts2Line
+
+-------------------------------------------------------------------
+ROUTINE Lines2Point (Ln1, Ln3,p5,p6,p7 : POSITION )
+-------------------------------------------------------------------
+-- Intersection of two lines (or mid point of shortest segment that connects two lines) 
+-- LN1 and  LN3 are the two lines. P5P6 is the connecting segment
+-- p5 is on line1, p6 is on line3. P5 and P6 are outputs, p7 is the midpoint of line P5P6 .  
+--  The vector math is below (L1 is location and N1 is approach of LN1 similar for Ln3)
+--     det = (n1@n2) * (n2@n1) -(n1@n1) *(n2@n2) 
+--     u1 = ((L1@n1 - L3@n1)*(n2@n2) -(L1@n2 -L2@n2)*(n2@n1) )/det
+--     u2 = ((L1@n1 - L3@n1)+u1 * (n1@n1))/ (n2@n1)
+--     L5 = L1 + u1*(n1)  
+--     L6 = L3 + u2*(n2)  
+--     L7 = (L6+ L5)/2VAR
+VAR
+a,b,c,d,e,f : REAL
+n1,n3,L1,L3	: VECTOR
+u1,u2,det   : REAL
+
+BEGIN
+ 
+  --- initialize ----
+p5 = ln1
+p6 = ln1
+p7 = ln1
+L1 = Ln1.location
+n1 = Ln1.APPROACH
+L3 = Ln3.location
+n3 = Ln3.APPROACH
+
+a = n1@n1
+b = -(n3@n1)
+c = (L1-L3)@n1 
+d = n1@n3
+e = -(n3@n3)
+f = (L1-L3)@n3
+det = a*e - b*d  -- determinate
+  
+IF det = 0 THEN
+	LogErrCr('Lines are parallel or the same')
+	ok = FALSE
+else  
+	u1 = -1*(c*e-b*f)/det
+	u2 = -1*(a*f-d*c)/det
+	P5.location = L1 + u1*n1 
+	p6.location = L3 + u2*n3  
+	p7.location = (P5.location + p6.location )/2
+ENDIF
+END lines2point
+
+---------------------------------------------------------------------------------------------------------------
+ROUTINE ProjPoint (Point1, Point2, Point3, ProjPoint : POSITION; Distance : REAL)
+---------------------------------------------------------------------------------------------------------------
+-- point3 is projected on line (point1 to point2) resulting in ProjPoint with Distance from point3
+-- Distance set to -1 if Point 1 and point2 are the same locations
+VAR
+real1		: REAL
+v1		: VECTOR
+v2		: VECTOR
+
+BEGIN
+V1 = Point2.location - point1.location
+distance = SQRT(V1@V1)
+IF distance <> 0 THEN
+	V1 = V1/distance --- unit vector of line
+	V2 = Point3.location - Point1.location -- line p1 to p3 projected on line 1 (unit length)
+	real1 = V2@V1  -- distance of projection
+	ProjPoint = Point1
+	ProjPoint.location = Point1.location + V1 * real1
+	Distance  = SQRT( (ProjPoint.location - point3.location) @(projPoint.location - point3.location) )
+ELSE	
+	LogErrCr('ProjPoint: point locations are the same')
+	distance = -1
+ENDIF
+END ProjPoint
+------------------------------------------------------------------------
+ROUTINE LXL2(p1,p2,p3,p4,p5,p6,p7:POSITION)
+------------------------------------------------------------------------
+
+VAR
+LN1,Ln2 : POSITION
+v1,v2   : VECTOR
+e1,e2   : XYZWPREXT
+
+BEGIN
+---- Make line.approach -----
+v1 = p2.location - p1.location
+v2 = p4.location - p3.location
+
+-- Make a position from approach and original point --
+e1 = MakelIne(v1)
+Ln1 = e1
+Ln1.location = p1.location
+e2 = MakeLine(v2)
+Ln2 = e2
+Ln2.location = p3.location
+
+----- find intersection of the two lines -----
+
+Lines2Point (Ln1, Ln2,p5,p6,p7 )
+END LXL2
+
+------------------------------------------------------------------------------------------
+ROUTINE LXPL2PT (Line1, Plane1 : XYZWPREXT) : XYZWPREXT
+------------------------------------------------------------------------------------------
+--
+-- Find the point that is the Intersection of a line and a plane. The line is defined by a point and a vector
+-- The Z axis (approach) of the position is the line vector and the location of the position is the point.
+-- A plane is defined by a point in the plane and the vector normal to the plane. The location of the position
+-- is the point and the approach of the position (Z axis) is the vector normal to the plane.
+--
+VAR
+N1,N2		: VECTOR
+P1,P2,P3	: VECTOR
+u		: REAL
+E3		: XYZWPREXT
+
+BEGIN
+N1 = APPROACH((Line1))
+P1 = GetLocation(line1)
+N2 = APPROACH((plane1))
+P2 = GetLocation(plane1)
+u = ((p2-p1)@n2)/(n1@n2)
+p3 = P1 + u * n1
+e3 = line1
+e3.x = p3.x
+e3.y = p3.y
+e3.z = p3.z
+
+RETURN (e3)
+END LXPL2Pt
+
+-------------------------------------------------------------------------------
+ROUTINE Planes2Line(p1, p2, p3 : POSITION) : BOOLEAN
+-------------------------------------------------------------------------------
+-- p2 is plane 1
+-- p3 is plane 2
+-- p1 is the intersecting line
+
+--The intersection of two planes (if they are NOT parallel) is a line. 
+--Define the two planes with normal vectors N1 and N2  add Point P , distances d1, d2 as
+--N1 @ p = d1
+--N2 @ p = d2 
+--The equation of the line (intersectionof planes) can be written as
+--p = c1 N1 + c2 N2 + u N1#N2 
+--Where "#" is the cross product, "@" is the dot product, and u is the parameter of the line. 
+--Taking the dot product of the above with each normal gives two equations with unknowns c1 and c2.
+--N1 @ p = d1 = c1 N1 @ N1 + c2 N1 @ N2   ;note N1 and N2 are both  perpendicular to N1#N2
+--N2 @ p = d2 = c1 N1 @ N2 + c2 N2 @ N2
+--Solving for c1 and c2 using law of determinates 
+--c1 = ( d1* N2 @ N2 - d2 *N1 @ N2 ) / determinant 
+--c2 = ( d2 *N1 @ N1 - d1 *N1 @ N2) / determinant 
+--determinant = ( N1 @ N1 ) *( N2 @ N2 ) - ( N1 @ N2 )*( N1 @ N2 )
+
+VAR
+v1,v2 		: VECTOR
+N1, N2 		: VECTOR
+ok 		: BOOLEAN
+c1,c2,d1,d2,det : REAL
+
+BEGIN
+ok = TRUE
+  
+-- make sure planes are not parallel
+
+N1 = APPROACH (p2)
+N2 = APPROACH (p3)
+
+IF ( (N2-n1)@(N2-n1) ) < .01  THEN
+	ok = FALSE
+	LogErrCr('IRmath.Plane2Line:Planes are parallel')
+ENDIF
+
+IF ok THEN
+	-- solve for d1
+	v1 = p2.location
+	d1 = N1 @ v1 
+	-- solve for d2
+	v2 = p3.location
+	d2 = N2 @ v2 
+	-- determinant = ( N1 @ N1 ) * ( N2 @ N2 ) - ( N1 @ N2 ) * (N1 @ N2) 
+	det = (N1 @ N1)*(N2 @ N2) - (N1 @ N2) * (N1 @ N2)
+	-- c1 = ( d1 * (N2 @ N2) - d2 * (N1 @ N2) ) / determinant 
+	c1 = ( d1 *(N2 @ N2) - d2*(N1@N2) ) / det
+	-- c2 = ( d2 * (N1 @ N1) - d1 * ( N1 @ N2) ) / determinant 
+	c2 = ( D2 * (N1@N1) - D1 * (N1@N2) ) / det
+	v1 = C1 * N1 + c2 * N2
+	v2 = N1 # N2
+	p1 = MakeLine(v2 )
+	p1.location = v1
+ENDIF
+
+RETURN (ok)
+END Planes2Line
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Routine SphereLine  (EndPt1,EndPt2,Center,ISect1,ISect2 : Position; Radius,RadiusDiff ,Separation: REAL) : integer
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----- Intersect line defined by endpoints with sphere at Center with radius R
+----- Returns number of answers (1, or 2) and intersect points if any
+----- automatically increases radius by RadiusDifference to get one solution
+----- When there are two solutions, Separation is the distance between the two points
+
+--Points P (x,y) on a line defined by two points P1 (v1.x,v1.y,v1.z) and P2 (v2.x,v2.y,v2.z) is described by 
+		--P = P1 + u* (P2 - P1)
+	--or in each coordinate 
+		--x = v1.x + u *(v2.x - v1.x)
+		--y = v1.y + u *(v2.y - v1.y)
+		--z = v1.z + u *(v2.z - v1.z)
+
+--A sphere centered at P3 (v3.x,v3.y,v3.z) with radius r is described by 
+
+	--(x - v3.x)*(x - v3.x) + (y - v3.y)*(y - v3.y) + (z - v3.z)*(z - v3.z) = r*r 
+	--Substituting the equation of the line into the sphere gives a quadratic equation of the form 
+		--a* u*u + b* u + c = 0
+		--where: 
+			--a = (v2.x - v1.x)*(v2.x - v1.x) + (v2.y - v1.y)*(v2.y - v1.y) + (v2.z - v1.z)*(v2.z - v1.z)
+			--b = 2*( (v2.x - v1.x)* (v1.x - v3.x) + (v2.y - v1.y) *(v1.y - v3.y) + (v2.z - v1.z)* (v1.z - v3.z) )
+			--c = v3.x*v3.x + v3.y*v3.y + v3.z*v3.z + v1.x*v1.x + v1.y*v1.y + v1.z*v1.z - 2*[v3.x *v1.x + v3.y* v1.y + v3.z* v1.z) - r*r 
+
+--The solutions to this quadratic are described by 
+--The exact behaviour is determined by the expression within the square root
+	--b * b - 4 * a * c 
+	--If this is less than 0 then the line does not intersect the sphere. 
+	--If it equals 0 then the line is a tangent to the sphere intersecting it at one point, namely at u = -b/(2*a). 
+	--If it is greater then 0 the line intersects the sphere at two points. 
+
+--To apply this to two dimensions, that is, the intersection of a line and a circle simply remove the 
+--z component from the above mathematics. 
+
+--Line Segment
+	--For a line segment between P1 and P2 there are 5 cases to consider. 
+	--Line segment doesn't intersect and on outside of sphere, in which case both values of u wll either be 
+	--     	less than 0 or greater than 1. 
+	--Line segment doesn't intersect and is inside sphere, in which case one value of u will be negative and 
+	--	the other greater than 1. 
+	--Line segment intersects at one point, in which case one value of u will be between 0 and 1 and the other not. 
+	--Line segment intersects at two points, in which case both values of u will be between 0 and 1. 
+	--Line segment is tangential to the sphere, in which case both values of u will be the same and between 0 and 1. 
+--When dealing with a line segment it may be more efficient to first determine whether the line actually intersects the 
+	-- sphere or circle. This is achieved by noting that the closest point on the line through P1P2 to the point P3 is 
+	--along a perpendicular from P3 to the line. In other words project p3 onto line p1p2 (made into a unit vector)
+	-- this is P is the closest point on the line then 
+	-- n1 = p2-p2/ Sqrt( (P2-p1)@(p2-p1) )
+	-- n2 = P3-p1
+	--u = n2@ n1 
+	--Solve for the closest point p4 
+	--p4 = p1 + u*n1 
+--Now that p4 is known get the distnce between p4 and spher center p3
+	-- d = sqrt(P4-p3) @ (p4-p3)
+
+Var
+v1,v2,v3,v4,n1,n2 : vector
+u,u1,u2,sr,sr2	: REAL
+a,b,c : REAL
+dist , r: real
+n : integer
+
+BEGIN
+v1 = EndPt1.location
+v2 = EndPt2.location
+v3 = Center.location
+separation = 0
+----- get distance of sphere center to line P1P2
+n1 = v2-v1
+u = SQRT(n1@n1)
+IF u <> 0 THEN
+	n1 = n1/u --- unit vector of line
+	n2 = v3-v1 -- line p1 to p3 projected on line p1p2 (unit length)
+	u = n2@n1  -- distance of projection
+	v4= v1 + n1 * u -- closest point on p1p2 to p3
+	dist  = SQRT( (v4 - v3) @(v4 - v3) ) --- distance of p3 to p4
+ELSE	
+	--LogErrCr('ProjPoint: point locations are the same')
+	dist = -1
+	abort
+ENDIF
+
+-- make radius larger if close
+RadiusDiff = dist - radius
+IF RadiusDiff  > 0  then
+	r = dist
+ELSE
+	r = radius 
+ENDIF
+	
+---- solve sphere and line intersect quadractic  -----
+
+a = (v2.x - v1.x)*(v2.x - v1.x) + (v2.y - v1.y)*(v2.y - v1.y) + (v2.z - v1.z)*(v2.z - v1.z)
+b = 2*( (v2.x - v1.x)* (v1.x - v3.x) + (v2.y - v1.y) *(v1.y - v3.y) + (v2.z - v1.z)* (v1.z - v3.z) )
+c = v3.x*v3.x + v3.y*v3.y + v3.z*v3.z + v1.x*v1.x + v1.y*v1.y + v1.z*v1.z - 2*(v3.x *v1.x + v3.y* v1.y + v3.z* v1.z) - r*r 
+
+sr2 = (b*b - 4 * a * c)
+
+-- Line can intersect sphere 1, or 2 times set n to number of intersections
+
+iSect1 = Center
+iSect2 = Center
+IF sr2 = 0 THEN
+	n = 1
+	u1 = -b/(2*a)
+	iSect1.location = v1 + u1*(v2-v1)
+	iSect2 = iSect1
+ELSE
+	n = 2
+	sr = SQRT(sr2)
+	u1 = (-b + sr)/(2*a)
+	u2 = (-b - sr)/(2*a)
+	iSect1.location = v1 + u1*n1
+	iSect2.location = v1 + u2*n1
+ENDIF
+separation =  SQRT( (iSect1.location - iSect2.location) @ (iSect1.location - iSect2.location) )
+Return (n)
+End SphereLine
+
+
+------------------------------------------------------------
+ROUTINE CalcMinX (m,n,MinXi : INTEGER)
+------------------------------------------------------------
+VAR
+i	: Integer
+MinX	: REAL
+
+BEGIN
+MinXi = 0
+MinX = 9999999
+FOR i = m TO n DO	
+	IF PRTable[i].x < MinX THEN
+		MinXi = i
+		Minx = PRTable[i].x
+	ENDIF
+ENDFOR
+END CalcMinX
+
+-----------------------------------------------------------------------------------
+ROUTINE SimPro (S : Array[*,*] OF REAL ; NRows : INTEGER)
+-----------------------------------------------------------------------------------
+VAR
+i,J,k      : INTEGER
+nCols 	: INTEGER
+t	: real
+BEGIN
+nCols = nRows + 1
+For j = 1 to nRows DO
+	t = s[j,j]
+	For k = j to nCols DO
+		S[j,k] = s[j,k] / t
+	ENDFOR
+	FOR i = j+1 to nrows DO
+		t = s[i,j]
+		FOR k = j to ncols do
+			s[i,k] = s[i,k] - t * s[j,k]
+		ENDFOR
+	ENDFOR
+ENDFOR
+FOR i = nrows Downto 2  DO
+	FOR j = i-1 downto 1 Do
+		t = s[j,i]
+		For k =  1 to Ncols do
+			s[j,k] = s[j,k] - t*s[i,k]
+		ENDFOR
+	ENDFOR
+ENDFOR	
+
+END SimPro
+------------------------------------------------------------
+Routine GetSums(First, Last,BitMask : Integer)
+------------------------------------------------------------
+Var
+i		: INTEGER
+Begin
+----- Total error ------
+err		= 0
+err2		= 0
+erra		= 0
+----- use normalized X data and the normalized Y data points -----
+
+SumXXX 	= 0
+SumXXXX	= 0
+SumXXY	= 0
+SumYY		= 0
+SumYZ		= 0
+SumZ		= 0
+SumXZ		= 0
+SumXX		= 0
+SumXY		= 0
+SumX		= 0
+SumY		= 0
+nPoints		= 0
+
+--- best fit sum masks -----
+
+FOR i = first TO Last DO
+	IF UNINIT(intTable[i]) THEN 
+		intTable[i] =  bf_plane + bf_circle + bf_plane + bf_line
+	ENDIF
+	IF UNINIT(PRTable[i]) THEN 
+		intTable[i] =  bf_skip	
+	ENDIF
+	IF  (bf_Skip AND intTable[i]) = 0  THEN -- skip if skip bit on
+		----- quadratic
+		IF (bf_quad AND intTable[i]) = 1 THEN 
+			SumXXX  = SumXXX  + prTable[i].x* prTable[i].x * prTable[i].x
+			SumXXXX  = SumXXXX  + prTable[i].x * prTable[i].x * prTable[i].x * prTable[i].x
+			SumXXY = SUMXXY + PrTable[i].x * PrTable[i].x *PrTable[i].y
+		ENDIF
+		----- plane
+	 	IF (bf_plane AND intTable[i]) = 1  THEN
+			SumYY	= PrTable[i].y*PrTable[i].y+SumYY
+			SumYZ	= PrTable[i].y*PrTable[i].z+SumYZ
+			SumZ	= PrTable[i].z+SumZ
+			SumXZ	=PrTable[i].x*PrTable[i].z+ SumXZ
+		ENDIF
+		---- line, quad, and plane
+	 	IF (bf_line AND intTable[i] = 1)OR  (bf_plane AND intTable[i] = 1) OR (bf_quad AND intTable[i] = 1)THEN ---- line
+			SumXX	= SumXX + PrTable[i].x * PrTable[i].x
+			SumXY	= SumXY+PrTable[i].x*PrTable[i].y
+		ENDIF
+		-- circle, line, quadratic, plane
+		SumX	= PrTable[i].x + SumX
+		SumY	= PrTable[i].y+SumY
+		nPoints = nPoints + 1
+		
+	ENDIF
+ENDFOR
+End GetSums
+
+---------------------------------------------------
+ROUTINE GetFitError (m,n : INTEGER)
+---------------------------------------------------
+VAR
+t	: REAL
+i	: INTEGER
+BEGIN
+FOR  i = m TO n DO
+	  t = A * prTable[i].x * prTable[i].x + B * prTable[i].x + C - prTable[i].y
+	  err = err +   t
+	  err2 = err2 +   t*t
+	  erra = erra + ABS(t)
+ENDFOR
+
+err =err /(nPoints)
+erra =erra /(nPoints)
+err2 =SQRT(err2/npoints)
+END GetFitError
+
+------------------------------------------------------------------------------------------
+ROUTINE BestLine (  m,n: INTEGER)
+------------------------------------------------------------------------------------------
+--- If there are insufficients points then a=b=c=err=err2=erra=0
+-- Regression (Best Fit) Line 
+-- The best fit curve associated WITH the n points (x1, y1), (x2, y2), . . . , (xn, yn) has the form 
+-- m is first index and n is last index in Xdata and ydata
+-- a,b,c are the parameters of the equations
+-- y = Ax*x + Bx + C 
+--
+--  Det = XX*Npoints-X*X
+--  A = 0
+--  B =(XY*Npoints- Y*X)/det
+--  C = (XX*Y-X*XY)/det
+
+VAR
+t  		: REAL
+i		: INTEGER
+
+BEGIN
+  
+----- calculate slope and intercept for y= (Slope)x + (Intercept) for X  in {x0,...,xn}
+
+GetSums(m,n,bf_line)
+sTest[1,1] = Sumxx;   sTest[1,2] =SumX;      sTest[1,3] = SumXY
+sTest[2,1] = SumX ;   sTest[2,2] = nPoints;   sTest[2,3] = SumY
+SimPro(Stest,2)
+a = 0
+b = sTest[1,3]
+c = sTest[2,3]
+	
+----- Calculate the error -----
+	
+GetFitError(m,n)
+END BestLine
+
+-----------------------------------------------------------------------------------------
+Routine BestQuad(m,n : integer) -- best quadratic y = A*x*x + B*x + C
+-----------------------------------------------------------------------------------------
+VAR
+t  		: REAL
+i		: INTEGER
+
+BEGIN
+  
+----- calculate slope and intercept for y= (Slope)x + (Intercept) for X  in {x0,...,xn}
+
+GetSums(m,n,bf_quad)
+sTest[1,1] = SumXXXX; sTest[1,2] =SumXXX; sTest[1,3] = SumXX ;sTest[1,4] = sumXXY
+sTest[2,1] = SumXXX  ; sTest[2,2] = sumXX  ; sTest[2,3] = SumX   ;sTest[2,4] = sumXY
+sTest[3,1] = SumXXX  ; sTest[3,2] = SumX    ; sTest[3,3] = nPoints ;sTest[3,4] = sumY
+SimPro(Stest,3)
+a = sTest[1,4]
+b = sTest[2,4]
+c = sTest[3,4]
+----- Calculate the error -----
+GetFitError(m,n)
+END BestQuad
+
+-----------------------------------------------------
+ROUTINE Paraboloid (m,n: INTEGER)
+-----------------------------------------------------
+-- this will give you best fit for paraboloid
+-- z = f(x, y) = p1x2 + p2xy + p3y2 + p4x + p5y + p6
+--
+-- s(x4)     s(x3y)   s(x2y2) s(x3)   s(x2y) s(x2)   p1  = s(zx2)
+-- s(x3y)   s(x2y2) s(xy3)   s(x2y)  s(xy2) s(xy)   p2  = s(zxy)
+-- s(x2y2) s(xy3)   s(y4)    s(xy2)  s(y3)   s(y2)   p3  = s(zy2) 
+-- s(x3)    s(x2y)   s(xy2)   s(x2)   s(xy)    s(x)     p4  = s(zx)
+-- s(x2y)  s(xy2)   s(y3)     s(xy)   s(y2)    s(y)    p5   = s(zy)
+-- s(x2)   s(xy)     s(y2)     s(x)     s(y)      s(1)    p6   = s(z)
+
+---- set sTest[i,j] for all the value (need to change array size to a 6,7
+-- answers for p(i)s will be in sTest[i,7] after calling SimPro (sTest,6)
+
+
+
+
+BEGIN
+GetSums(m,n,bf_paraloid)
+
+END Paraboloid
+-----------------------------------------------------------------------------------------------------------------------------------
+ROUTINE CalcParm(  m,n, terms: INTEGER;a1,b1,c1,err1,err21,erra1 : REAL)
+------------------------------------------------------------------------------------------------------------------------------------
+--- If there are insufficients points then a=b=c=err=err2=erra=0
+-- Regression (Best Fit) Line 
+-- The best fit curve associated WITH the n points (x1, y1), (x2, y2), . . . , (xn, yn) has the form 
+-- m is first index and n is last index in Xdata and ydata
+-- a,b,c are the parameters of the equations
+-- y = Ax*x + Bx + C 
+--
+--  D = X4*(X2*N-X*X) - X3*(X3*N-X2*X) + X2*(X3*X-X2*X2)
+--  A = [X2Y*(X2*N-X*X) “ X3*(XY*N-Y*X)+ X2*(XY*X-Y*X2)]/D
+--  B = [ X4* (XY*N- Y*X) -  X2Y*(X3*N- X2*X ) +  X2*(X3*Y-X2*XY)] / D
+--  C = [ X4*(X2*Y “ X*XY) -  X3*(X3*Y “ X2*XY) +  X2Y*(X3*X-X2*X2)]/D 
+
+-- Here are some examples of the notations,  
+--   N = number of samples
+--   X3 = sum OF cubes = x1x1x1 + x2x2*x2 + . . . + xnxnxn 
+--   X = sum OF x-values = x1 + x2 + . . . + xn 
+--   Y = sum OF y-values = y1 + y2 + . . . + yn 
+--   X2Y = sum OF squares OF x-values = x1x1y1 + x2x2y2 + . . . + xnxnyn
+VAR
+
+t  		: REAL
+i		: INTEGER
+
+BEGIN
+  
+----- calculate slope and intercept for y= (Slope)x + (Intercept) for X  in {x0,...,xn}
+
+SELECT terms OF 
+	CASE(3): -- find best trend fit for y = Ax^2+Bx+c
+	BestQuad(m,n)
+	
+	CASE (2): -- find best trend fit for y = Bx + C
+	BestLine(m,n)
+	ELSE:
+ENDSELECT
+a1 = a
+b1 = b
+c1 = c
+err1 = err
+err21 = err2
+erra1 = erra1
+END CalcParm
+
+------------------------------------------------------------------------------------------------------------------------
+ROUTINE BestFitPlane (Plane1: XYZWPREXT; m,n: INTEGER) : BOOLEAN
+------------------------------------------------------------------------------------------------------------------------
+VAR
+t	: REAL
+e1	: XYZWPREXT
+
+BEGIN
+
+GetSums(m,n,bf_plane)
+sTest[1,1] = SumXX; sTest[1,2] =SumXY   ; sTest[1,3] = SumX   ;sTest[1,4] = sumXZ
+sTest[2,1] = SumXY; sTest[2,2] = sumYY  ; sTest[2,3] = SumY   ;sTest[2,4] = sumYZ
+sTest[3,1] = SumX  ; sTest[3,2] = SumY    ; sTest[3,3] = nPoints  ;sTest[3,4] = sumZ
+SimPro(Stest,3)
+a = sTest[1,4]
+b = sTest[2,4]
+c = -1
+d = sTest[3,4]
+-- we solved z = ax + by + c
+-- now ax + by +cz + d = 0
+-- (p-p0) @ N1= 0
+-- p@N1 = p0@N1 
+--  So X intercept ( x,0,0) is a point , cz-Ax-By =d, (-d/a,0,0),(0,-d/b,0),(0,0,d) are XYZ intercepts
+-- therfore p0 = (-d/a,-d/b,-d/c) , N1 = (a,b,c)
+
+--makeline creates a position with location nilp and approach axis v
+
+v1 = MakeVector(a,b,c)
+v2 = MakeVector(0,0,d) -- z interslope (x=0,y = 0)-
+---- make v1 a unit vector -----
+dontcare = UnitVector(v1)
+-- chose vector so that z has same sign as v1.z ---
+IF (d * v1.z) < 0 THEN
+	v1 = v1 * (-1)
+ENDIF
+Dist = v2@v1 -- distance of Z interslope projected on N1 also distance of plane from (0,0,0)
+Plane1 = ClearPR
+Plane1 = makeLine (v1) -- this is the approach vector
+Plane1.x = v1.x * dist  -- this is the point on the approach vector and in the plane
+Plane1.y = v1.y * dist
+Plane1.z = v1.z * dist
+---- orient plane so Z+ is up
+IF (plane1.w > 90) OR (plane1.w < -90) THEN
+	e1 = clearpr
+	e1.w = 180
+	plane1 = plane1 : e1
+ENDIF
+-----calculate fit errors
+Err = 0
+ErrA = 0
+Err2 = 0
+Npoints = 0
+v1 = approach((plane1))
+v2 = getLocation(plane1)
+FOR i = m to n DO
+	t = (getLocation(PRtable[i] ) - v2) @ V1 -- t is projection length on plane's unit apporach vector
+	RealTable[i] = t
+	Err = Err + t
+	ErrA = ErrA + ABS(t)
+	Err2 = Err2 + t * t
+	Npoints = Npoints + 1
+ENDFOR
+err =err /(nPoints)
+erra =erra /(nPoints)
+err2 =SQRT(err2/npoints)
+RETURN(TRUE)
+END BestFitPlane
+
+--------------------------------------------
+Routine GetSumLs(m,n : Integer)
+--------------------------------------------
+
+BEGIN
+Lbar = 0
+LAbar = 0
+LBbar = 0
+Npoints = 0
+For i = m to n DO
+	xa = a - PRtable[i].x
+	yb = b - PRtable[i].y
+	L = SQRT( xa*xa + yb*yb) 
+	Lbar = Lbar + L
+	LAbar = LAbar +  xa/L
+	LBbar = LBbar +  yb/L
+	nPoints = nPoints + 1
+ENDFOR
+Lbar = Lbar/Npoints
+LAbar = LAbar/Npoints
+LBbar = LBbar/Npoints
+End GetSumLs
+
+-------------------------------------------------------------------------------------------------------------------
+ROUTINE BestFitCirc(CircleFrame : XYZWPREXT; radius : real; m,n : INTEGER): Boolean
+-------------------------------------------------------------------------------------------------------------------
+-- Best Fit for 2D circle (x-a)*(x-a)  + (y-b)*(y-b) = r*r   ; Lbar = r
+-- L(i) = SQRT( (x[i] - a) *(x[i] - a) + (y[i] - b)*(y[i] - b) )
+-- a = Xbar * Lbar  * LAbar
+-- b = YBar * Lbar * LBbar
+-- Xbar = Sum{X[i]} / nPoints
+-- Ybar = Sum{Y[i] } / nPoints
+-- Lbar = Sum {L[i]} / nPoints  = Sum{ SQRT( (x[i] - a) ^ 2 + (y[i] - b)^2 )} / nPoints
+-- LAbar = Sum { (a-x[i])/L[i] } / nPoints
+-- LBbar = Sum { (b-y[i])/L[i] } / nPoints
+Var
+CountDown	: INTEGER
+done	: Boolean
+
+BEGIN
+GetSums(m,n,bf_circle)
+Xbar = SumX/nPoints
+YBar = SumY/npoints
+a = Xbar
+b = ybar
+DeltaA = 10000
+DeltaB = 10000
+--Write TPDISPLAY(cr,cr,'       A    deltaA   B  deltaB')
+--                                  '12345678123456781234567812345678
+done = false
+CountDown = 50
+WHILE NOT done DO
+	--- iteration to improve the a and b values-----
+	
+	GetSumLs(m,n)
+	a1 = xbar + Lbar * LAbar
+	b1 = Ybar + Lbar * LBbar
+	DeltaA = a1 - a
+	DeltaB = b1 - b
+--	Write TPdisplay (cr, a::8::2,deltaA::10::6,b::8::2,deltaB::10::6,Lbar::8::2)
+	a = a1
+	b = b1
+	CountDown = CountDown - 1
+	IF (Abs(deltaA) < 0.00001) AND (ABS(deltaB) < 0.00001) OR (CountDown < 0) Then
+		done = true
+	ENDIF
+	
+ENDWHILE
+
+CircleFrame = clearPR
+CircleFrame.x = a	-- (x-a)
+CircleFrame.y = b	-- (y-b)
+--- add rotation if an X axis specified -----
+xAxisPoint =0
+i = m
+While (xAxisPoint =0) AND (i <= m)  DO
+	IF bf_xAxis AND intTable[i] <> 0 then
+		xAxisPoint = i
+	endif
+	i = i + 1
+ENDWHILE
+IF xAxisPoint > 0 then
+	CircleFrame.r =  ATAN2(prtable[XaxisPoint].x-CircleFrame.x,prtable[XaxisPoint].y-CircleFrame.y)
+ENDIF
+
+radius = Lbar	-- radius
+RETURN (TRUE) 
+End BestFitCirc
+
+
+----------------------------------------------------------------------------
+ROUTINE BitMask (BitNumber : INTEGER) : INTEGER
+----------------------------------------------------------------------------
+VAR
+i	 : INTEGER
+k	 : INTEGER
+BEGIN
+i = 1
+k = 1
+While i < BitNumber DO
+	k = k*2
+	i = i + 1
+ENDWHILE
+RETURN(k)
+END BitMask
+
+-------------------------------------------------------------------------------------------
+ROUTINE GroupAct: BOOLEAN
+-------------------------------------------------------------------------------------------
+BEGIN
+IF  (BitMask(grp_no) AND grp_msk) <> 0 THEN
+	RETURN (TRUE)
+ENDIF
+RETURN(FALSE)  
+END GroupAct
+
+-------------------------------------------------------------------
+ROUTINE SetGrpMask (GroupNoIn : INTEGER)
+-------------------------------------------------------------------
+BEGIN
+grp_msk = BitMask(GroupNoIn)
+END SetGrpMask
+
+-------------------------------------------------------------------
+ROUTINE irMathInit
+-------------------------------------------------------------------
+BEGIN
+IF UNINIT(grp_msk) THEN grp_Msk = 1; ENDIF
+IF UNINIT(Grp_No) THEN Grp_no = 1; ENDIF
+IF UNINIT (debugFlag)THEN DebugFlag = FALSE; Endif
+LogInit
+END  irMathInit
+-------------------------------------------------------------------------------------------
+-- main
+-------------------------------------------------------------------------------------------
+
+BEGIN
+irMathInit
+Ok = TRUE
+status1 = 0
+ok=ReadParm(MAX_PARAMS,data_type,int_value,real_value,string_value,no_of_data)
+IF ok THEN
+	getnparms
+endif
+
+--write tpdisplay(cr,cr,'Parameters ')
+
+delimiter = pr2reg -- only used if a logging function
+HiRes = pr3reg -- only used if a logging function with reals (logr, logpr, logv)
+IF no_of_data = 0 THEN FC = fcMissing; ENDIF
+IF ok THEN
+	SELECT fc OF
+	
+		----- start functions (cases) that do not use robot group numbers -----
+		CASE(  FcMissing):
+			ok = FALSE
+			GET_ATTR_PRG('irHelp', AT_PROG_TYPE , integer1, StrName, STATUS1) 
+			IF STATUS1 = 0 THEN
+				irHelpExt
+			else
+				ok =CheckStatus(STATUS1,'iRMath - Install irHelp - missing FC ',0)
+			ENDIF
+			
+		CASE (FcSetVarI): -- 24 Set Var Integer
+			integer1 = Get_reg_int(pr2reg)
+			IF ok THEN
+				MSet_Var_Int(pr3reg,pr1reg,integer1)
+			ENDIF
+      
+		CASE (FcSetVarR): -- 25 Set Var Real
+			real1 = Get_reg_real(pr2reg)
+			IF ok THEN
+				MSet_Vr_Real(pr3reg,pr1reg,real1)
+			ENDIF
+      
+		CASE (fcLogR): -- 34 Log Real Value
+			real1 = Get_reg_real(pr1reg)
+			IF ok THEN
+				IF HiRes = 1 THEN
+					LogRh(real1,delimiter)
+				ELSE
+					 LogR(real1,delimiter)
+				ENDIF
+			ENDIF
+          
+		CASE (fcLogI): -- 35 Log Integer Value
+			integer1 = Get_reg_int(pr1reg)
+			IF ok THEN
+				LogI(integer1,delimiter)
+			ENDIF
+        
+		CASE (fcLogS): -- 37 Log String
+			LogS(StrName,delimiter)  
+      
+		CASE (fcSine):
+			 IF NOT get_reg_any(pr1reg, integer1, real1) THEN
+				real1 = (integer1)
+			ENDIF
+			PutRealReg (streg2, SIN(real1 ))
+
+		CASE (fcCos): -- 39 Cosine     
+			IF NOT get_reg_any(pr1reg, integer1, real1) THEN
+				real1 = (integer1)
+			ENDIF
+			PutRealReg (streg2, COS(real1 ))
+      
+		CASE (fcTangent): -- 40 Tangent
+			IF NOT get_reg_any(pr1reg, integer1, real1) THEN
+				real1 = (integer1)
+			ENDIF
+			PutRealReg (streg2, TAN(real1))
+ 			
+			
+        
+		CASE (FcRMove): -- 17 Move Real    
+			result = Get_Reg_Real(pr2reg)
+			IF ok THEN
+				putrealreg(pr1reg,result)
+			ENDIF
+      
+		CASE (FcIMove): -- 18 Move Integer    
+			integer1 = Get_reg_int(pr2reg)
+			IF ok THEN
+				putIntReg(pr1reg,integer1)
+			ENDIF 
+    
+		CASE (FCSetGrpMsk): -- 19 Set Group Mask
+			IF no_of_data < 4 THEN
+				grp_msk = 1
+			ELSE
+				grp_msk = pr1reg
+			ENDIF
+       
+		CASE (FCPowers): -- 20 Set X to the Yth
+       
+			IF NOT get_reg_any (pr2reg,integer1,real1) THEN real1 = integer1; ENDIF
+			IF ok THEN
+				IF NOT get_reg_any (pr3reg,integer1,real2) THEN real2 = integer1; ENDIF
+				IF ok THEN
+					result = EXP(LN(real1)*real2)
+					putrealreg(pr1reg,result)
+				ENDIF
+			ENDIF
+     
+		CASE (FcGetVarI): -- 21 Get Var Integer    R1 = Robot(r3).R2 
+			integer1 = Get_Var_Int(pr3reg, pr2reg)
+			IF ok THEN
+				putIntReg(pr1reg,integer1)
+			ENDIF
+       
+		CASE (FcGetVarR): -- 22 Get Var Real    R1 = Robot(r3).R2 
+			real1 = Get_Var_Real(pr3reg, pr2reg)
+			IF ok THEN
+				putRealReg(pr1reg,real1)
+			ENDIF
+			
+		CASE (FcReQueue): -- 28 Requeue VR back onto Visual Tracking Queue
+			IF OK THEN
+				queue_num=get_reg_int(pr1reg)
+				IF OK THEN
+					vr_num= get_reg_int(pr2reg)
+					IF OK THEN
+--jja remove in v810			  V_RALC_QUEUE (queue_num, vr_num, STATUS1) -- does not compile without CVIS environment file
+					ENDIF
+				ENDIF
+			ENDIF
+    
+		CASE (fcLogOpen): -- 30 Open Log File
+			IF StrName <> '' THEN
+				FileName = StrName
+			ENDIF
+			LogOpen
+                
+		CASE (fcLogClose): -- 31 Close Log File
+			LogClose
+      
+		CASE (fcLogDate): -- 32 Log Date and Time to File
+			LogDate(delim_cr)
+ 
+		----- end of functions (cases) that do not use robot group numbers -----
+ 
+      		ELSE:  -- the remaining cases all use PRs hence multiple robot groups are possible so
+      			-- the function is executed for each active group number 
+      			grp_no = 0
+			WHILE (OK) AND (grp_no < MAX_GRPS) DO
+				grp_no = grp_no +1  ---- Grp_no is the current robot group no
+				IF groupAct THEN --- this test is true if group_no bit is set in grp_msk
+							--- grp_msk (robot group mask) is 1 by default
+							--- use FcSetGrpMsk function to change grp_msk
+      					SELECT fc OF 
+		 
+		------<<<< Start of block indent -----------------------------------------------------------------------------------    
+				
+		CASE(  FcMultiply): -- 1 Position Relation Math  (PR1 = PR2 : PR3)
+			GetPosR(pr2reg,pr2)
+			IF ok THEN
+				GetPosR(pr3reg,pr3)
+			ENDIF
+			IF ok THEN
+				pr1 = pr2:pr3
+				PutPosR(pr1reg,pr1)
+			ENDIF
+		CASE(  FcInverse):  -- 2 Inverse Position        (PR1 = INV(PR2))
+			----- if PR2 is missing assume PR1 = INV (PR1)
+			
+			IF pr2reg <> 0 then
+				getPosR(pr2reg,pr1 )
+			ENDIF
+			IF ok THEN
+				 pr1 = INV((pr1))
+				PutPosR(pr1reg,(pr1))
+			ENDIF
+
+		CASE(  FcClear):    -- 3 Clear Position          (PR1 = $NILPOS)
+			pr1 = ClearPR -- set config screen and zero out xyzwpr
+			pr1.x = pr2reg
+			pr1.y= pr3reg
+			pr1.z = pr4reg
+			pr1.w = pr5reg
+			pr1.p = pr6reg
+			pr1.r = pr7reg
+			PutPosR(pr1reg,pr1)
+
+		CASE(  FcInRange):  -- 4 In Range Function       (ST  = INRANGE(PR1))
+
+			getPosR(pr1reg,pr1)
+			IF ok THEN
+				IF pr2reg = 0 THEN
+					pr2 = $MOR_GRP[grp_no].$NILPOS
+				ELSE
+					getPosR(pr2reg,pr2) -- Frame Offset
+				ENDIF
+			ENDIF
+
+			IF ok THEN
+				IF pr3reg = 0 THEN
+					pr3 = $MOR_GRP[grp_no].$NILPOS
+				ELSE
+					getPosR(pr3reg,pr3) -- Tool Offset
+				ENDIF
+			ENDIF
+
+			IF ok THEN
+				IF $MNUFRAMENUM[grp_no] = 0 THEN
+					$UFRAME = $MOR_GRP[grp_no].$NILPOS
+				ELSE -- if optional Pr2 provided get frame offset
+					$UFRAME = $MNUFRAME[grp_no,$MNUFRAMENUM[grp_no]]
+				ENDIF
+
+				IF $MNUTOOLNUM[grp_no] = 0 THEN
+					$UTOOL = $MOR_GRP[grp_no].$NILPOS
+				ELSE -- if optonal PR3 provided get tool offset
+					$UTOOL = $MNUTOOL[grp_no,$MNUTOOLNUM[grp_no]]
+				ENDIF
+			ENDIF
+
+			pr4 = PR2 : PR1 : PR3
+
+			IF pr4reg <> 0 THEN -- if optonal PR2 provided then update
+				putposr(PR4reg,PR4)
+			ENDIF
+
+			IF OK THEN
+				IF IN_RANGE(pr4) THEN
+					STATUS1 = 1
+				Else 
+					status1 = 0
+				ENDIF
+			ENDIF
+			
+		CASE(  FcDot):      -- 5 Dot Product             (ST  = PR1 @ PR2)
+	
+			getPosR(pr1reg,pr1)
+			IF ok THEN
+				v1 = GetLocation(pr1)
+				getPosR(pr2reg,pr2)
+				IF ok THEN
+					v2=GetLocation(pr2)
+					result = v1@v2
+					putrealreg(streg2,result)
+				ENDIF
+			ENDIF
+
+		CASE(  FcCross):    -- 6 Cross Product           (PR1 = PR2 # PR3)
+			getPosR(pr2reg,pr2)
+			IF ok THEN
+				v2=GetLocation((pr2))
+				getPosR(pr3reg,pr3)
+				IF ok THEN
+					v3=GetLocation((pr3))
+					v1 = v2#v3
+					pr1 = $MOR_GRP[Grp_No].$NILPOS
+					pr1.x = v1.x
+					pr1.y = v1.y
+					pr1.z = v1.z
+					putPosr(pr1reg,pr1)
+				ENDIF
+			ENDIF
+			
+		CASE(  FcFrame):    -- 7 Frame                   (PR1 = FRAME(PR1,PR2,PR3))
+			getposr(pr2reg,pr2)
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			IF ok THEN
+				pr1 = FRAME((pr2),(pr3),(pr4))
+				putposr(pr1reg,pr1)
+			ENDIF
+			
+		CASE(  FcDistance):      -- 8 Distance Product             (ST  = PR1 to PR2)
+			getPosR(pr1reg,pr1)
+			IF ok THEN
+				v1 = GetLocation(pr1)
+				IF pr2reg <> 0 THEN
+					getPosR(pr2reg,pr2)
+				ENDIF
+			ENDIF
+			IF ok THEN
+				v2 =GetLocation(pr2)
+				v3 = v2- v1          
+				result = SQRT(v3@v3)
+				putrealreg(streg2,result)
+			ENDIF
+
+		CASE(  FcArctan):  -- 9 ARCTAN Function       (ST  = ARCTAN(PR1))
+
+			getPosR(pr1reg,pr1)
+			IF OK THEN
+				IF pr2reg <> 0 THEN
+					getPosR(pr2reg,pr2)
+					IF ok THEN
+						pr1.x = pr2.x - pr1.x
+						pr1.y = pr2.y - pr1.y
+					ENDIF
+				ENDIF
+				IF ok THEN
+					IF (pr1.x = 0) AND (pr1.y = 0) THEN
+						result = 0
+						LogErrCr ('WARN:ARCTAN set to 0, both x=0 and y=0')
+					ELSE
+						result = ATAN2(pr1.X,pr1.Y) 
+					ENDIF
+					putrealreg(streg2,result) 
+				ENDIF
+			ENDIF
+			
+		CASE(FcCartesian): -- 10 Matrix/Joint to Cartesian   (PR(x,y,z,w,p,r) = PR(1..12))
+			getposr(pr1reg,pr1)
+			IF ok THEN 
+				putposr(pr1reg,pr1)
+			ENDIF
+
+		CASE (FcMovePReg): -- 11 Move Reg to Reg         (R1 = R2)
+			getposr(pr2reg,pr2)
+			IF ok THEN
+				IF UNINIT(PR2) THEN 
+					PR2 = $MOR_GRP[grp_no].$NILPOS
+				ENDIF          
+				pr1 = pr2
+				putposr(pr1reg,pr1)
+			ENDIF
+
+		CASE (FcPts2Line): --  12 FcPts2Line  Points to Line  (PR1.approach = PR2 to PR3)
+			--  FcOX2Frame 2 Points to Frame  (PR1 = Frame(PR2,PR3, PR2+y)getposr(pr2reg,pr2)
+			-- call IRMATH ( 12,0,0,LINE, Point1,Point2)
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN             
+				--           v1.x = pr3.x - pr2.x
+				--           v1.y = pr3.y - pr2.y
+				--            v1.z = pr3.z - pr2.z
+				--            pr1= MakeLine(v1)
+				--            pr1.x = pr2.x
+				--            pr1.y = pr2.y
+				--           pr1.z = pr2.z
+				PR1 = Pts2Line(PR2,PR3)
+				putposr(pr1reg,pr1)
+			ENDIF
+
+		CASE (FcOX2Frame): -- 13 FcOX2Frame 2 Points to Frame  (PR1 = Frame(PR2,PR3, PR2+y)getposr(pr2reg,pr2)
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN pr1 = frame2(pr2,pr3); ENDIF
+			IF ok THEN putposr(pr1reg,pr1); ENDIF
+
+		CASE (FcOXZ2Frame): --  14 FcOX2Frame 2 Points to Frame  (PR1 = Frame(PR2,PR3, PR2+y)
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			IF ok THEN pr1 = frameZ(pr2,pr3,pr4) ;ENDIF
+			IF ok THEN putposr(pr1reg,pr1); ENDIF
+
+		CASE (FcPts2Pt): -- 15 Points to Point (PR5,PR6,PR7 = PR1,PR2,PR3,PR4) 
+			IF ok THEN getposr(pr1reg,pr1); ENDIF
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			p5 = pr1
+			p6 = pr1
+			p7 = pr1
+			IF ok THEN LXL2((pr1),(pr2),(pr3),(pr4),p5,p6,p7 ) ;ENDIF
+			IF ok THEN
+				pr5 = p5
+				pr6 = p6
+				pr7 = p7
+				IF streg2 <> 0 THEN
+					v1 = GetLocation(pr5)
+					v2 = GetLocation(pr6)
+					v3 = v2- v1          
+					result = SQRT(v3@v3)
+					putrealreg(streg2,result)
+				ENDIF
+			ENDIF
+			IF ok THEN putposr(pr5reg,pr5); ENDIF
+			IF ok THEN putposr(pr6reg,pr6); ENDIF
+			IF ok THEN putposr(pr7reg,pr7); ENDIF
+
+		CASE (FcMove2Pt): -- 16 Move Point
+
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN result = get_reg_real(streg2); ENDIF
+			IF ok THEN pr1 = MovePT (pr2, (APPROACH((pr3))), result ); ENDIF
+			IF ok THEN putposr(pr1reg,pr1); ENDIF
+
+		CASE (FcGetVarPR): -- 23 Set Var PR    (PR1 = PR2)
+
+			IF OK THEN
+				pr1 = Get_Var_PR(pr3reg, pr2reg)
+			ENDIF
+			IF ok THEN
+				putposr(pr1reg,pr1)  
+				ENDIF
+
+		CASE (FcSetVarPR): -- 26 Set Var PR    (PR1 = PR2)
+
+			IF ok THEN
+				getposr (pr2reg,pr2)
+				IF OK THEN
+					MSet_Var_PR(pr3reg, pr1reg, pr2)
+				ENDIF
+			ENDIF
+
+		CASE (FcPXLN2PT): -- 27 Point = Line X Plane
+			-- CALL IRMATH (27,0,0,POINT,LINE,PLANE)
+			GetPosR(pr2reg,pr2)
+			IF ok THEN 
+				GetPosR(pr3reg,pr3)
+				IF ok THEN
+						pr1 = LXPL2PT (PR2, PR3)
+					PutPosR(pr1reg,pr1)
+				ENDIF
+			ENDIF
+		
+		CASE (fcLogPR): -- 33 Log PR to Log File
+
+			IF ok THEN
+				getposr (pr1reg,pr1)
+				IF OK THEN
+					IF HiRes = 1 THEN
+						LogPRh(pr1,delimiter) -- position
+					ELSE
+						LogPR(pr1,delimiter) -- position
+					ENDIF
+					ENDIF
+			ENDIF
+		
+		CASE (fcLns2Fr): -- 36 Lines 2 Frame            (PR1) = Line(PR3,PR2)XLine(PR4,PR5)
+
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			IF ok THEN getposr(pr5reg,pr5); ENDIF
+			pr1 = $MOR_GRP[Grp_No].$NILPOS
+			p6 = pr1
+			p7 = pr1
+			p8 = pr1
+			IF ok THEN LXL2((pr2),(pr3),(pr4),(pr5),p6,p7,p8 ) ;ENDIF
+			IF ok THEN
+				v1 = GetLocation(pr3) - GetLocation(pr2)
+				v2 = GetLocation(pr5) - GetLocation(pr4)
+				DontCare = UnitVector(v1) -- make into a unit vector
+				DontCare = UnitVector(v2) -- make into a unit vector
+				v3 = v1#v2
+				v2 = v3#v1
+				v1 = v2#v3
+				p6 = p8
+				p6.location = p6.location + 100*v1
+				p7 = p8
+				p7.location = p7.location + 100 * v2 
+				PR1 = FRAME(p8,p6,p7)
+			ENDIF
+			IF ok THEN putposr(pr1reg,pr1); ENDIF
+		CASE (fcPls2Line): -- 41 Planes 2 Line 
+			GetPosR(pr2reg,pr2)
+			IF ok THEN GetPosR(pr3reg,pr3); ENDIF
+			IF ok THEN
+				ok = Planes2Line (p1, (pr2), (pr3))
+				IF ok THEN
+					PutPosR(pr1reg,(p1))
+				ENDIF
+			 ENDIF
+
+		CASE (fcLns2Pt): -- 42 Lines 2 Point irMath(42,0,0,ln1,ln2,p5,p6,p7)
+
+			GetPosR(pr1reg,pr1)
+			IF ok THEN GetPosR(pr2reg,pr2); ENDIF
+			IF ok THEN
+				Lines2Point ( (pr1), (pr2),p3,p4,p5)
+				IF ok THEN
+					PutPosR(pr3reg,(p3))
+					PutPosR(pr4reg,(p4))
+					PutPosR(pr5reg,(p5))
+				ENDIF
+			ENDIF
+		CASE ( fcBackLash): --	= 44 -- Get back lash position(44,0,BackLash,Pr1,pr2)   
+
+			GetPosR(pr2reg,pr2)
+          			J1 = pr2
+         			CNV_JPOS_REL(j1, rob_axis, status1)
+          			FOR i = 1 TO MAX_AXIS DO
+                 			 rob_axis[i] = rob_axis[i] +  streg2       
+           			ENDFOR
+           			CNV_REL_JPOS(rob_axis, j1, status1)
+           			pr1 = J1
+           			IF ok THEN
+              			PutPosR(pr1reg,pr1)
+            			ENDIF
+		CASE (fcPoint2line): -- 45 -- get distance of point to line and projected location (45,0,r1,PR1,PR2,PR3 PR4)    
+			-- pr1 is projected point, pr2  and pr3 make the line. Pr4 is the point. r1 is distance of point to line(Pr1)
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			p1= pr2
+			p2= pr3          
+			p3 = pr4
+			IF ok THEN  ProjPoint (p1, p2, p3, p4, result) ;ENDIF
+			IF ok THEN
+				pr1 = p4
+				IF streg2 <> 0 THEN
+					putrealreg(streg2,result)
+				ENDIF
+			ENDIF
+			IF ok THEN putposr(pr1reg,pr1); ENDIF
+		
+		CASE (fcSphereLine): -- CALL iRmath(50,N,D,P1,e1,e3,ctr,r,P2)
+			-- Get intersection of 3D line and Sphere
+			-- N is Number of intersections (0,1,or 2)
+			-- D is Radius Difference (out)
+			-- P1 is Intersection 1  (out)
+			-- e1 is point 1 of the line (in)
+			-- e2 is point 2 of the line (in)
+			-- ctr is sphere origin (in)
+			-- r is radius (in)
+			-- P2 is Intersection 2			
+			IF ok THEN getposr(pr2reg,pr2); ENDIF
+			p2 = pr2
+			IF ok THEN getposr(pr3reg,pr3); ENDIF
+			p3 = pr3
+			IF ok THEN getposr(pr4reg,pr4); ENDIF
+			p4 = pr4
+			result2 = get_reg_real(pr5reg)
+			IF ok then
+			 	IF SphereLine  (p2,p3,p4,p1,p6, Result2,Result ,result3 )>0 THEN	
+			 		Status1 = 0
+			 	ENDIF
+			 	IF ok then PutPosR(pr1reg,(p1)) ; ENDIF
+			 	IF ok then PutPosR(pr6reg,(p6)) ; ENDIF
+			 	IF Ok then
+			 		IF streg2 <> 0 THEN
+						putrealreg(streg2,result)
+					ENDIF
+				ENDIF
+			ENDIF
+			 	
+			 
+		CASE(fcQuickTool):   --    CALL iRmath(49,0,0[,ToolPR[TargetPR],[FacePlate Pos])
+					
+			----- If PR2 empty, get Tool tip pos from frame origin ----
+			
+			IF pr2reg <> 0 THEN
+				GetPosR(pr2reg,pr2)
+		 	ELSE
+		 		pr2 = $mor_grp[grp_No].$nilpos
+		 	ENDIF
+		 	
+		 	----- If PR3 is empty get face plate from curpos -----
+		 	
+			IF pr3Reg <> 0 THEN
+				GetPosR(pr3reg,pr3)
+			ELSE
+				$UTOOL = $MOR_GRP[Grp_No].$NILPOS
+				$UFRAME = $MNUFRAME[Grp_No,$MNUFRAMENUM[Grp_No] ]
+				pr3 = CURPOS(al_mask, ot_mask ,Grp_No)
+			ENDIF
+	
+			pr1 = INV((pr3)) :PR2
+			IF ok THEN
+				PutPosR(pr1reg,pr1)
+			ENDIF
+		CASE (FcOZ2Frame): -- CALL iRmath(51,0,0,PlanePr,OriginPR,ZaxisPR)			
+			IF pr2reg <> 0 THEN
+				GetPosR(pr2reg,pr2)
+		 	ELSE
+		 		pr2 = $mor_grp[grp_No].$nilpos
+		 	ENDIF
+		 	
+			IF pr3reg <> 0 THEN
+				GetPosR(pr3reg,pr3)
+		 	ELSE
+		 		pr3 = $mor_grp[grp_No].$nilpos
+		 		pr3.z = 100
+		 	ENDIF
+		 	
+		 	pr1 = FrameZ2 (pr2, pr3)
+			IF ok THEN
+				PutPosR(pr1reg,pr1)
+			ENDIF
+			
+		CASE (FcBestPlane): -- CALL iRmath(52,0,[StReg2],Pr1,pr2,pr3)
+			-- Plane frame is in Pr1 (best plane fit)
+			-- StReg2 contains fit error
+			-- pr2 is first index into PrTable
+			-- pr3 is last index into PrTable
+			
+			IF (pr2reg  < 1) OR (pr2reg > 99) THEN
+			 		LogErrCr ('Invalid Start index, 1 - 99')
+			 		Ok = false
+			 	ENDIF
+			 	
+		 	IF ok THEN
+		 	 	IF (pr3reg < 3) or (pr3reg > 20) THEN
+		 			LogErrCr ('Invalid NCount, 3 - 20')
+		 			Ok = false
+		 		ELSE
+					ok = BestFitPlane (pr1,pr2reg,pr3reg)
+		 		ENDIF
+		 	ENDIF
+		 	
+		 	IF ok THEN
+				IF pr1reg <>0  THEN
+					PutPosR(pr1reg,pr1) -- best fit plane
+				ENDIF
+		 		IF streg2 <> 0 THEN
+					putrealreg(streg2,Err2) -- fit error of plane fit
+				ENDIF
+		 	ENDIF
+		 				 
+		CASE (FcBestCircle): -- CALL iRmath(53,0,[StReg2],Pr1,pr2,pr3])
+			-- Circle frame is in Pr1 (best plane fit)
+			-- StReg2 contains Radius
+			-- pr2 is first index into PrTable
+			-- pr3 is last index into PrTable
+						
+			IF (pr2reg  < 1) OR (pr2reg > 99) THEN
+			 		LogErrCr ('Invalid Start index, 1 - 99')
+			 		Ok = false
+			 	ENDIF
+			 	
+		 	IF ok THEN
+		 	 	IF (pr3reg < 3) or (pr3reg > 20) THEN
+		 			LogErrCr ('Invalid NCount, 3 - 20')
+		 			Ok = false
+		 		ELSE
+					ok = BestFitCirc (pr1, result,  pr2reg,pr3reg)
+		 		ENDIF
+		 	ENDIF
+		 	IF ok THEN
+				IF pr1reg <>0  THEN
+					PutPosR(pr1reg,pr1) -- best fit circle 
+				ENDIF
+		 		IF streg2 <> 0 THEN
+					putrealreg(streg2,result) -- radius of best circle
+				ENDIF
+		 	ENDIF
+		 			 
+		CASE (FcCarrousel): -- CALL iRmath(54,0,[StReg2],Pr1,pr2,pr3[,Pr4,Pr5,PR6])
+			-- StReg2 contains Radius
+			-- Carrousel frame is in Pr1 
+			-- pr2 is first index into PrTable
+			-- pr3 is last index into PrTable
+			-- Pr4 Is Best Plane fit frame
+			-- PR5 is the Best Circle in the Best frame cordinates
+			-- PR6 is register of fit error 
+						
+			IF (pr2reg  < 1) OR (pr2reg > 99) THEN
+			 		LogErrCr ('Invalid Start index, 1 - 99')
+			 		Ok = false
+			 	ENDIF
+			 	
+		 	IF ok THEN
+		 	 	IF (pr3reg < 3) or (pr3reg > 20) THEN
+		 			LogErrCr ('Invalid NCount, 3 - 20')
+		 			Ok = false
+		 		ELSE
+					ok = BestFitPlane (pr4,pr2reg,pr3reg)
+		 		ENDIF
+		 	ENDIF
+		 	
+
+			IF ok then
+			
+		 		---- Convert to new frame ----
+		 		
+				For I = Pr2Reg to Pr3reg DO
+					prTable[i] = INV((PR4)):prTable[i]	 	
+				ENDFOR
+				---- Calculate Best circle -----
+		
+				ok = BestFitCirc (pr5, result,  pr2reg,pr3reg)	
+				
+				IF ok THEN
+					----- calculate fit error -----
+					
+					nPoints = 0
+					Err2 = 0
+					For i = pr2reg to pr3reg DO
+						nPoints = nPoints + 1
+						tx = prtable[i].x - a
+						ty = prtable[i].y - b
+						tz = RealTable[i]
+						Err2 = Err2 +  tx*tx + ty*ty - Lbar*Lbar + tz *tz
+					ENDFOR
+					Err2 = SQRT(err2/nPoints)
+									
+					pr1 = pr4 : pr5	-- convert to original frame
+					
+					IF pr4reg <>0  THEN
+						PutPosR(pr4reg,pr4) -- best fit plane
+					ENDIF
+					
+					IF pr5reg <> 0 THEN
+						PutPosR(pr5reg,pr5) ---- Best fit 2D circle in best fit plane
+					ENDIF
+					
+					IF pr6reg <> 0 THEN
+						putrealreg(pr6reg,err2) ---- Error fit of 3D circle
+					ENDIF
+					
+					IF pr1reg <>0  THEN
+						PutPosR(pr1reg,pr1) -- best fit 3D circle frame
+					ENDIF
+				 	
+				 	IF streg2 <> 0 THEN
+						putrealreg(streg2,result) -- radius of best fit
+					ENDIF
+				 ENDIF	
+				 	
+				---- Restore original data points -----
+				
+				For I = Pr2Reg to Pr3reg DO
+					prTable[i] = PR4 : prTable[i]	 	
+				ENDFOR
+			ENDIF
+		CASE (100): -- test
+			Stest[1,1] = 1;Stest [1,2]= 2; stest[1,3] = 3;stest[1,4] = 14
+			Stest[2,1] = 2;Stest [2,2]= 3; stest[2,3] = 5;stest[2,4] = 23
+			Stest[3,1] = 3;Stest [3,2]= 5; stest[3,3] = 7;stest[3,4] = 34
+			SimPro (Stest , 3)
+		ELSE:
+			ok = FALSE
+			LogErrCr('iRMath - Bad function code')
+	ENDSELECT
+	------ end of block indent ---->>>>-------------------------------------------------------------------------------
+				ENDIF
+			Endwhile -- WHILE (OK) AND (grp_no < MAX_GRPS) DO
+	ENDSELECT
+ENDIF
+IF  streg <> 0 THEN
+	PutIntReg (stReg, Status1)
+ENDIF
+
+END iRMATH
+
+
+
+

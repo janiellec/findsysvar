@@ -1,0 +1,405 @@
+﻿<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>CustoLST Menu&#39;s</title>
+<style type="text/css">
+#FRIPEditBox3 {
+	height: 36px;
+	width: 47px;
+}
+#FRIPToggleButton1 {
+	height: 41px;
+	width: 153px;
+}
+#FRIPEditBox4 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 33px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox5 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 33px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox6 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 33px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox7 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 33px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox8 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 33px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPToggleButton2 {
+	height: 33px;
+	width: 87px;
+}
+#FRIPMenuChange1 {
+	height: 33px;
+	width: 99px;
+}
+#Menu_Selection_Range {
+	height: 36px;
+	width: 48px;
+}
+#FRIPLabel1 {
+	height: 39px;
+	width: 96px;
+}
+#FRIPEditBox9 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 35px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox10 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 32px;
+		width: 625px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox11 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 37px;
+		width: 623px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPEditBox12 {
+	border-style: solid;
+	border-width: 1px;
+	padding: 1px 4px;
+	background-position: 0px 0px;
+	height: 38px;
+		width: 621px;
+	background-image: url('');
+	background-repeat: repeat;
+	background-attachment: scroll;
+}
+#FRIPExecution1 {
+	height: 37px;
+	width: 45px;
+}
+</style>
+</head>
+<script type="text/javascript">
+			function clickedDWN(){
+			var b = -1;
+	var xmlhttp;
+
+	xmlhttp=new XMLHttpRequest();
+	xmlhttp.open("GET","/KCL/set%20var%20[menuedt]n_chng=" + b,true);
+	xmlhttp.send();
+			}
+</script>
+<script type="text/javascript">
+			function clickedUP(){
+			var b = 1;
+	var xmlhttp;
+
+	xmlhttp=new XMLHttpRequest();
+	xmlhttp.open("GET","/KCL/set%20var%20[menuedt]n_chng=" + b,true);
+	xmlhttp.send();
+			}
+</script>
+
+<body>
+
+<table style="width: 632px; height: 503px">
+	<tr>
+		<td>
+		<table style="width: 100%">
+			<tr>
+				<td style="width: 63px; text-align: right;">
+				Menu List</td>
+				<td style="font-size: x-small; text-align: center;">
+				Menu&#39;s Active in Prim Win Only</td>
+				<td style="text-align: center;">
+				&nbsp;</td>
+				<td style="text-align: center;">
+				Menu #</td>
+				<td style="text-align: center;">
+				&nbsp;</td>
+				<td style="text-align: center;">
+				View/Edit mode</td>
+				<td style="width: 111px; font-size: x-small;">
+				Press Help On Tp for more Info</td>
+				<td>
+				<object classid="clsid:9373F972-8DB5-4EFE-86AA-B830352D384C" id="FRIPHelp1">
+					<param name="width" value="32">
+					<param name="height" value="32">
+					<param name="FastLoad" value="-1">
+					<param name="PageName" value="/frh/cgtp/LSThelp.stm">
+				</object>
+				</td>
+			</tr>
+			<tr>
+				<td style="width: 63px; font-size: small; height: 40px;">
+				<object classid="clsid:71060678-0E45-11D3-81B6-0000E206D650" id="FRIPMenuChange1">
+					<param name="Caption" value="Menu Type">
+					<param name="FontSize" value="12">
+					<param name="width" value="99">
+					<param name="height" value="33">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="PageName01" value="/frh/cgtp/CustoYN.stm">
+					<param name="PageCaption01" value="CustoYN">
+					<param name="PageName02" value="/frh/cgtp/CustoLst.stm">
+					<param name="PageCaption02" value="CustoList">
+					<param name="PageName03" value="/frh/cgtp/CustoOK.stm">
+					<param name="PageCaption03" value="CustoOK">
+					<param name="BackColor" value="16711680">
+				</object>
+				</td>
+				<td style="width: 91px; font-size: small; height: 40px;">
+				<object classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel1">
+					<param name="Caption" value="">
+					<param name="FontSize" value="14">
+					<param name="width" value="96">
+					<param name="height" value="39">
+					<param name="DataType" value="103">
+					<param name="DataIndex" value="[MENUEDT]m_page">
+					<param name="Interval" value="250">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="BackColor" value="16777088">
+				</object>
+				</td>
+				<td><input type="button" name="buttonDwn" onclick="clickedDWN()" style="font-size:7px;margin:0;padding:0;width:42px;height:42px;border: none;background-image: url('/frh/gui/down.gif')" ></td>
+				<td style="width: 51px; height: 40px;">
+				<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="Menu_Selection_Range">
+					<param name="Caption" value="">
+					<param name="FontSize" value="14">
+					<param name="width" value="48">
+					<param name="height" value="36">
+					<param name="DataType" value="103">
+					<param name="DataIndex" value="[MENUEDT]n">
+					<param name="Interval" value="250">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="Type" value="2">
+					<param name="ValueMin" value="1">
+					<param name="ValueMax" value="75">
+					<param name="IncrValue" value="1">
+				</object>
+				</td>
+				<td><input type="button" name="buttonUp2" onclick="clickedUP()" style="font-size:7px;margin:0;padding:0;width:42px;height:42px;border: none;background-image: url('/frh/gui/up.gif')" ></td>
+				<td style="width: 162px; height: 40px;">
+				<object classid="clsid:7106066C-0E45-11D3-81B6-0000E206D650" id="FRIPToggleButton1">
+					<param name="Caption" value="in EDIT mode">
+					<param name="FontSize" value="14">
+					<param name="width" value="153">
+					<param name="height" value="41">
+					<param name="DataType" value="103">
+					<param name="DataIndex" value="[MENUEDT]view">
+					<param name="TrueColor" value="65280">
+					<param name="FalseColor" value="255">
+					<param name="Interval" value="250">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="TrueCaption" value="in VIEW mode">
+				</object>
+				</td>
+				<td style="height: 40px; width: 111px;">
+				<object classid="clsid:7106066C-0E45-11D3-81B6-0000E206D650" id="FRIPToggleButton2">
+					<param name="Caption" value="Save">
+					<param name="FontSize" value="14">
+					<param name="width" value="87">
+					<param name="height" value="33">
+					<param name="DataType" value="103">
+					<param name="DataIndex" value="[MENUEDT]ACCEPT">
+					<param name="TrueColor" value="65280">
+					<param name="FalseColor" value="12632256">
+					<param name="Interval" value="250">
+					<param name="TrueFont" value="-1">
+					<param name="FastLoad" value="-1">
+					<param name="TrueCaption" value="Saved">
+				</object>
+				</td>
+				<td style="height: 40px">
+				<object classid="clsid:BEC06F36-B6DE-4903-838C-5B110F58550E" id="FRIPExecution1">
+					<param name="width" value="45">
+					<param name="height" value="37">
+					<param name="FastLoad" value="-1">
+					<param name="Name" value="MENUEDT">
+				</object>
+				</td>
+			</tr>
+		</table>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox4">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="33">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]LINE1">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox5">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="33">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]LINE2">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox6">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="33">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]LINE3">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox7">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="33">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]LINE4">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox8">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="33">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]line5">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox9">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="35">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]line6">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox10">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="625">
+			<param name="height" value="32">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]line7">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox11">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="623">
+			<param name="height" value="37">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]line8">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<object classid="clsid:71060660-0E45-11D3-81B6-0000E206D650" id="FRIPEditBox12">
+			<param name="Caption" value="">
+			<param name="FontSize" value="14">
+			<param name="width" value="621">
+			<param name="height" value="38">
+			<param name="DataType" value="103">
+			<param name="DataIndex" value="[MENUEDT]line9">
+			<param name="Interval" value="250">
+			<param name="TrueFont" value="-1">
+			<param name="FastLoad" value="-1">
+			<param name="Type" value="1">
+		</object>
+		<br>
+		<br>
+		</td>
+	</tr>
+	</table>
+
+</body>
+
+</html>

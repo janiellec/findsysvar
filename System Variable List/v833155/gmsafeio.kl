@@ -1,0 +1,1228 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSAFEIO.KL
+--   TITLE:          GMSAFEIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Program to configure and setup all safety I/O
+--                      Setup all Safety I/O to PLC and DCS
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--           4.0       1-23-16   R.Kosaski        Original creation for G4.0
+--          V4.1      2017/02/09 marchaka         Add a routine for DCS consitency settings
+--          V4.2      2018/04/02 marchaka         Add external I/O interlock relay setup
+--          V4.2      2018/05/03 marchaka         Add comment for SIR[1]
+--          V4.3      2018/09/10 marchaka         Modify DCS I/O connect mapping.  Add protection and hide
+--                                                part of the DCS I/O connect map.
+--          V4.3      2018/10/02 marchaka         Modify DCS I/O connect settings for the write protection
+--          V4.4      2019/04/12 marchaka         Clear DCS I/O connect items 41, 42, 43 and 44 during setup
+--          V4.5      2019/08/23 marchaka         Added collaborative robot DCS settings
+--          V4.5      2019/09/25 marchaka         Use GetSysVar utility instead of reading DCS I/O variables directly.
+--          V4.5      2019/10/30 marchaka         Do not set CSO[42]-[44] for collaborative robots in the DCS SAFE
+--                                                I/O Connect map, these outputs are used for something else for 
+--                                                collaborative robots.
+--          V4.6      2020/02/24 marchaka         Check if DCS Position Speed J567 is installed on the robot, if it isn't
+--                                                installed, do not configure I/O connect settings 1-40 which deal with
+--                                                position speed.
+--          V4.7      2020/10/26 marchaka         Add support for collaborative robot models.
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmsafeio
+
+%COMMENT = 'Safety I/O V4.7'
+%NOLOCKGROUP
+%INVISIBLE
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT iosetup  --set_port_asg; set_port_cmt
+
+%INCLUDE kliotyps -- used for identifying the I/O Type constants
+%INCLUDE KLEVCCDF -- Used for the TPPERROR builtin
+
+%INCLUDE gmcfgcel -- all variables associated with the standard work cell
+
+CONST
+
+ISAFTotlSGOA = 93  -- Used for "Total" Safety Signature GOUT 1 of 2
+ISAFTotlSGOB = 94  -- Used for "Total" Safety Signature GOUT 2 of 2
+ISAFBaseSGOA = 95  -- Used for "Base" Safety Signature  GOUT 1 of 2
+ISAFBaseSGOB = 96  -- Used for "Base" Safety Signature  GOUT 2 of 2
+ISAFPosSGOA  = 97  -- Used for "Pos/Speed" Safety Signature  GOUT 1 of 2
+ISAFPosSGOB  = 98  -- Used for "Pos/Speed" Safety Signature  GOUT 2 of 2
+ISAFIOSGOA   = 99  -- Used for "I/O Connect" Safety Signature  GOUT 1 of 2
+ISAFIOSGOB   = 100 -- Used for "I/O Connect" Safety Signature  GOUT 2 of 2
+
+ISAFTtlStrt1 = 673 -- Used for the 1st Start point of the DO reserved for DCS "Total" Signature
+ISAFTtlStrt2 = 689 -- Used for the 2nd Start point of the DO reserved for DCS "Toatl" Signature
+ISAFTtalNumP = 16  -- Used for the "number of points of the DO reserved for DCS "Total" Signature
+
+ISAFBseStrt1 = 705 -- Used for the 1st Start point of the DO reserved for DCS "Base" Signature
+ISAFBseStrt2 = 721 -- Used for the 2nd Start point of the DO reserved for DCS "Base" Signature
+ISAFBaseNumP = 16  -- Used for the "number of points of the DO reserved for DCS "Base" Signature
+
+ISAFPosStrt1 = 737 -- Used for the Start point of the DO reserved for DCS "Pos/Speed" Signature
+ISAFPosStrt2 = 753 -- Used for the Start point of the DO reserved for DCS "Pos/Speed" Signature
+ISAFPosSNumP = 16  -- Used for the "number of points of the DO reserved for DCS "Pos/Speed" Signature
+
+ISAFIOCStrt1 = 769 -- Used for the Start point of the DO reserved for DCS "I/O Connect" Signature
+ISAFIOCStrt2 = 785 -- Used for the Start point of the DO reserved for DCS "I/O Connect" Signature
+ISAFIOCtNumP = 16  -- Used for the "number of points of the DO reserved for DCS "I/O Connect" Signature
+
+GMNumIOPnts  = 2048 -- Used for the $MAX_DIG_PRT in system variables
+
+-- Used by the Safety I/O COnnect routine for variable setup
+NO_Logic = 0
+OR_Logic = 4
+AND_Logic = 8
+NOT_R1Type = 1
+NOT_R2Type = 2
+
+DCS_SPI =  1   --Safe Position Input
+DCS_SPO =  2   --Safe Position Output
+DCS_SSI =  3   --Safe System Inputs
+DCS_SSO =  4   --Safe System Output
+DCS_SIR =  5   --Safe Internal Relay
+DCS_CPC =  6   --Cartesian Position Check Status
+DCS_CSC =  7   --Cartesian Speed Check Status
+DCS_JPC =  8   --Joint Position Check Status
+DCS_JSC =  9   --Joint Speed Check Status
+DCS_CSI = 10   --CIP Saftey Input
+DCS_CSO = 11   --CIP Saftey Outputs
+DCS_CCL = 12   --Configuration Change Latch
+DCS_CCR = 13   --Configuration Change Reset
+DCS_RPI = 14   --ROBOT POWER INPUT
+DCS_RPO = 15   --ROBOT POWER OUTPUT
+DCS_FSI = 16   --FL-NET SAFETY INPUT
+DCS_FSO = 17   --FL-net Safety Output
+--SLO= 19 -- ???
+Version = '2020-10-26'
+
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+
+  Safe_errors,  -- used for counting errors during setup of DCS
+  Total_errs,   -- used for the routine error count. end - start
+  safeio_errs,  -- used to count DCS dig and group safe I/O errors 
+  Num_err_strt, -- Used for holding errors at start of routine
+  Num_err_end,  -- used for how many error at start of routine
+  CurIOPorts,   -- used for the returning number of I/O ports read from $MAX_DIG_PRT
+  entry,        -- Used for the GET_VAR Built-in
+  I,            -- Used for the FOR loop Built-in
+  gm_status   : INTEGER -- used for the built-ins return value for evaluation
+
+  GM_SaftyDone IN SHADOW :BOOLEAN -- used to determine if the saftey has been setup already
+  gmsafeiodone IN SHADOW :BOOLEAN -- used to determine if digital and group safety I/O is already setup
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  collab_rbt    IN SHADOW FROM GMVARS :BOOLEAN  --Collaborative robot arm
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded
+  dcs_posspd	IN SHADOW FROM GMVARS :BOOLEAN  --DCS Position Speed Software Option J567
+
+  dcs_var :STRING[32]-- used for indirecting a DCS var adding an index to the default var name
+  SVrRtrndInt FROM GMUTILITY : INTEGER -- Used for returned integer in the GET_SVAR routine
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- has all the builtin routines i.e. Int2str, was GMUTILTY
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE collab_arm FROM gmmain1 --check if collaborative robot arm
+ROUTINE a_collab_arm FROM gmamain --check if collaborative robot arm --ArcTool
+ROUTINE colb_dcs_io FROM gmcolbio --sets up DCS I/O for collaboratives
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+
+-----------------------------------------------------------------------------
+ROUTINE init_safvars
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF UNINIT(GM_SaftyDone) THEN
+    GM_SaftyDone = FALSE
+  ENDIF
+
+  IF UNINIT(Safe_errors) THEN
+    Safe_errors = 0
+  ENDIF
+  IF UNINIT(Num_err_strt) THEN
+    Num_err_strt = 0
+  ENDIF
+  IF UNINIT(Num_err_end) THEN
+    Num_err_end = 0
+  ENDIF
+  IF UNINIT(CellCommType) THEN
+    CellCommType = 89 --Ethernet
+  ENDIF
+  IF UNINIT(CellSlotNmbr) THEN
+    CellSlotNmbr = 1
+  ENDIF
+  IF UNINIT(DisplayStat) THEN
+    DisplayStat = TRUE
+  ENDIF
+  IF UNINIT(DisplayDely) THEN
+    DisplayDely = 1000
+  ENDIF
+
+  --external I/O interlock
+  IF UNINIT(extioinlk) THEN
+    extioinlk = 0 --no external I/O interlock setup has ever been executed
+  ENDIF
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF
+
+  --collaborative robot arm
+  IF (arc_optn = FALSE) THEN --collaborative not supported on ArcTool
+    IF (UNINIT(collab_rbt)) THEN
+      collab_arm --called from gmmain1
+    ENDIF
+  ELSE
+    IF (UNINIT(collab_rbt)) THEN
+      a_collab_arm --called from gmamain
+    ENDIF    
+  ENDIF
+
+  --J567 DCS Position/Speed Check
+  IF UNINIT(dcs_posspd) THEN --check if J567 DCS Position Speed Check is installed
+    IF Chk_Feature('J567') THEN -- DCS Position/Speed Check
+      dcs_posspd = TRUE
+    ELSE
+      dcs_posspd = FALSE
+    ENDIF
+  ENDIF
+
+END init_safvars
+ -----------------------------------------------------------------------------
+ ROUTINE Setup_Safety
+ -- PURPOSE:  To setup the Integrated Saftey
+ --
+ --
+ -- INPUT:
+ --            -
+ -- OUTPUT:
+ --            -
+ -- CALLED BY:
+ --
+ --
+ -----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(GM_SaftyDone) THEN
+  GM_SaftyDone = FALSE
+ENDIF
+
+IF UNINIT(Safe_errors) THEN
+  Safe_errors = 0
+ENDIF
+init_safvars
+
+Current_Ver = Version
+
+WRITE TPERROR(CHR(cc_clear_win),'Starting Safety I/O Configuration')
+DELAY 1000
+
+-- Track error count to determine routine completed without issues
+    Num_err_strt = Safe_errors
+
+-- Setu the size of the saftey inputs and outputs
+Set_I_sVar('$CIPS_CFG.$INTERFACE',11)--Set safety port, 11 port#1,12=Port2,13 Undefined
+Set_B_sVar('$ENETMODE[1].$ACD_ENABLE',TRUE) -- Set up Per Jim Huber because above didnt work by itself
+                                            -- ACD (auto collision detect for ip address collisions) is enabled
+
+Set_I_sVar('$CIPS_SET.$MODE',1) -- Set the mode to Enable(1), 2= Bypass
+Set_I_sVar('$CIPS_SET.$IN_SIZE',8) -- this is the IN byte (8 bytes)
+Set_I_sVar('$CIPS_SET.$OUT_SIZE',8)-- this is the OUT byte (8 bytes)
+Set_I_sVar('$CIPS_SET.$DATE_FIX',1) -- Set the Config Signature to Actual(1),2 = Fixed
+
+-- Check the Sytem has the I/O ports required for GM systems
+
+--I/O setup moved to set_safetyio routine
+
+-- *************************************************************************
+--                  Comments For DCS Saftey Outputs
+-- *************************************************************************
+    Set_S_sVar('$DCS_C_SPI[1]', '24VoutaftMCC')
+    Set_S_sVar('$DCS_C_SPI[2]', 'NonMtnBreaker')
+
+    Set_S_sVar('$DCS_C_SSO[1]', 'No General Stop')
+    Set_S_sVar('$DCS_C_SSO[2]', 'Fence')
+    Set_S_sVar('$DCS_C_SSO[3]', 'No External E-Stop')
+    Set_S_sVar('$DCS_C_SSO[4]', 'No Servo Disconnect')
+
+    Set_S_sVar('$DCS_C_CCR[1]', 'ConfigChngResetTotal')
+    Set_S_sVar('$DCS_C_CCR[2]', 'ConfigChngResetBase')
+    Set_S_sVar('$DCS_C_CCR[3]', 'ConfigChngResetPos-Speed')
+    Set_S_sVar('$DCS_C_CCR[4]', 'ConfigChngResetIOCOnnect')
+
+    Set_S_sVar('$DCS_C_CSO[1]', 'No Estop')
+    Set_S_sVar('$DCS_C_CSO[2]', 'Servos OFF')
+
+    Set_S_sVar('$DCS_C_CSO[3]', 'Teach OFF Auto')
+    Set_S_sVar('$DCS_C_CSO[4]', 'TeachT1')
+    Set_S_sVar('$DCS_C_CSO[5]', 'TeachT2')
+    Set_S_sVar('$DCS_C_CSO[6]', 'TeachEnbableDevices')
+    Set_S_sVar('$DCS_C_CSO[7]', 'SafetyNetworkActive')
+    Set_S_sVar('$DCS_C_CSO[8]', 'Servo disable switch active')--ServoEnable')
+    Set_S_sVar('$DCS_C_CSO[9]', 'ConfigMatchTotal')
+    Set_S_sVar('$DCS_C_CSO[10]','ConfigMatchBase')
+    Set_S_sVar('$DCS_C_CSO[11]','ConfigMatchPosSpeed')
+    Set_S_sVar('$DCS_C_CSO[12]','ConfigMatchIOConnect')
+    Set_S_sVar('$DCS_C_CSO[13]','Reserved')
+    Set_S_sVar('$DCS_C_CSO[14]','Reserved')
+    Set_S_sVar('$DCS_C_CSO[15]','Reserved')
+    Set_S_sVar('$DCS_C_CSO[16]','Reserved')
+    Set_S_sVar('$DCS_C_CSO[17]','CPCZone1Status')
+    Set_S_sVar('$DCS_C_CSO[18]','CPCZone2Status')
+    Set_S_sVar('$DCS_C_CSO[19]','CPCZone3Status')
+    Set_S_sVar('$DCS_C_CSO[20]','CPCZone4Status')
+    Set_S_sVar('$DCS_C_CSO[21]','CPCZone5Status')
+    Set_S_sVar('$DCS_C_CSO[22]','CPCZone6Status')
+    Set_S_sVar('$DCS_C_CSO[23]','CPCZone7Status')
+    Set_S_sVar('$DCS_C_CSO[24]','CPCZone8Status')
+    Set_S_sVar('$DCS_C_CSO[25]','CPCZone9Status')
+    Set_S_sVar('$DCS_C_CSO[26]','CPCZone10Status')
+    Set_S_sVar('$DCS_C_CSO[27]','CPCZone11Status')
+    Set_S_sVar('$DCS_C_CSO[28]','CPCZone12Status')
+    Set_S_sVar('$DCS_C_CSO[29]','CPCZone13Status')
+    Set_S_sVar('$DCS_C_CSO[30]','CPCZone14Status')
+    Set_S_sVar('$DCS_C_CSO[31]','CPCZone15Status')
+    Set_S_sVar('$DCS_C_CSO[32]','CPCZone16Status')
+    Set_S_sVar('$DCS_C_CSO[33]','CPCZone17Status')
+    Set_S_sVar('$DCS_C_CSO[34]','CPCZone18Status')
+    Set_S_sVar('$DCS_C_CSO[35]','CPCZone19Status')
+    Set_S_sVar('$DCS_C_CSO[36]','CPCZone20Status')
+    Set_S_sVar('$DCS_C_CSO[37]','CPCZone21Status')
+    Set_S_sVar('$DCS_C_CSO[38]','CPCZone22Status')
+    Set_S_sVar('$DCS_C_CSO[39]','CPCZone23Status')
+    Set_S_sVar('$DCS_C_CSO[40]','CPCZone24Status')
+    Set_S_sVar('$DCS_C_CSO[41]','CPCZone25Status')
+
+    IF (collab_rbt = TRUE) THEN
+      Set_S_sVar('$DCS_C_CSO[42]','Contact Safe')
+      Set_S_sVar('$DCS_C_CSO[43]','Contact Stop')
+      Set_S_sVar('$DCS_C_CSO[44]','PushToEscapeMode')
+    ELSE
+      Set_S_sVar('$DCS_C_CSO[42]','CPCZone26Status')
+      Set_S_sVar('$DCS_C_CSO[43]','CPCZone27Status')
+      Set_S_sVar('$DCS_C_CSO[44]','CPCZone28Status')
+    ENDIF
+
+    Set_S_sVar('$DCS_C_CSO[45]','CPCZone29Status')
+    Set_S_sVar('$DCS_C_CSO[46]','CPCZone30Status')
+    Set_S_sVar('$DCS_C_CSO[47]','CPCZone31Status')
+    Set_S_sVar('$DCS_C_CSO[48]','CPCZone32Status')
+    Set_S_sVar('$DCS_C_CSO[49]','JointChk1Status')
+    Set_S_sVar('$DCS_C_CSO[50]','JointChk2Status')
+    Set_S_sVar('$DCS_C_CSO[51]','JointChk3Status')
+    Set_S_sVar('$DCS_C_CSO[52]','JointChk4Status')
+    Set_S_sVar('$DCS_C_CSO[53]','CartSpdChkStatus1')
+    Set_S_sVar('$DCS_C_CSO[54]','CartSpdChkStatus2')
+    Set_S_sVar('$DCS_C_CSO[55]','JointSpdChkStatus1')
+    Set_S_sVar('$DCS_C_CSO[56]','JointSpdChkStatus2')
+    Set_S_sVar('$DCS_C_CSO[57]','Spare57')
+    Set_S_sVar('$DCS_C_CSO[58]','Spare58')
+    Set_S_sVar('$DCS_C_CSO[59]','Spare59')
+    Set_S_sVar('$DCS_C_CSO[60]','Spare60')
+    Set_S_sVar('$DCS_C_CSO[61]','Spare61')
+    Set_S_sVar('$DCS_C_CSO[62]','Spare62')
+    Set_S_sVar('$DCS_C_CSO[63]','Spare63')
+    Set_S_sVar('$DCS_C_CSO[64]','Spare64')
+
+-- *************************************************************************
+--                  Comments For DCS Safety Inputs
+-- *************************************************************************
+
+    Set_S_sVar('$DCS_C_SIR[1]', 'IO Interlock Status')
+
+    Set_S_sVar('$DCS_C_CSI[1]', 'NoGenStopNetBypas')
+    Set_S_sVar('$DCS_C_CSI[2]', 'NoEstopNetBypas')
+    Set_S_sVar('$DCS_C_CSI[3]', 'Fence Status')
+    Set_S_sVar('$DCS_C_CSI[4]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[5]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[6]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[7]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[8]','ExtServoDisblStatus')
+    Set_S_sVar('$DCS_C_CSI[9]','ConfigChngResetTotal')
+    Set_S_sVar('$DCS_C_CSI[10]','ConfigChngResetBase')
+    Set_S_sVar('$DCS_C_CSI[11]','ConfigChngResetPos-Speed ')
+    Set_S_sVar('$DCS_C_CSI[12]','ConfigChngResetIOConnect ')
+    Set_S_sVar('$DCS_C_CSI[13]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[14]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[15]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[16]','Reserved')
+    Set_S_sVar('$DCS_C_CSI[17]','DisblCPCZone1')
+    Set_S_sVar('$DCS_C_CSI[18]','DisblCPCZone2')
+    Set_S_sVar('$DCS_C_CSI[19]','DisblCPCZone3')
+    Set_S_sVar('$DCS_C_CSI[20]','DisblCPCZone4')
+    Set_S_sVar('$DCS_C_CSI[21]','DisblCPCZone5')
+    Set_S_sVar('$DCS_C_CSI[22]','DisblCPCZone6')
+    Set_S_sVar('$DCS_C_CSI[23]','DisblCPCZone7')
+    Set_S_sVar('$DCS_C_CSI[24]','DisblCPCZone8')
+    Set_S_sVar('$DCS_C_CSI[25]','DisblCPCZone9')
+    Set_S_sVar('$DCS_C_CSI[26]','DisblCPCZone10')
+    Set_S_sVar('$DCS_C_CSI[27]','DisblCPCZone11')
+    Set_S_sVar('$DCS_C_CSI[28]','DisblCPCZone12')
+    Set_S_sVar('$DCS_C_CSI[29]','DisblCPCZone13')
+    Set_S_sVar('$DCS_C_CSI[30]','DisblCPCZone14')
+    Set_S_sVar('$DCS_C_CSI[31]','DisblCPCZone15')
+    Set_S_sVar('$DCS_C_CSI[32]','DisblCPCZone16')
+    Set_S_sVar('$DCS_C_CSI[33]','DisblCPCZone17')
+    Set_S_sVar('$DCS_C_CSI[34]','DisblCPCZone18')
+    Set_S_sVar('$DCS_C_CSI[35]','DisblCPCZone19')
+    Set_S_sVar('$DCS_C_CSI[36]','DisblCPCZone20')
+    Set_S_sVar('$DCS_C_CSI[37]','DisblCPCZone21')
+    Set_S_sVar('$DCS_C_CSI[38]','DisblCPCZone22')
+    Set_S_sVar('$DCS_C_CSI[39]','DisblCPCZone23')
+    Set_S_sVar('$DCS_C_CSI[40]','DisblCPCZone24')
+    Set_S_sVar('$DCS_C_CSI[41]','DisblCPCZone25')
+    Set_S_sVar('$DCS_C_CSI[42]','DisblCPCZone26')
+    Set_S_sVar('$DCS_C_CSI[43]','DisblCPCZone27')
+    Set_S_sVar('$DCS_C_CSI[44]','DisblCPCZone28')
+    Set_S_sVar('$DCS_C_CSI[45]','DisblCPCZone29')
+    Set_S_sVar('$DCS_C_CSI[46]','DisblCPCZone30')
+    Set_S_sVar('$DCS_C_CSI[47]','DisblCPCZone31')
+    Set_S_sVar('$DCS_C_CSI[48]','DisblCPCZone32')
+    Set_S_sVar('$DCS_C_CSI[49]','DisblJointChk1')
+    Set_S_sVar('$DCS_C_CSI[50]','DisblJointChk2')
+    Set_S_sVar('$DCS_C_CSI[51]','DisblJointChk3')
+    Set_S_sVar('$DCS_C_CSI[52]','DisblJointChk4')
+    Set_S_sVar('$DCS_C_CSI[53]','DisblCartSpdChk1')
+    Set_S_sVar('$DCS_C_CSI[54]','DisblCartSpdChk2')
+    Set_S_sVar('$DCS_C_CSI[55]','DisblJointSpdChk1')
+    Set_S_sVar('$DCS_C_CSI[56]','DisblJointSpdChk2')
+    Set_S_sVar('$DCS_C_CSI[57]','Spare57')
+    Set_S_sVar('$DCS_C_CSI[58]','Spare58')
+    Set_S_sVar('$DCS_C_CSI[59]','Spare59')
+    Set_S_sVar('$DCS_C_CSI[60]','Spare60')
+    Set_S_sVar('$DCS_C_CSI[61]','Spare61')
+    Set_S_sVar('$DCS_C_CSI[62]','Spare62')
+    Set_S_sVar('$DCS_C_CSI[63]','Spare63')
+    Set_S_sVar('$DCS_C_CSI[64]','Spare64')
+
+-- Check if any problems occured during executing that effect functions
+   IF Safe_errors = Num_err_strt THEN
+     WRITE TPERROR(CHR(cc_clear_win),'Safety I/O Completed')
+     DELAY 1000
+     WriteLog('Safety I/O Completed', FALSE)
+   ELSE
+     Num_err_end = Safe_errors -- save number of errors
+     Total_errs = Num_err_end - Num_err_strt
+     POST_ERR(38000, int2str(Total_errs)+' Errors in Setup_Safety Routine', gm_status, 0) --
+     WriteLog(int2str(Total_errs)+' Errors in Setup_Safety Routine', TRUE)
+     DELAY 3000
+   ENDIF
+
+END Setup_Safety
+-----------------------------------------------------------------------------
+ROUTINE set_saftyio
+-- PURPOSE: to setup the safety IO digitial I/O and group I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  for v833p06, it was moved to gmcellio to address an issue where
+--             they weren't getting setup during software installation.
+--             prior to v833p06, safety was setup no matter what the first time
+--             the wizard was executed, independent of the user's answer.
+--             for v833p06, GM requested that safety setup only happen during the wizard
+--             if the user answered yes.  Because all other safety setup was successfully
+--             done during software installation, these variables had to be set elsewhere
+--
+--
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(safeio_errs) THEN
+    safeio_errs = 0
+  ENDIF
+  init_safvars
+
+  Current_Ver = Version
+
+  WRITE TPERROR(CHR(cc_clear_win),'Starting Safety Digital I/O Config')
+  DELAY 1000
+
+  -- Track error count to determine routine completed without issues
+  Num_err_strt = safeio_errs
+
+  GET_VAR(entry, '*SYSTEM*' , '$MAX_DIG_PRT', CurIOPorts, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$MAX_DIG_PRT FAILED', gm_status, 0) --
+       safeio_errs = safeio_errs +1
+    ELSE
+      IF (CurIOPorts < GMNumIOPnts) THEN
+         SET_VAR(entry, '*SYSTEM*' , '$MAX_DIG_PRT', GMNumIOPnts, gm_status)
+           IF gm_status <> 0 THEN
+             POST_ERR(38000, '$MAX_DIG_PRT Set= '+int2str(GMNumIOPnts)+' FAILED', gm_status, 0) --
+             safeio_errs = safeio_errs +1
+           ELSE
+             POST_ERR(38000, '$MAX_DIG_PRT Set=' +int2str(GMNumIOPnts)+' from '+int2str(CurIOPorts), 0, 0) --
+           ENDIF
+      ENDIF
+    ENDIF
+
+--***************************************************************************************************
+-- Intergrated Safety Setup
+-- Setup for the "Total" Safety Signature Digital outputs
+--****************************************************************************************************
+  FOR I = ISAFTtlStrt1 to (ISAFTtlStrt1 + (ISAFTtalNumP - 1)) DO -- Index through the Safety Signiture for total signiture
+    SET_PORT_CMT(IO_DOUT,I,'doISAFTtlSigA'+ int2str(i-(ISAFTtlStrt1-1)),gm_status)  -- Comment doISAFSigTtlBx
+  ENDFOR
+
+  FOR I = ISAFTtlStrt2 to (ISAFTtlStrt2 + (ISAFTtalNumP - 1)) DO -- Index through the Safety Signiture for total signiture
+    SET_PORT_CMT(IO_DOUT,I,'doISAFTtlSigB'+ int2str(i-(ISAFTtlStrt2-1)),gm_status)  -- Comment doISAFSigTtlBx
+  ENDFOR
+
+  -- Setup for the "Total" Safety Signature Group Outputs
+  -- Configure the Group Output for the "Total" Signature
+  SET_PORT_ASG(IO_GPOUT, ISAFTotlSGOA,CellCommType,CellSlotNmbr,IO_DOUT, ISAFTtlStrt1,-16,gm_status)  -- Signature Total Latch 1
+  SET_PORT_ASG(IO_GPOUT, ISAFTotlSGOB,CellCommType,CellSlotNmbr,IO_DOUT, ISAFTtlStrt2,-16,gm_status)    -- Signature Total Latch 2
+
+  -- Set Comment on Group Out for "Total" Signature
+  SET_PORT_CMT(IO_GPOUT, ISAFTotlSGOA, 'IDNSTotalSignA',gm_status)
+  SET_PORT_CMT(IO_GPOUT, ISAFTotlSGOB, 'IDNSTotalSignB',gm_status)
+
+  --Signature to PLC via system set the variable for starting GOUT for "Total", it uses 2 consecutive
+  -- SET_VAR(entry, '*system*', '$DCS_CRC_OUT.$START_GRP[1]', ISAFTotlSGOA, gm_status)
+  Set_I_sVar('$DCS_CRC_OUT.$START_GRP[1]',ISAFTotlSGOA)
+--****************************************************************************************************
+-- Intergrated Safety Setup
+-- Setup for the "Base" Safety Signature Digital outputs
+--****************************************************************************************************
+  FOR I = ISAFBseStrt1 to (ISAFBseStrt1 + (ISAFBaseNumP - 1)) DO -- Index through the Safety Signiture for Base signiture
+    SET_PORT_CMT(IO_DOUT,I,'doISAFBaseSigA'+ int2str(i-(ISAFBseStrt1-1)),gm_status)  -- Comment doISAFBaseSigAx
+  ENDFOR
+
+  FOR I = ISAFBseStrt2 to (ISAFBseStrt2 + (ISAFBaseNumP - 1)) DO -- Index through the Safety Signiture for Base signiture
+    SET_PORT_CMT(IO_DOUT,I,'doISAFBaseSigB'+ int2str(i-(ISAFBseStrt2-1)),gm_status)  -- Comment doISAFBaseSigBx
+  ENDFOR
+
+ -- Setup for the "Base" Safety Signature Group Outputs
+   -- Configure the Group Output for the "Base" Signature
+   SET_PORT_ASG(IO_GPOUT, ISAFBaseSGOA,CellCommType,CellSlotNmbr,IO_DOUT, ISAFBseStrt1,-16,gm_status)-- Signature Base Latch 1
+   SET_PORT_ASG(IO_GPOUT, ISAFBaseSGOB,CellCommType,CellSlotNmbr,IO_DOUT, ISAFBseStrt2,-16,gm_status)-- Signature Base Latch 2
+
+  -- Set Comment on Group Out for "Base" Signature
+  SET_PORT_CMT(IO_GPOUT, ISAFBaseSGOA, 'IDNSBaseSignA',gm_status)
+  SET_PORT_CMT(IO_GPOUT, ISAFBaseSGOB, 'IDNSBaseSignB',gm_status)
+
+  --Signature to PLC via system set the variable for starting GOUT for "Base", it uses 2 consecutive
+  --  SET_VAR(entry, '*system*', '$DCS_CRC_OUT.$START_GRP[2]', ISAFBaseSGOA, gm_status)
+  Set_I_sVar('$DCS_CRC_OUT.$START_GRP[2]',ISAFBaseSGOA)
+
+--****************************************************************************************************
+-- Intergrated Safety Setup
+-- Setup for the "Pos/Speed" Safety Signature Digital outputs
+--****************************************************************************************************
+  -- Index through the Safety Signature for Pos/Spd signature A
+  FOR I = ISAFPosStrt1 to (ISAFPosStrt1 + (ISAFBaseNumP - 1)) DO
+    SET_PORT_CMT(IO_DOUT,I,'doISAFPosSigA'+ int2str(i-(ISAFPosStrt1-1)),gm_status) -- Comment doISAFPosSigAx
+  ENDFOR
+
+  -- Index through the Safety Signature for Pos/Spd signature B
+  FOR I = ISAFPosStrt2 to (ISAFPosStrt2 + (ISAFBaseNumP - 1)) DO
+    SET_PORT_CMT(IO_DOUT,I,'doISAFPosSigB'+ int2str(i-(ISAFPosStrt2-1)),gm_status) -- Comment doISAFPosSigBx
+  ENDFOR
+
+  -- Setup for the "Base" Safety Signature Group Outputs
+  -- Configure the Group Output for the "Base" Signature
+  SET_PORT_ASG(IO_GPOUT, ISAFPosSGOA,CellCommType,CellSlotNmbr,IO_DOUT, ISAFPosStrt1,-16,gm_status)
+  SET_PORT_ASG(IO_GPOUT, ISAFPosSGOB,CellCommType,CellSlotNmbr,IO_DOUT, ISAFPosStrt2,-16,gm_status)
+
+  -- Set Comment on Group Out for "Base" Signature
+  SET_PORT_CMT(IO_GPOUT, ISAFPosSGOA, 'IDNSPosSpdSignA',gm_status)
+  SET_PORT_CMT(IO_GPOUT, ISAFPosSGOB, 'IDNSPosSpdSignB',gm_status)
+
+  --Signature to PLC via system set the variable for starting GOUT for "Pos/Speed", it uses 2 consecutive
+  -- SET_VAR(entry, '*system*', '$DCS_CRC_OUT.$START_GRP[3]', ISAFPosSGOA, gm_status)
+  Set_I_sVar('$DCS_CRC_OUT.$START_GRP[3]',ISAFPosSGOA)
+
+--****************************************************************************************************
+-- Intergrated Safety Setup
+-- Setup for the "I/O Connect" Safety Signature Digital outputs
+--****************************************************************************************************
+  -- Index through the Safety Signiture for I/O signature
+  FOR I = ISAFIOCStrt1 to (ISAFIOCStrt1 + (ISAFBaseNumP - 1)) DO
+    SET_PORT_CMT(IO_DOUT,I,'doISAFI/OSigA'+ int2str(i-(ISAFIOCStrt1-1)),gm_status) -- Comment doISAFPosSigAx
+  ENDFOR
+  -- Index through the Safety Signiture for I/O signature
+  FOR I = ISAFIOCStrt2 to (ISAFIOCStrt2 + (ISAFBaseNumP - 1)) DO
+    SET_PORT_CMT(IO_DOUT,I,'doISAFI/OSigB'+ int2str(i-(ISAFIOCStrt2-1)),gm_status) -- Comment doISAFPosSigBx
+  ENDFOR
+
+  -- Setup for the "Base" Safety Signature Group Outputs
+  -- Configure the Group Output for the "Base" Signature
+  SET_PORT_ASG(IO_GPOUT, ISAFIOSGOA,CellCommType,CellSlotNmbr,IO_DOUT, ISAFIOCStrt1,-16,gm_status)
+  SET_PORT_ASG(IO_GPOUT, ISAFIOSGOB,CellCommType,CellSlotNmbr,IO_DOUT, ISAFIOCStrt2,-16,gm_status)
+
+  -- Set Comment on Group Out for "Base" Signature
+  SET_PORT_CMT(IO_GPOUT, ISAFIOSGOA, 'IDNSIOCnctSignA',gm_status)
+  SET_PORT_CMT(IO_GPOUT, ISAFIOSGOB, 'IDNSIOCnctSignB',gm_status)
+
+  --Signature to PLC via system set the variable for starting GOUT for "I/O COnnect", it uses 2 consecutive
+  -- SET_VAR(entry, '*system*', '$DCS_CRC_OUT.$START_GRP[4]', ISAFIOSGOA, gm_status)
+  Set_I_sVar('$DCS_CRC_OUT.$START_GRP[4]',ISAFIOSGOA)
+
+--****************************************************************************
+--
+-- DCS Safety Output Comments and Configuration Completed
+--
+--****************************************************************************
+
+  SET_PORT_ASG(IO_DIN,  2001,36, 3, IO_DIN, 3, -8,gm_status)
+  SET_PORT_ASG(IO_DIN,  2009,36, 1, IO_DIN, 1, -2,gm_status)
+  SET_PORT_ASG(IO_DIN,  2011,36, 2, IO_DIN, 1, -1,gm_status)
+
+  --SSI Double mapped inputs
+  SET_PORT_CMT(IO_DIN,2001,'SSI_ISAF Exemg',gm_status)
+  SET_PORT_CMT(IO_DIN,2002,'SSI_ISAF Svdisc',gm_status)
+  SET_PORT_CMT(IO_DIN,2003,'SSI_ISAF Nted',gm_status)
+  SET_PORT_CMT(IO_DIN,2004,'SSI_ISAF Opemg',gm_status)
+  SET_PORT_CMT(IO_DIN,2005,'SSI_ISAF Auto',gm_status)
+  SET_PORT_CMT(IO_DIN,2006,'SSI_ISAF T1',gm_status)
+  SET_PORT_CMT(IO_DIN,2007,'SSI_ISAF T2',gm_status)
+  SET_PORT_CMT(IO_DIN,2008,'SSI_ISAF Mcc',gm_status)
+  SET_PORT_CMT(IO_DIN,2009,'SPI_IDNS24VOut',gm_status)
+  SET_PORT_CMT(IO_DIN,2010,'SPI_IDNS24VNMOut',gm_status)
+  SET_PORT_CMT(IO_DIN,2011,'SPO_1_24VOut_Enb',gm_status)
+
+  IF (safeio_errs = 0) THEN
+    gmsafeiodone = TRUE --safety I/O setup routine successfully
+    IF DisplayStat THEN
+      WRITE TPERROR(CHR(cc_clear_win),'GM Safety Digital I/O Complete')
+      DELAY DisplayDely
+    ENDIF
+  ELSE
+    gmsafeiodone = FALSE --errors encountered, but executed
+    POST_ERR(38000, int2str(safeio_errs)+' Errors in GM Safety Digital I/O Setup', 0, 0) --
+  ENDIF
+
+END set_saftyio
+ --*********************************************************************************
+ROUTINE set_one_sfio(loc, operation, l_typ, l_idx, r1_typ, r1_idx, r2_typ, r2_idx: INTEGER)
+--  Sets one line of the safe IO connect table using the input parameters.
+--  Inputs
+--    loc       - Location in the table
+--    operation - operation to perform on the input(s).
+--    l_typ     - output type
+--    l_idx     - output index
+--    r1_typ    - input 1 type
+--    r1_idx    - input 1 index
+--    r2_typ    - input 2 type
+--    r2_idx    - input 2 index
+--*********************************************************************************
+VAR
+  j : STRING[4]
+BEGIN
+
+IF UNINIT(Safe_errors) THEN
+  Safe_errors = 0
+ENDIF
+init_safvars
+
+  j = int2str(loc)
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$OPERATION', operation, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$OPERATION FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$OPERATION FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$L_TYP', l_typ, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$L_IDX', l_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_IDX FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$R1_TYP', r1_typ, gm_status)
+    IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$R1_IDX', r1_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog('[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_IDX FAILED' , TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$R2_TYP', r2_typ, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCSS_IOC[' + j + '].$R2_IDX', r2_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_IDX FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+END set_one_sfio
+ --*********************************************************************************
+ROUTINE set_onepsfio(loc, operation, l_typ, l_idx, r1_typ, r1_idx, r2_typ, r2_idx: INTEGER)
+--  Sets one line of the safe IO connect table using the input parameters.
+--  This is used for the write protected and hidden portion of the I/O connect menu.
+--  Inputs
+--    loc       - Location in the table
+--    operation - operation to perform on the input(s).
+--    l_typ     - output type
+--    l_idx     - output index
+--    r1_typ    - input 1 type
+--    r1_idx    - input 1 index
+--    r2_typ    - input 2 type
+--    r2_idx    - input 2 index
+--*********************************************************************************
+VAR
+  j : STRING[4]
+BEGIN
+
+IF UNINIT(Safe_errors) THEN
+  Safe_errors = 0
+ENDIF
+init_safvars
+
+  j = int2str(loc)
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$OPERATION', operation, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$OPERATION FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$OPERATION FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$L_TYP', l_typ, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$L_IDX', l_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_IDX FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$L_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$R1_TYP', r1_typ, gm_status)
+    IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$R1_IDX', r1_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog('[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_IDX FAILED' , TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R1_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$R2_TYP', r2_typ, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_TYP FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_TYP FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+ SET_VAR(entry, '*system*', '$DCS_PIOC[' + j + '].$R2_IDX', r2_idx, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog( '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_IDX FAILED', TRUE)
+     POST_ERR(38000, '[*SYSTEM*]$DCSS_IOC[' + j + '].$R2_IDX FAILED', gm_status, 0) --
+     DELAY 1000
+     Safe_errors = Safe_errors +1
+   ENDIF
+
+END set_onepsfio
+-----------------------------------------------------------------------------
+ROUTINE Safe_Cnctns
+-- PURPOSE: to setup the Safe I/O connections.
+-- $DCSS_IOC[x].$Operation is the Sum of the logic. OR=4,AND=8, NOT(!)on R1_typ = add 1,NOT(!)on R2_typ = add 2
+--  so for example (! R1_type AND R2_type) = 9, (! R1_type OR R2_type) = 5,(! R1_type AND ! R2_type) = 11
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-- REFERENCE: DCS I-O tab in GM GRS 4 Workbook Date 2-24-16 Rev 2
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  integer
+
+BEGIN
+
+IF UNINIT(Safe_errors) THEN
+  Safe_errors = 0
+ENDIF
+init_safvars
+
+-- Track error count to determine routine completed without issues
+    Num_err_strt = Safe_errors
+
+--  No General Stop from PLC or Safety Network Bypassed
+   set_onepsfio(45, OR_Logic, DCS_SSO,  1, DCS_CSI,  1, DCS_SSI, 11)  --SSO[1] = CSI[1] OR SSI[11]
+
+-- Not in Safety Network Bypass Mode
+   set_onepsfio(46,(NOT_R1Type+AND_Logic), DCS_SSO,  2, DCS_SSI,  11, DCS_CSI, 3)  --SSO[2] = !SSI[11] AND CSI[3]
+
+--No External E-Stop from PLC or Safety Network Bypassed
+   set_onepsfio(47, OR_Logic,  DCS_SSO,  3, DCS_CSI, 2, DCS_SSI, 11)  --SSO[3] = CSI[2] OR SSI[11]
+
+--No Servo Disconnect (Also set in bypass)
+   set_onepsfio(48,  OR_Logic,  DCS_SSO,  4, DCS_CSI, 8, DCS_SSI, 11)  --SSO[4] = CSI[8] OR SSI[11]
+
+--Robot Safety Configuration Changed Acknowledge - All param
+   set_onepsfio(49,  NO_Logic,  DCS_CCR,  1, DCS_CSI, 9, 0, 0)  --CCR[1] = CSI[9]
+
+--Robot Safety Configuration Changed Acknowledge - Base param
+   set_onepsfio(50,  NO_Logic,  DCS_CCR,  2, DCS_CSI, 10, 0, 0)  --CCR[2] = CSI[10]
+
+--Robot Safety Configuration Changed Acknowledge -Pos/Speed
+   set_onepsfio(51,  NO_Logic,  DCS_CCR,  3, DCS_CSI, 11, 0, 0)  --CCR[3] = CSI[11]
+
+--Robot Safety Configuration Changed Acknowledge -I/O Connect
+   set_onepsfio(52,  NO_Logic,  DCS_CCR,  4, DCS_CSI, 12, 0, 0)  --CCR[4] = CSI[12]
+
+--No Robot E-Stop Buttons Pressed
+   set_onepsfio(53,  NO_Logic,  DCS_CSO,  1, DCS_SSI,  6, 0, 0)  --CSO[1] = SSI[6]
+
+--Robot Motor Contactor OFF
+   set_onepsfio(54, NOT_R1Type, DCS_CSO,  2, DCS_SSI,  10, 0, 0)  --CSO[2] = !SSI[10]
+
+--Teach Switch in Auto Postion
+   set_onepsfio(55, NO_Logic, DCS_CSO,  3, DCS_SSI, 7, 0, 0)  --CSO[3] = SSI[7]
+
+--Teach Switch in T1 Position
+   set_onepsfio(56, NO_Logic, DCS_CSO,  4, DCS_SSI,  8, 0, 0)  --CSO[4] = SSI[8]
+
+--Teach Switch in T2 Postion
+   set_onepsfio(57, NO_Logic, DCS_CSO,  5, DCS_SSI,  9, 0, 0)  --CSO[5] = SSI[9]
+
+--Teach Pendant and NTED Switches in Enable Position
+   set_onepsfio(58, NO_Logic, DCS_CSO,  6, DCS_SSI,  5, 0, 0)  --CSO[6] = SSI[5]
+
+--Safety Network Not in Bypass Mode
+   set_onepsfio(59, NOT_R1Type, DCS_CSO,  7, DCS_SSI, 11, 0, 0)  --CSO[7] = !SSI[11]
+
+--Servo Disable Switch in Servo Disable position  -- Changed to 1 from 4 2-29-16
+   set_onepsfio(60, NO_Logic, DCS_CSO,  8, DCS_SSI, 1, 0, 0)  --CSO[8] = SSI[1]
+
+--Robot Safety Configuration OK No Changes - Total
+   set_onepsfio(61, NO_Logic, DCS_CSO,  9, DCS_CCL, 1, 0, 0)  --CSO[9] = CCL[1]
+--Robot Safety Configuration OK No Changes - Base
+   set_onepsfio(62, NO_Logic, DCS_CSO,  10, DCS_CCL, 2, 0, 0)  --CSO[10] = CCL[2]
+--Robot Safety Configuration OK No Changes - Pos/Speed
+   set_onepsfio(63, NO_Logic, DCS_CSO,  11, DCS_CCL, 3, 0, 0)  --CSO[11] = CCL[3]
+--Robot Safety Configuration OK No Changes - IO Connect
+   set_onepsfio(64, NO_Logic, DCS_CSO,  12, DCS_CCL, 4, 0, 0)  --CSO[12] = CCL[4]
+
+
+IF (dcs_posspd = TRUE) THEN  --DCS Position/Speed is installed, configure I/O connect that is related to Pos/Speed
+
+  --CPC Zone1 Status
+   set_one_sfio(1, NO_Logic, DCS_CSO,  17, DCS_CPC, 1, 0, 0)  --CSO[17] = CPC[1]
+
+  --CPC Zone2 Status
+   set_one_sfio(2, NO_Logic, DCS_CSO,  18, DCS_CPC, 2, 0, 0)  --CSO[18] = CPC[2]
+
+  --CPC Zone3 Status
+   set_one_sfio(3, NO_Logic, DCS_CSO,  19, DCS_CPC, 3, 0, 0)  --CSO[19] = CPC[3]
+
+  --CPC Zone4 Status
+   set_one_sfio(4, NO_Logic, DCS_CSO,  20, DCS_CPC, 4, 0, 0)  --CSO[20] = CPC[4]
+
+  --CPC Zone5 Status
+   set_one_sfio(5, NO_Logic, DCS_CSO,  21, DCS_CPC, 5, 0, 0)  --CSO[21] = CPC[5]
+
+  --CPC Zone6 Status
+   set_one_sfio(6, NO_Logic, DCS_CSO,  22, DCS_CPC, 6, 0, 0)  --CSO[22] = CPC[6]
+
+  --CPC Zone7 Status
+   set_one_sfio(7, NO_Logic, DCS_CSO,  23, DCS_CPC, 7, 0, 0)  --CSO[23] = CPC[7]
+
+  --CPC Zone8 Status
+   set_one_sfio(8, NO_Logic, DCS_CSO,  24, DCS_CPC, 8, 0, 0)  --CSO[24] = CPC[8]
+
+  --CPC Zone9 Status
+   set_one_sfio(9, NO_Logic, DCS_CSO,  25, DCS_CPC, 9, 0, 0)  --CSO[25] = CPC[9]
+
+  --CPC Zone10 Status
+   set_one_sfio(10, NO_Logic, DCS_CSO,  26, DCS_CPC, 10, 0, 0)  --CSO[26] = CPC[10]
+
+  --CPC Zone11 Status
+   set_one_sfio(11, NO_Logic, DCS_CSO,  27, DCS_CPC, 11, 0, 0)  --CSO[27] = CPC[11]
+
+  --CPC Zone12 Status
+   set_one_sfio(12, NO_Logic, DCS_CSO,  28, DCS_CPC, 12, 0, 0)  --CSO[28] = CPC[12]
+
+  --CPC Zone13 Status
+   set_one_sfio(13, NO_Logic, DCS_CSO,  29, DCS_CPC, 13, 0, 0)  --CSO[29] = CPC[13]
+
+  --CPC Zone14 Status
+   set_one_sfio(14, NO_Logic, DCS_CSO,  30, DCS_CPC, 14, 0, 0)  --CSO[30] = CPC[14]
+
+  --CPC Zone15 Status
+   set_one_sfio(15, NO_Logic, DCS_CSO,  31, DCS_CPC, 15, 0, 0)  --CSO[31] = CPC[15]
+
+  --CPC Zone16 Status
+   set_one_sfio(16, NO_Logic, DCS_CSO,  32, DCS_CPC, 16, 0, 0)  --CSO[32] = CPC[16]
+
+  --CPC Zone17 Status
+   set_one_sfio(17, NO_Logic, DCS_CSO,  33, DCS_CPC, 17, 0, 0)  --CSO[33] = CPC[17]
+
+  --CPC Zone18 Status
+   set_one_sfio(18, NO_Logic, DCS_CSO,  34, DCS_CPC, 18, 0, 0)  --CSO[34] = CPC[18]
+
+  --CPC Zone19 Status
+   set_one_sfio(19, NO_Logic, DCS_CSO,  35, DCS_CPC, 19, 0, 0)  --CSO[35] = CPC[19]
+
+  --CPC Zone20 Status
+   set_one_sfio(20, NO_Logic, DCS_CSO,  36, DCS_CPC, 20, 0, 0)  --CSO[36] = CPC[20]
+
+  --CPC Zone21 Status
+   set_one_sfio(21, NO_Logic, DCS_CSO,  37, DCS_CPC, 21, 0, 0)  --CSO[37] = CPC[21]
+
+  --CPC Zone22 Status
+   set_one_sfio(22, NO_Logic, DCS_CSO,  38, DCS_CPC, 22, 0, 0)  --CSO[38] = CPC[22]
+
+  --CPC Zone23 Status
+   set_one_sfio(23, NO_Logic, DCS_CSO,  39, DCS_CPC, 23, 0, 0)  --CSO[39] = CPC[23]
+
+  --CPC Zone24 Status
+   set_one_sfio(24, NO_Logic, DCS_CSO,  40, DCS_CPC, 24, 0, 0)  --CSO[40] = CPC[24]
+
+  --CPC Zone25 Status
+   set_one_sfio(25, NO_Logic, DCS_CSO,  41, DCS_CPC, 25, 0, 0)  --CSO[41] = CPC[25]
+   
+    IF (collab_rbt = FALSE) THEN --collaboroative robot, do not set CSO[42]-[44], these are 
+                                --used for other items for collaborative robots	
+      --CPC Zone26 Status
+      set_one_sfio(26, NO_Logic, DCS_CSO,  42, DCS_CPC, 26, 0, 0)  --CSO[42] = CPC[26]
+
+      --CPC Zone27 Status
+      set_one_sfio(27, NO_Logic, DCS_CSO,  43, DCS_CPC, 27, 0, 0)  --CSO[43] = CPC[27]
+
+      --CPC Zone28 Status
+      set_one_sfio(28, NO_Logic, DCS_CSO,  44, DCS_CPC, 28, 0, 0)  --CSO[44] = CPC[28]
+	  
+    ENDIF
+	
+  --CPC Zone29 Status
+   set_one_sfio(29, NO_Logic, DCS_CSO,  45, DCS_CPC, 29, 0, 0)  --CSO[45] = CPC[29]
+
+  --CPC Zone30 Status
+   set_one_sfio(30, NO_Logic, DCS_CSO,  46, DCS_CPC, 30, 0, 0)  --CSO[46] = CPC[30]
+
+  --CPC Zone31 Status
+   set_one_sfio(31, NO_Logic, DCS_CSO,  47, DCS_CPC, 31, 0, 0)  --CSO[47] = CPC[31]
+
+  --CPC Zone32 Status
+   set_one_sfio(32, NO_Logic, DCS_CSO,  48, DCS_CPC, 32, 0, 0)  --CSO[48] = CPC[32]
+
+  --Joint Check 1 Status
+   set_one_sfio(33, NO_Logic, DCS_CSO,  49, DCS_JPC, 1, 0, 0)  --CSO[49] = JPC[1]
+
+  --Joint Check 2 Status
+   set_one_sfio(34, NO_Logic, DCS_CSO,  50, DCS_JPC, 2, 0, 0)  --CSO[50] = JPC[2]
+
+  --Joint Check 3 Status
+   set_one_sfio(35, NO_Logic, DCS_CSO,  51, DCS_JPC, 3, 0, 0)  --CSO[51] = JPC[3]
+
+  --Joint Check 4 Status
+   set_one_sfio(36, NO_Logic, DCS_CSO,  52, DCS_JPC, 4, 0, 0)  --CSO[52] = JPC[4]
+
+  --Cartesian Speed Check 1 Status
+   set_one_sfio(37, NO_Logic, DCS_CSO,  53, DCS_CSC, 1, 0, 0)  --CSO[57] = CSC[1]
+
+  --Cartesian Speed Check 2 Status
+   set_one_sfio(38, NO_Logic, DCS_CSO,  54, DCS_CSC, 2, 0, 0)  --CSO[58] = CSC[2]
+
+  -- Joint Speed Check 1 Status
+   set_one_sfio(39, NO_Logic, DCS_CSO,  55, DCS_JSC, 1, 0, 0)  --CSO[59] = JSC[1]
+
+  --Joint Speed Check 2 Status
+   set_one_sfio(40, NO_Logic, DCS_CSO,  56, DCS_JSC, 2, 0, 0)  --CSO[60] = JSC[2]
+
+ENDIF --DCS Position/Speed J567 installed
+
+--clear DCS I/O connect items 42-44
+  FOR i = 41 TO 44 DO
+    set_one_sfio(i, 0, 0, 0, 0, 0, 0, 0)
+  ENDFOR
+
+--Hide the last 20 lines and write protect them
+  Set_I_sVar('$dcs_piocnum', -20)  --write protects the last x amount of lines in the I/O connect menu  --DEBUG
+  Set_B_sVar('$dcs_cfg.$pioc_disp', false)  --hides the last x amount of lines in the I/O connect menu  --DEBUG
+  
+
+-- Check if any problems occured during executing that effect functions
+   IF Safe_errors = Num_err_strt THEN
+     WRITE TPERROR(CHR(cc_clear_win),'DCS Safety Connections Completed')
+     DELAY 1000
+   ELSE
+     Num_err_end = Safe_errors -- save number of errors
+     Total_errs = Num_err_end - Num_err_strt
+     POST_ERR(38000, int2str(Total_errs)+' Errors in SAFE_CNCTNS Routine', gm_status, 0) --
+     DELAY 3000
+   ENDIF
+
+END Safe_Cnctns
+-----------------------------------------------------------------------------
+ROUTINE dcs_cnstcy
+-- PURPOSE: Setup DCS Consistency Check
+-- 
+--  
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-- 
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --unprotect before setting
+  Set_I_sVar('$dcs_cfg.$cnstcy_prot', 0)
+
+  --SSI[10]  !SPI[1]   1000ms
+  Set_I_sVar('$dcss_cnstcy[1].$sig1_type', DCS_SSI) --SSI
+  Set_I_sVar('$dcss_cnstcy[1].$sig1_idx', 10) --SSI[10]
+  Set_I_sVar('$dcss_cnstcy[1].$sig2_type', DCS_SPI) --SPI
+  Set_I_sVar('$dcss_cnstcy[1].$sig2_idx', 1) --SPI[1]
+  Set_I_sVar('$dcss_cnstcy[1].$not_ope', 1) --NOT
+  Set_I_sVar('$dcss_cnstcy[1].$time', 1000)  --1000 ms
+
+  --protect after setting
+  Set_I_sVar('$dcs_cfg.$cnstcy_prot', 1)  
+
+
+END dcs_cnstcy
+-----------------------------------------------------------------------------
+ROUTINE dcs_extinlk
+-- PURPOSE: Setup DCS External I/O Inerlock Hardware Sestup
+-- 
+--  
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-- 
+--
+--
+-----------------------------------------------------------------------------
+VAR
+io_conn_chk: integer
+io_conn_item: integer
+
+BEGIN
+
+  --check to see if the DCS I/O connect map is the v833p06 version or later 
+  --if it is pre-v833p06 
+  --need to know which map is used to setup the external I/O interlock settings in the I/O
+  --connect map properly
+  --check item 45 because this item is write protected in the v833p06 version or later 
+  --DCS I/O connect map
+
+  --SSO[1] = CSI[1] OR SSI[11]
+  io_conn_item = 45 --DCS I/O Connect Item 
+  io_conn_chk = 0 --initialize
+
+  dcs_var = '$DCSS_IOC[' + int2str(io_conn_item) + '].'
+
+  -- Use GET_VAR builtin in GMUTILITY, it's INTEGER var so pass 2. (1=StringVar.2=IntegerVar,3=RealVar)
+  IF GetSysVar(dcs_var +'$OPERATION',2) THEN
+    IF (SVrRtrndInt = OR_Logic) THEN  -- SVrRtrndInt is declared in GMUTILITY & set to Var value when succesful read
+      io_conn_chk = 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$L_TYP',2) THEN
+    IF (SVrRtrndInt = DCS_SSO) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$L_IDX',2) THEN
+    IF (SVrRtrndInt = 1) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$R1_TYP',2) THEN
+    IF (SVrRtrndInt = DCS_CSI) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$R1_IDX',2) THEN
+    IF (SVrRtrndInt = 1) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$R2_TYP',2) THEN
+    IF (SVrRtrndInt = DCS_SSI) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF GetSysVar(dcs_var +'$R2_IDX',2) THEN
+    IF (SVrRtrndInt = 11) THEN
+      io_conn_chk = io_conn_chk + 1
+    ENDIF
+  ENDIF
+
+  IF (io_conn_chk <> 7) THEN --not v833p06 or later DCS I/O connect map
+    io_conn_item = 61
+  ELSE  --v833p06 or later DCS I/O connect map
+    io_conn_item = 41
+  ENDIF
+
+  SELECT extioinlk OF
+    CASE(extio_enbld):  --setup external I/O interlock DCS settings
+      
+      --I/O Connect
+      set_one_sfio(io_conn_item, NOT_R1Type+OR_Logic+NOT_R2Type, DCS_SIR,  1, DCS_SPO, 1, DCS_SSI, 10) --SIR[1] = !SPO[1] OR !SSI[10]
+
+      --DCS I/O consistency settings
+      --unprotect before setting
+      Set_I_sVar('$dcs_cfg.$cnstcy_prot', 0)
+      --SPI[1]  SIR[1]   1000ms
+      Set_I_sVar('$dcss_cnstcy[1].$sig1_type', DCS_SPI) --SPI
+      Set_I_sVar('$dcss_cnstcy[1].$sig1_idx', 1) --SPI[1]
+      Set_I_sVar('$dcss_cnstcy[1].$sig2_type', DCS_SIR) --SIR
+      Set_I_sVar('$dcss_cnstcy[1].$sig2_idx', 1) --SIR[1]
+      Set_I_sVar('$dcss_cnstcy[1].$not_ope', 0) --no NOT
+      Set_I_sVar('$dcss_cnstcy[1].$time', 1000)  --1000 ms
+      --protect after setting
+      Set_I_sVar('$dcs_cfg.$cnstcy_prot', 1)  
+
+    CASE(extio_dsbld):  --disable external I/O interlock DCS settings
+
+      --Clear I/O Connect Settings
+      set_one_sfio(io_conn_item, 0, 0, 0, 0, 0, 0, 0) 
+
+      --Original DCS I/O Consistency Settings
+      dcs_cnstcy
+
+    ELSE:
+  ENDSELECT
+
+END dcs_extinlk
+-----------------------------------------------------------------------------
+BEGIN
+
+IF Chk_Feature('J568') THEN --DCS Safe I/O Connect
+
+ init_safvars
+
+  Safe_errors = 0
+    IF DisplayStat THEN
+      WRITE TPERROR(CHR(cc_clear_win),'Starting Saftey I/O Setup')
+      DELAY DisplayDely
+    ENDIF
+
+   WriteLog('Starting Saftey I/O Setup Using ' +int2Str(CellCommType)+' Slot '+int2str(CellSlotNmbr), FALSE)
+
+  Setup_Safety
+  Safe_Cnctns --
+  dcs_cnstcy
+  dcs_extinlk  --External I/O Interlock Relay DCS setup
+  IF (collab_rbt = TRUE) THEN
+   colb_dcs_io
+  ENDIF
+
+  IF Safe_errors = 0 THEN
+    GM_SaftyDone = TRUE
+     IF DisplayStat THEN
+      WRITE TPERROR(CHR(cc_clear_win),'GMSAFEIO Setup Succesfully')
+      DELAY DisplayDely
+    ENDIF
+  ELSE
+    POST_ERR(38000, int2str(safe_errors)+' Errors in GMSAFEIO Setup', 0, 0) --
+  ENDIF
+
+ENDIF --J568  DCs Safe I/O Connect
+
+
+END gmsafeio

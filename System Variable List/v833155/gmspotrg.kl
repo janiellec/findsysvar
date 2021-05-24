@@ -1,0 +1,823 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPOTRG.KL
+--   TITLE:          GMSPOTRG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Spot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4.1        2017/01/30 marchaka 	  Add position register 31 group 1 setting
+--                                                Add reference position 1, group 2 setting.
+--         4.1        2017/02/05 marchaka         Modify prompts for wizard rerun
+--         4.1        2017/03/15 marchaka         Add max wear register setup
+--         4.1        2017/03/28 marchaka         Configure tip wear register for gun 1 for 
+--                                                servo gun tool change applications
+--         4.2        2017/05/04 marchaka         Add number of guns for equipment 2 functionality to FOR 
+--                                                loop for servo gun tip wear registers
+--         4.2        2017/07/06 marchaka         Set group 2 position registers 31, 41, 51 and 61
+--                                                J1 to 0.000
+--         4.3        2018/04/05 marchaka         Add reference position setup for group 3
+--         4.4        2018/09/17 marchaka         Add setting of data register 44 based on cap changer type
+--         4.5        2020/03/19 marchaka         Change posreg_jnt from 2 to 9, so more than 2 axes will be supported. 
+--                                                This will correct an issue with lockups when
+--                                                going from controlled to cold start on units that had more than 2 servo gun
+--                                                axes. 9 axes chosen because that is the amount of servo gun axes that are
+--						  supported on one group.  Changed pregjntary from 2 to 9 for 9 servo guns.
+--  						                                                
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPOTRG
+
+%COMMENT = 'GM Spot V4.5'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgspt  -- GM spottool application variables
+%INCLUDE gmcfgtlc  -- GM tool changer application variables
+
+CONST
+
+Version = '2020-03-19'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SpotRG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+  gm_status:  INTEGER
+  l_psve:  INTEGER
+
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN     -- Servo gun option loaded
+  srvo_td_opt  IN SHADOW FROM GMCUSTO  : BOOLEAN --servo tip dresser option loaded on the robot
+  num_tipdrs   IN SHADOW FROM GMCUSTO: INTEGER
+
+  posreg_xyz  : XYZWPR
+  posreg_cfg  : CONFIG
+  posreg_xyz_e: xyzwprext
+  posreg_jnt  : jointpos9 in group[2]
+  pregjntary  : array[9] of real
+
+  do_guncls     IN SHADOW FROM GMVARS: INTEGER  --Gun Closed Position
+  do_guncls2    IN SHADOW FROM GMVARS: INTEGER  --P: Gun 2 Closed Position
+
+  sgunchng     IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Servo gun tool changer option loaded
+  capweargung1 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g1
+  capwearrbtg1 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g1
+  capweargung2 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g2
+  capwearrbtg2 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g2
+  capweargung3 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g3
+  capwearrbtg3 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g3
+  capweargung4 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear gun g4
+  capwearrbtg4 IN SHADOW FROM GMVARS : INTEGER  --P:  Max cap wear robot g4 
+
+  got_rtu      IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Extended axis option loaded
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt --Check if servo gun option is installed
+ROUTINE srvotd_optn FROM gmwizspt --Check if servo tip dress option is installed
+ROUTINE sgunchg_optn FROM gmwizspt --Check if servo gun change is installed
+ROUTINE rtu_optn FROM gmwizspt --Check if extended axis option is installed
+-----------------------------------------------------------------------------
+ROUTINE initSPOTREGS
+-- PURPOSE: to initialize Registers associated with Material Handling setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(numwldctrl) THEN
+    numwldctrl = 0
+  ENDIF
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+  IF UNINIT(srvo_td_opt) THEN
+    srvotd_optn
+  ENDIF
+
+  IF UNINIT(sgunchng) THEN  --servo gun change option
+    sgunchg_optn
+  ENDIF
+
+  IF UNINIT(got_rtu) THEN --extended axis option
+    rtu_optn
+  ENDIF
+
+END initSPOTREGS
+-----------------------------------------------------------------------------
+ROUTINE spot_reg
+-- PURPOSE: setup spot weld application registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+tip_dress: BOOLEAN
+tddumppin: BOOLEAN
+swggun:  BOOLEAN
+drs_verf:  BOOLEAN
+srvotd:  BOOLEAN
+
+BEGIN
+
+  tip_dress = FALSE --reset for wizard setup
+  tddumppin = FALSE --tip dress dump safety pins
+  swggun = FALSE --servo gun application
+  drs_verf = FALSE --dress verification
+  srvotd = FALSE --servo tip dress is used
+
+  --servo gun option loaded
+  IF (g_servog_opt = TRUE) THEN
+    SET_INT_REG(17,  1, gm_status)
+  ENDIF
+
+  sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+  sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+  sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+  FOR sp_eqnum = 1 TO sp_ttl_eq DO
+    FOR sp_gnnum = 1 TO sp_eqgn_num DO    
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_td = wizans_yes) THEN --tipdress
+        tip_dress = TRUE
+      ENDIF --tip dress
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_td_lp = wizans_yes) THEN --tip dress dump safety pins
+        tddumppin = TRUE
+      ENDIF --tip dress dump safety pins
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_srvogn = wizans_yes) THEN  --servo gun application
+        swggun = TRUE
+      ENDIF --servo gun applciation
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_dvg = wizans_yes) THEN --dress verification is used
+        drs_verf = TRUE
+      ENDIF
+      IF (srvo_td_opt = TRUE) THEN --servo tip dress option is installed on the robot
+        IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_srvo_td = wizans_yes) THEN --servo tip dress is used
+          srvotd = TRUE
+        ENDIF
+      ENDIF --servo tip dress option installed on the robot
+    ENDFOR
+    IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+      sp_eqgn_num = sp_ttl_gn
+    ENDIF
+  ENDFOR
+
+  IF (tip_dress = TRUE) THEN --tip dresser
+    IF (spotapp_eq[1].spotgun[1].sp_td  = wizans_yes) THEN --gun 1 has tip dress
+      SET_INT_REG(26,  1, gm_status)
+    ENDIF --gun 1 has tip dress
+    IF ((spotapp_eq[1].spotgun[2].sp_td  = wizans_yes) OR (spotapp_eq[2].spotgun[1].sp_td  = wizans_yes)) THEN --gun 2 has tip dress
+      SET_INT_REG(26, 2, gm_status)
+    ENDIF --gun 2 has tip dress
+    IF (srvotd = TRUE) THEN --servo tip dresser is used
+      SET_INT_REG(39, 2, gm_status)
+    ELSE --electric dresser
+      SET_INT_REG(39, 1, gm_status)
+    ENDIF --servo tip dresser is used
+  ELSE --no tip dressers configured
+    SET_INT_REG(26,0,gm_status)  
+  ENDIF  --tip dresser
+
+  IF (tddumppin = TRUE) THEN --tip dresser dump safety pins
+
+  ELSE --no tip dresser dump safety pins
+    SET_INT_REG(19,0,gm_status)
+  ENDIF --tip dresser dump safety pins
+
+  IF (swggun = TRUE) THEN --application has a servo gun 
+    SET_REAL_REG(5,  .5, gm_status)
+    SET_REAL_REG(6,  .5, gm_status)
+    SET_REAL_REG(7,  .5, gm_status)
+    SET_REAL_REG(8,  .5, gm_status)
+  ENDIF --application has a servo gun
+
+  IF (drs_verf = TRUE) THEN --application is using dress verification
+    SET_INT_REG(459,1,gm_status)
+  ELSE --no dress verification
+    SET_INT_REG(459,0,gm_status)
+  ENDIF --application is using dress verification
+
+  IF (cap_chnger = wizans_yes) THEN --cap changer
+    SELECT cap_chngtype OF  --type of cap changer
+      CASE(cap_rbtmov):  --robot moving
+        SET_INT_REG(44,1,gm_status)
+      CASE(cap_rbtstatn):  --robot stationary
+        SET_INT_REG(44,2,gm_status)
+      CASE(cap_srvcombo):  --servo combo cap changer/dresser
+        SET_INT_REG(44,3,gm_status)
+      ELSE:
+    ENDSELECT --type of cap changer
+  ENDIF --cap changer
+
+END spot_reg
+-----------------------------------------------------------------------------
+ROUTINE srvotc_reg
+-- PURPOSE: set servo tool change registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: srvo_tc.pc
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(num_tipdrs) THEN
+    num_tipdrs = 0
+  ENDIF
+
+  Comment_Reg(1, 26, 'TD Configured #')
+
+  Select num_tipdrs OF
+    CASE(1):  --one tip dresser
+      SET_INT_REG(26,1,gm_status)
+    CASE(2):  --two tip dressers
+      SET_INT_REG(26,2,gm_status)
+    CASE(3):  --three tip dressers
+      SET_INT_REG(26,3,gm_status)
+    CASE(4):  --four tip dressers
+      SET_INT_REG(26,4,gm_status)
+    ELSE:
+  ENDSELECT
+
+END srvotc_reg
+-----------------------------------------------------------------------------
+ROUTINE spot_posreg
+-- PURPOSE: set position registers for spot applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: 
+--
+--
+-----------------------------------------------------------------------------
+VAR
+posreg:  INTEGER
+postype:  INTEGER  --position type
+numaxes: INTEGER  --number of axes configured
+set_ext:  BOOLEAN --set extended axis position register
+swg_ax_gp2:  INTEGER --number of axes installed on group 2
+
+BEGIN
+
+  GET_VAR(l_psve, '*system*', '$scr_grp[2].$num_axes', swg_ax_gp2,  gm_status)  --how many axes are installed on group 2?
+    IF (gm_status <> 0) THEN --couldn't read variable
+      POST_ERR(38000, 'Failed to read number of servo gun axes on G2', 0,0)
+      POST_ERR(38000, 'Cannot Setup Group 2 Pos Reg', 0,0)
+      swg_ax_gp2 = 0 --set to no axes installed so code won't execute
+    ELSE
+      IF (swg_ax_gp2 = 0) THEN --no servo gun axes installed, do not setup position register data
+        POST_ERR(38000, 'No axis installed on group 2', 0,0)
+        POST_ERR(38000, 'Cannot Setup Group 2 Pos Reg', 0,0)
+      ENDIF
+    ENDIF
+  
+IF (g_servog_opt = TRUE) THEN --servo gun option loaded 
+  IF (swg_ax_gp2 > 0) THEN --at least one servo gun axis installed
+
+    --set group 2 position register data
+    --I think this is only for carried applications which is why GM hasn't requested it
+    --for group 3
+    --J1 = 0.000
+    pregjntary[1]=0.000
+    pregjntary[2]=0.000
+    pregjntary[3]=0.000
+    pregjntary[4]=0.000
+    pregjntary[5]=0.000
+    pregjntary[6]=0.000
+    pregjntary[7]=0.000
+    pregjntary[8]=0.000
+    pregjntary[9]=0.000
+    CNV_REL_JPOS(pregjntary, posreg_jnt, gm_status)
+    IF (gm_status <> 0) THEN  --could not convert position
+      writeLog('Failed to convert group 2 posreg data', TRUE)
+      POST_ERR(38000, 'Failed to convert group 2 posreg data', 0, 0)
+    ELSE --could convert the position, set pos reg 31, 41, 51, 61 group 2 joint 1 to 0.000
+      posreg = 31
+      SET_JPOS_REG(posreg, posreg_jnt, gm_status, 2)
+      IF (gm_status <> 0) THEN --failed to set position register g2 j1 
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] position G2', TRUE)
+        POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G2', 0, 0)
+      ENDIF
+      posreg = 41
+      SET_JPOS_REG(posreg, posreg_jnt, gm_status, 2)
+      IF (gm_status <> 0) THEN --failed to set position register g2 j1 
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] position G2', TRUE)
+        POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G2', 0, 0)
+      ENDIF
+      posreg = 51
+      SET_JPOS_REG(posreg, posreg_jnt, gm_status, 2)
+      IF (gm_status <> 0) THEN --failed to set position register g2 j1 
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] position G2', TRUE)
+        POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G2', 0, 0)
+      ENDIF
+      posreg = 61
+      SET_JPOS_REG(posreg, posreg_jnt, gm_status, 2)
+      IF (gm_status <> 0) THEN --failed to set position register g2 j1 
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] position G2', TRUE)
+        POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G2', 0, 0)
+      ENDIF
+    ENDIF --failed to convert joint position data
+  ENDIF --at least one servo gun axis installed
+                 
+    IF (got_rtu = FALSE) THEN  --no extended axis
+
+      CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+      posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+      SET_POS_REG(31,posreg_xyz,gm_status,1) 
+        IF (gm_status <> 0) THEN
+          writeLog('Failed to set POSREG[31] position G1', TRUE)
+          POST_ERR(38000, 'Failed to set POSREG[31] position G1', 0, 0)
+        ENDIF
+
+      CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+      posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+      SET_POS_REG(41,posreg_xyz,gm_status,1) 
+        IF (gm_status <> 0) THEN
+          writeLog('Failed to set POSREG[41] position G1', TRUE)
+          POST_ERR(38000, 'Failed to set POSREG[41] position G1', 0, 0)
+        ENDIF
+
+      CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+      posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+      SET_POS_REG(51,posreg_xyz,gm_status,1) 
+        IF (gm_status <> 0) THEN
+          writeLog('Failed to set POSREG[51] position G1', TRUE)
+          POST_ERR(38000, 'Failed to set POSREG[51] position G1', 0, 0)
+        ENDIF
+
+      CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+      posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+      SET_POS_REG(61,posreg_xyz,gm_status,1) 
+        IF (gm_status <> 0) THEN
+          writeLog('Failed to set POSREG[61] position G1', TRUE)
+          POST_ERR(38000, 'Failed to set POSREG[61] position G1', 0, 0)
+        ENDIF
+
+    ELSE --  --extended axis is configrued on the robot
+
+      --read a position register to see if extended axis is configured
+      --if it isn't, post message saying that extended axis porition of pos reg
+      --could not be set
+
+      set_ext = FALSE --default
+      posreg = 31
+      POS_REG_TYPE(posreg,1,postype,numaxes,gm_status)  --read data about position register
+      IF (gm_status = 0) THEN --able to read position register
+        IF (postype = 6) THEN --extended axis exists in pos reg
+          set_ext = TRUE
+        ELSE
+          set_ext = FALSE
+        ENDIF
+      ELSE  --position register data is not returned, just set robot axes
+          set_ext = FALSE
+      ENDIF
+      IF (set_ext = TRUE) THEN --extended axis is configured, can set ext pos reg
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz_e = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        IF (numaxes >= 1) THEN --one extended axis        
+          posreg_xyz_e.ext1 = 0.000
+        ENDIF
+        IF (numaxes >= 2) THEN --two extended axex
+          posreg_xyz_e.ext2 = 0.000
+        ENDIF
+        IF (numaxes >= 3) THeN --three extended axes
+          posreg_xyz_e.ext3 = 0.000
+        ENDIF
+        SET_EPOS_REG(posreg,posreg_xyz_e,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF        
+      ELSE --extended axis not configured, just set robot axes
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] Ext Axis not set', FALSE)
+        POST_ERR(38000, 'POSREG['+int2str(posreg)+'] Ext Axis not set', 0, 0)
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        SET_POS_REG(posreg,posreg_xyz,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF
+      ENDIF
+
+      posreg = 41
+      POS_REG_TYPE(posreg,1,postype,numaxes,gm_status)  --read data about position register
+      IF (gm_status = 0) THEN --able to read position register
+        IF (postype = 6) THEN --extended axis exists in pos reg
+          set_ext = TRUE
+        ELSE
+          set_ext = FALSE
+        ENDIF
+      ELSE  --position register data is not returned, just set robot axes
+          set_ext = FALSE
+      ENDIF
+      IF (set_ext = TRUE) THEN --extended axis is configured, can set ext pos reg
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz_e = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        IF (numaxes >= 1) THEN --one extended axis        
+          posreg_xyz_e.ext1 = 0.000
+        ENDIF
+        IF (numaxes >= 2) THEN --two extended axex
+          posreg_xyz_e.ext2 = 0.000
+        ENDIF
+        IF (numaxes >= 3) THeN --three extended axes
+          posreg_xyz_e.ext3 = 0.000
+        ENDIF
+        SET_EPOS_REG(posreg,posreg_xyz_e,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF        
+      ELSE --extended axis not configured, just set robot axes
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] Ext Axis not set', FALSE)
+        POST_ERR(38000, 'POSREG['+int2str(posreg)+'] Ext Axis not set', 0, 0)
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        SET_POS_REG(posreg,posreg_xyz,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF
+      ENDIF
+
+      posreg = 51
+      POS_REG_TYPE(posreg,1,postype,numaxes,gm_status)  --read data about position register
+      IF (gm_status = 0) THEN --able to read position register
+        IF (postype = 6) THEN --extended axis exists in pos reg
+          set_ext = TRUE
+        ELSE
+          set_ext = FALSE
+        ENDIF
+      ELSE  --position register data is not returned, just set robot axes
+          set_ext = FALSE
+      ENDIF
+      IF (set_ext = TRUE) THEN --extended axis is configured, can set ext pos reg
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz_e = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        IF (numaxes >= 1) THEN --one extended axis        
+          posreg_xyz_e.ext1 = 0.000
+        ENDIF
+        IF (numaxes >= 2) THEN --two extended axex
+          posreg_xyz_e.ext2 = 0.000
+        ENDIF
+        IF (numaxes >= 3) THeN --three extended axes
+          posreg_xyz_e.ext3 = 0.000
+        ENDIF
+        SET_EPOS_REG(posreg,posreg_xyz_e,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF        
+      ELSE --extended axis not configured, just set robot axes
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] Ext Axis not set', FALSE)
+        POST_ERR(38000, 'POSREG['+int2str(posreg)+'] Ext Axis not set', 0, 0)
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        SET_POS_REG(posreg,posreg_xyz,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF
+      ENDIF
+
+      posreg = 61
+      POS_REG_TYPE(posreg,1,postype,numaxes,gm_status)  --read data about position register
+      IF (gm_status = 0) THEN --able to read position register
+        IF (postype = 6) THEN --extended axis exists in pos reg
+          set_ext = TRUE
+        ELSE
+          set_ext = FALSE
+        ENDIF
+      ELSE  --position register data is not returned, just set robot axes
+          set_ext = FALSE
+      ENDIF
+      IF (set_ext = TRUE) THEN --extended axis is configured, can set ext pos reg
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz_e = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        IF (numaxes >= 1) THEN --one extended axis        
+          posreg_xyz_e.ext1 = 0.000
+        ENDIF
+        IF (numaxes >= 2) THEN --two extended axex
+          posreg_xyz_e.ext2 = 0.000
+        ENDIF
+        IF (numaxes >= 3) THeN --three extended axes
+          posreg_xyz_e.ext3 = 0.000
+        ENDIF
+        SET_EPOS_REG(posreg,posreg_xyz_e,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF        
+      ELSE --extended axis not configured, just set robot axes
+        writeLog('Failed to set POSREG['+int2str(posreg)+'] Ext Axis not set', FALSE)
+        POST_ERR(38000, 'POSREG['+int2str(posreg)+'] Ext Axis not set', 0, 0)
+        CNV_STR_CONF('NDB 000',posreg_cfg, gm_status) --configuration type
+        posreg_xyz = pos(0.000, 0.000, -25.000, 0.000, 0.000, 0.000,posreg_cfg)
+        SET_POS_REG(posreg,posreg_xyz,gm_status,1) 
+          IF (gm_status <> 0) THEN
+            writeLog('Failed to set POSREG['+int2str(posreg)+'] position G1', TRUE)
+            POST_ERR(38000, 'Failed to set POSREG['+int2str(posreg)+'] position G1', 0, 0)
+          ENDIF
+      ENDIF
+
+    ENDIF --extended axis option loaded
+
+ENDIF --servo gun option loaded
+
+END spot_posreg
+-----------------------------------------------------------------------------
+ROUTINE spot_refpos
+-- PURPOSE: set position registers for spot applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: 
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  
+  IF (g_servog_opt = TRUE) THEN --servo gun option loaded 
+
+    Set_S_sVar('$REFPOS2[1].$COMMENT','Gun Closed Proc 1')
+    Set_B_sVar('$REFPOS2[1].$ENABLED',TRUE)
+    Set_I_sVar('$REFPOS2[1].$DOUT_INDX',do_guncls)
+    Set_R_sVar('$REFPOS2[1].$PERCHPOS[1]', 0.000)
+    Set_R_sVar('$REFPOS2[1].$PERCHTOL[1]', 1.000)
+    Set_B_sVar('$REFPOS2[1].$HOMEPOS',FALSE)
+
+    SELECT numwldctrl OF
+
+      CASE(1):  --one weld controller, one spot process        
+        SELECT wld1_app OF --process 1 spot application
+          CASE(wld1app_dpsg): 
+            Set_S_sVar('$REFPOS3[1].$COMMENT','Gun Closed Proc 2')
+            Set_B_sVar('$REFPOS3[1].$ENABLED',TRUE)
+            Set_I_sVar('$REFPOS3[1].$DOUT_INDX',do_guncls2)
+            Set_R_sVar('$REFPOS3[1].$PERCHPOS[1]', 0.000)
+            Set_R_sVar('$REFPOS3[1].$PERCHTOL[1]', 1.000)
+            Set_B_sVar('$REFPOS3[1].$HOMEPOS',FALSE)       
+          ELSE:
+        ENDSELECT --process 1 spot application
+       
+      CASE(2):  --two weld controller, two spot processes
+        SELECT wld2_app OF --process 2 spot application
+          CASE(wld2app_dpsg, wld2app_cgpg):
+            Set_S_sVar('$REFPOS3[1].$COMMENT','Gun Closed Proc 2')
+            Set_B_sVar('$REFPOS3[1].$ENABLED',TRUE)
+            Set_I_sVar('$REFPOS3[1].$DOUT_INDX',do_guncls2)
+            Set_R_sVar('$REFPOS3[1].$PERCHPOS[1]', 0.000)
+            Set_R_sVar('$REFPOS3[1].$PERCHTOL[1]', 1.000)
+            Set_B_sVar('$REFPOS3[1].$HOMEPOS',FALSE)
+          ELSE:
+        ENDSELECT --process 2 spot appliation
+     
+      ELSE:
+    ENDSELECT --number or weld controllers
+    
+
+  ENDIF --servo gun option loaded
+
+END spot_refpos
+-----------------------------------------------------------------------------
+ROUTINE swg_reg
+-- PURPOSE: set servo gun spot weld application registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  gmbodysh and srvo_tc
+--
+--
+-----------------------------------------------------------------------------
+VAR
+gun_num: STRING[2]
+eq_num: STRING[2]
+l_psve,
+guntotal: INTEGER
+
+BEGIN
+
+  IF UNINIT(sgunchng) THEN  --servo gun change option, do an addition init check here for
+                            --when this program is called by srvo_tc
+                            --srvo_tc only runs this routine, doesn't do initSpotreg
+    sgunchg_optn
+  ENDIF
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option loaded
+
+    --set maximum wear to use a register
+    Set_B_sVar('$sgsystwd.$numreg4mxwr', TRUE)
+
+    capweargung1 = 333  --P:  Max cap wear gun g1
+    capwearrbtg1 = 334  --P:  Max cap wear robot g1
+    capweargung2 = 337  --P:  Max cap wear gun g2
+    capwearrbtg2 = 338  --P:  Max cap wear robot g2
+    capweargung3 = 340  --P:  Max cap wear gun g3
+    capwearrbtg3 = 341  --P:  Max cap wear robot g3
+    capweargung4 = 345  --P:  Max cap wear gun g4
+    capwearrbtg4 = 346  --P:  Max cap wear robot g4
+
+    IF (sgunchng = FALSE) THEN --no servo gun change
+
+      sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+      sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+      sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+      FOR sp_eqnum = 1 TO sp_ttl_eq DO
+        FOR sp_gnnum = 1 TO sp_eqgn_num DO
+          eq_num = int_to_strg(sp_eqnum)
+          gun_num = int_to_strg(sp_gnnum) 
+
+          SELECT sp_eqnum OF
+            CASE(1): --equipment 1
+                SELECT sp_gnnum OF
+                  CASE(1):  --gun 1
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung1)
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg1) 
+                  CASE(2):  --gun 2
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung2)
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg2)
+                  ELSE:
+                ENDSELECT 
+            CASE(2):  --equipment 2
+              gun_num = '2' --gun 1 is on equipment 1 for GM configs. Equipment 2 will always be gun 2 for G4 spec
+                SELECT sp_gnnum OF
+                  CASE(1):  --gun 2
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung2)
+                    Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg2) 
+                  ELSE:
+                ENDSELECT              
+            ELSE:
+          ENDSELECT 
+
+        ENDFOR
+
+        IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+          sp_eqgn_num = sp_ttl_gn
+        ENDIF
+      ENDFOR
+
+    ELSE --servo gun changer
+
+      IF ((wld1_app = wld1app_cg) AND (UseToolChngr = TRUE)) THEN --swg tool changer
+
+        --always configure gun 1
+        Set_I_sVar('$sggun1.$setup.$tip_drs_reg', capweargung1)
+        Set_I_sVar('$sggun1.$setup.$tip_exc_reg', capwearrbtg1)
+
+        GET_VAR(l_psve, '*system*', '$scr_grp[2].$num_axes', guntotal,  gm_status)
+        sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1  
+        FOR sp_gnnum = 1 TO guntotal DO
+          gun_num = int_to_strg(sp_gnnum)
+          SELECT sp_gnnum OF
+            CASE(2):  --gun 2
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung2)
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg2)              
+            CASE(3):  --gun 3
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung3)
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg3)
+            CASE(4):  --gun 4
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_drs_reg', capweargung4)
+              Set_I_sVar('$sggun' + gun_num + '.$setup.$tip_exc_reg', capwearrbtg4)
+            ELSE:
+          ENDSELECT
+        ENDFOR
+      ENDIF --swg tool changer
+
+    ENDIF --no servo gun changer
+  ENDIF --swg option loaded
+
+END swg_reg
+-----------------------------------------------------------------------------
+ROUTINE set_spot_reg
+-- PURPOSE: set spot weld application registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numwldctrl <> 0) THEN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(SpotRG_Setup) OR (Reset_Cell) THEN
+    SpotRG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Spot Program GMSPOTRG', FALSE)
+
+  IF (SpotRG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Spot Registers Already Setup', FALSE)
+    IF ExecSetupAgn('Spot REGS') THEN -- ask user if they want to setup again
+      SpotRG_Setup = FALSE
+    ELSE
+      WriteLog('  Spot Registers already Complete', FALSE)
+      WriteLog('  GMSPOTRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  -- configuration routines
+  initSpotregs
+  spot_reg
+  --spot_posreg  --need axes to be installed for setup to work, setup is done on power for non-gun change applications
+                 --gun change applications call this routine in gmswgtc
+  spot_refpos
+  swg_reg
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Spot Program Setup GMSPOTRG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Spot Register Setup completed', FALSE)
+    SpotRG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numwldctrl
+
+END set_spot_reg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmspotrg

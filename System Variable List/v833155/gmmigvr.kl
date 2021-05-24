@@ -1,0 +1,211 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMMIGVR.KL
+--   TITLE:          GMMIGVR PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 migTool Variable Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.0   2020/10/23 schoensm         Created during V8.33P10 
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmmigvr
+
+%COMMENT = 'GM MIG VAR V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%ENVIRONMENT iosetup --get_port_val
+%ENVIRONMENT ioblt  --iovalset
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps --I/O types
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgmig  --GM Mig-Wizard variables
+
+CONST
+
+Version = '2020-10-23'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+%INCLUDE gmacnstn --all GM mig constants for wizard
+
+VAR
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  MigVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup mig tool variable setup at least first time
+
+  gm_status,
+  gm_value: INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_mig_var
+-- PURPOSE: to initialize variables for mig variable setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  
+
+END init_mig_var
+-----------------------------------------------------------------------------
+ROUTINE mig_var
+-- PURPOSE: set mig variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_sVar('$MIX_BG[1].$PROG_NAME','WLD_MTR')
+  Set_I_sVar('$MIX_BG[1].$MODE',2)
+  Set_I_sVar('$MIX_BG[1].$STATUS',2)
+
+END mig_var
+-----------------------------------------------------------------------------
+ROUTINE set_mig_ulrm
+-- PURPOSE: set mig user alarms
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END set_mig_ulrm
+-----------------------------------------------------------------------------
+ROUTINE set_webscrn
+-- PURPOSE: set mig web screense
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set Reamer Status as menu favourite (kept the spelling for KM) in slot 5
+  Set_S_sVar('$TX_SCREEN[5].$DESTINATION', 'gmrmr1.stm')
+  Set_S_sVar('$TX_SCREEN[5].$SCREEN_NAME', 'Reamer Status')
+  Set_S_sVar('$UI_CONFIG.$MENU_FAVS[5]', '/SOFTPART/GENLINK?current=menupage,381,14')  	
+
+END set_webscrn
+-----------------------------------------------------------------------------
+ROUTINE set_mig_var
+-- PURPOSE: set mig variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(MigVR_Setup) OR (Reset_Cell) THEN
+    MigVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Mig VARs GMMigVR', FALSE)
+
+  IF (MigVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('Mig VARs Already Setup', FALSE)
+    IF ExecSetupAgn('Mig VARs') THEN -- ask user if they want to setup again
+      MigVR_Setup = FALSE
+    ELSE
+      WriteLog('Mig VARs already Complete', FALSE)
+      WriteLog('GMMigVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  IF (rmr_trch_wiz = wizans_yes) THEN --application is a Reamer Torch Wizard
+    init_mig_var
+    mig_var
+    set_mig_ulrm
+    set_webscrn
+  ENDIF
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Mig VARs Setup GMMigVR had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Mig VARs Setup completed', FALSE)
+    migVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_mig_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmmigvr

@@ -1,0 +1,322 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPROJVR.KL
+--   TITLE:          GMPROJVR PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Projection Weld Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/20 marchaka Fixed logging text.
+--              4.1   2017/02/05 marchaka         Modify prompts for wizard rerun
+--              4.1   2017/02/13 marchaka         Remove $dev_path setting.  Handled in gmmain1.
+--              4.1   2017/03/28 marchaka         Add eow_type setting (weld in process and complete)
+--              4.2   2017/06/24 marchaka         Moved webscreen setup to SetWebScreen in gmcellvr
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMPROJVR
+
+%COMMENT = 'GM PROJ V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- body shop variables
+%INCLUDE gmcfgspt  -- spot application variables
+%INCLUDE gmcfgpjw  -- projection weld variables
+
+CONST
+Version = '2017-06-24'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  ProjVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+  gm_status: INTEGER
+
+  weld_pressur             IN SHADOW FROM SWSHELL  : ARRAY [10,255] OF INTEGER
+  pw_delay1 IN SHADOW FROM GMCUSTO : INTEGER
+  pw_delay2 IN SHADOW FROM GMCUSTO : INTEGER
+  pw_arplas IN SHADOW FROM GMCUSTO : BOOLEAN
+
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN   -- Servo gun option loaded
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initPROJvars
+-- PURPOSE: to initialize registers associated with setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(ProjVR_Setup) THEN
+    ProjVR_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numprojctrl) THEN
+    numprojctrl = 0
+  ENDIF
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+END initPROJvars
+-----------------------------------------------------------------------------
+ROUTINE projwld_var
+-- PURPOSE: sets the project weld variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+l_i: INTEGER
+l_j: INTEGER
+
+BEGIN
+
+  IF (numprojctrl <> 0) THEN -- application has projection welder
+
+    Set_B_sVar('$ap_selap[2]', TRUE)  -- Spot
+    Set_B_sVar('$spotconfig.$ext_wsd_sch', TRUE) --extended weld schedule 
+    Set_I_sVar('$spotconfig.$wid_dsp_enb', 0)  --Weld ID not visible in SPOT instruction
+
+    pw_delay1 = 0
+    pw_delay2 = 100
+    pw_arplas = TRUE
+
+    IF (bshop_proc1 = projappl) THEN --process 1 is a projection welder
+
+      Set_I_sVar('$spotnumeq', 1)
+
+      Set_I_sVar('$spotconfig.$num_wd_ctls', 1)
+      Set_I_sVar('$spotconfig.$num_wd_ctls', 1)
+                       
+      Set_I_sVar('$spoteqsetup[1].$num_guns', 1)
+      Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]', 1)
+      Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]', 1)
+      Set_B_sVar('$spoteqsetup[1].$det_bu_cl[1]', TRUE)  --gun open
+      Set_B_sVar('$spoteqsetup[1].$det_gun_cl[1]', TRUE) --gun closed
+      Set_B_sVar('$spoteqsetup[1].$det_gun_cl[1]', TRUE) -- gun home
+      Set_I_sVar('$spoteqsetup[1].$cl_gun_b4', 0) --weld gun close anticipate
+      Set_I_sVar('$spoteqsetup[1].$wldstrt_dly', 0) --weld start delay
+
+      --Anticipate Times
+      Set_B_sVar('$spoteqsetup[1].$wcu_gun_io[1]',TRUE)
+      Set_B_sVar('$spoteqsetup[1].$wcu_gun_io[2]',TRUE)
+
+      -- Spot Equipment Product defaults to zero
+      Set_I_sVar('$spoteqsetup[1].$td_reg_idx[1]', 0)
+      Set_I_sVar('$spoteqsetup[1].$td_reg_idx[2]', 0)
+      Set_I_sVar('$spoteqsetup[1].$td_limit[1]', 0)
+      Set_I_sVar('$spoteqsetup[1].$td_limit[2]', 0)
+          
+      Set_B_sVar('$spotweldio[1].$wc_con_pres', FALSE)  
+      Set_B_sVar('$spotweldio[1].$reset_wldr', TRUE) --reset welder with TP
+      Set_B_sVar('$spotweldio[1].$early_wschd', TRUE)
+      Set_I_sVar('$spotweldio[1].$eow_type', 3)
+
+      IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+        Set_I_sVar('$sgcfg[1].$equip_type', 1)
+      ENDIF
+
+      FOR l_i = 1 TO 10 DO
+        FOR l_j = 1 TO 255 DO
+          weld_pressur[l_i, l_j] = 1
+        ENDFOR
+      ENDFOR
+ 
+    ENDIF --process 1 is a projection welder
+
+    IF ((bshop_proc1 = spotappl) AND (bshop_proc2 = projappl)) THEN -- combination of a spot + projection weld application
+                                                                    -- only time projection welder is process 2
+                                                                    --spot application setup does not account for configuring the number of equipment
+		                                                    --  etc. for combos, that is handled in the process 2 configuration of spottool
+				                                    --  for the combo.                                                                    
+
+      Set_I_sVar('$spotnumeq', 2)
+
+      Set_I_sVar('$spotconfig.$num_wd_ctls', 2) 
+                 
+      Set_I_sVar('$spoteqsetup[2].$num_guns', 1)
+      Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]', 2)
+      Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]', 2)
+      Set_B_sVar('$spoteqsetup[2].$det_bu_cl[1]', TRUE)  --gun open
+      Set_B_sVar('$spoteqsetup[2].$det_gun_cl[1]', TRUE) --gun closed
+      Set_B_sVar('$spoteqsetup[2].$det_gun_cl[1]', TRUE) -- gun home
+      Set_I_sVar('$spoteqsetup[2].$cl_gun_b4', 0) --weld gun close anticipate
+      Set_I_sVar('$spoteqsetup[2].$wldstrt_dly', 0) --weld start delay
+      Set_I_sVar('$spoteqsetup[2].$reg_idx[1]', 2)
+      Set_I_sVar('$spoteqsetup[2].$reg_idx[2]', 2)
+
+      --Anticipate Times
+      Set_B_sVar('$spoteqsetup[2].$wcu_gun_io[1]',TRUE)
+      Set_B_sVar('$spoteqsetup[2].$wcu_gun_io[2]',TRUE) 
+
+      -- Spot Equipment Product defaults to zero
+      Set_I_sVar('$spoteqsetup[2].$td_reg_idx[1]', 0)
+      Set_I_sVar('$spoteqsetup[2].$td_reg_idx[2]', 0)
+      Set_I_sVar('$spoteqsetup[2].$td_limit[1]', 0)
+      Set_I_sVar('$spoteqsetup[2].$td_limit[2]', 0)
+          
+      Set_B_sVar('$spotweldio[2].$wc_con_pres', FALSE)  
+      Set_B_sVar('$spotweldio[2].$reset_wldr', TRUE) --reset welder with TP
+      Set_B_sVar('$spotweldio[2].$early_wschd', TRUE)
+      Set_I_sVar('$spotweldio[2].$eow_type', 3)
+
+      IF (g_servog_opt = TRUE) THEN --servo gun option is installed on the robot
+        Set_I_sVar('$sgcfg[2].$equip_type', 1)
+      ENDIF
+  
+      FOR l_i = 1 TO 10 DO
+        FOR l_j = 1 TO 255 DO
+          weld_pressur[l_i, l_j] = 1
+        ENDFOR
+      ENDFOR    
+
+    ENDIF --combo spot + projection welder
+
+  ENDIF --application has projection welder 
+
+END projwld_var
+-----------------------------------------------------------------------------
+ROUTINE proj_webscrn
+-- PURPOSE: setup projection welding web screen
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+--moved to SetWebScreen in gmcellvr
+ 
+END proj_webscrn
+-----------------------------------------------------------------------------
+ROUTINE set_proj_var
+-- PURPOSE: setup projection welding variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numprojctrl <> 0) THEN --application has projection welding
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(ProjVR_Setup) OR (Reset_Cell) THEN
+    ProjVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Projection Variables GMPROJVR', FALSE)
+
+  IF (ProjVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Projection Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Proj Vars') THEN -- ask user if they want to setup again
+      ProjVR_Setup = FALSE
+    ELSE
+      WriteLog('  Projection Variables already Complete', FALSE)
+      WriteLog('GMPROJVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initPROJvars
+  projwld_var
+  proj_webscrn
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Projection Variable Setup GMPROJVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Projection Variable Setup completed', FALSE)
+    ProjVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numprojctrl
+
+END set_proj_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMPROJVR

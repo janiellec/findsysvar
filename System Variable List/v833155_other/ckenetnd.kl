@@ -1,0 +1,225 @@
+-------------------------------------------------------------------------------
+-- steedlj 04-15-09 Scan Device Net Nodes to see if MACID exists.  Used in GRS4
+--                  macros to determine if perpherial devices are configured.
+--                  AR[X,Y] X = Node Number ; Y = Register to return (1->Found; 0->Not Found)
+--    10-15-13 jja R30iB Development
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         ChkEnetND.KL
+--   TITLE:          ChkEnetND PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  3/13/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   123332
+--   PROJECT NAME:   Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: X PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--          4.1       9-25-2019   Kosaskirr       removed Detail about running status
+--
+--
+--
+-------------------------------------------------------------------------------
+--------------------------------------------------------------------------
+PROGRAM CKEnetND
+
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='ChkENetNode v4.1'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+%RWACCESS
+
+-- Softpart built-ins
+%ENVIRONMENT REGOPE -- needed for the SET_REG builtins
+%INCLUDE KLEVCCDF -- required for the TPERROR builtin
+
+CONST
+INT_ARG = 1 -- Integer argument type
+REAL_ARG = 2 -- Real argument type
+STRING_ARG = 3 -- String argument type
+NO_ARG    = 4 -- no argument was found
+
+VAR
+
+tp_param : ARRAY[10] OF INTEGER
+Max_Num_Reg,    -- used for the maximum register teh user can pass
+prm_type,
+prm_int,
+int_value,
+entry :INTEGER
+
+curr_host :STRING[33] -- used for hte result of the $host location
+Conn_Name :STRING[33] -- used for the the connection name out of the system variables
+
+PRM_REAL  : REAL -- Used for the GET_TPE_PRM builtin
+PRM_STRG  : STRING[16] -- Used for GET_TPE_PRM builtin
+
+  Curr_State,
+  net_node      : INTEGER
+  gm_status        : INTEGER
+  real_value    : REAL
+  str_value     : STRING[15]
+  l_i           : INTEGER
+  ignore_stat   : INTEGER
+  net_reg       : INTEGER
+  nd_found      : BOOLEAN
+  Err_in_Param  : BOOLEAN -- error along the way but cant post to register
+
+-----------------------------------------------------------
+ROUTINE int2str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[6]
+BEGIN
+  l_string = ''
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int2str
+
+-----------------------------------------------------------------------------
+ROUTINE get_param(req_number:INTEGER):INTEGER
+-- PURPOSE:  this routine get the parameters from a teach pendant called program
+--
+--
+-- INPUT:    the parameter number requested
+--            -
+-- OUTPUT:   the parameter type integer
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+  prm_type = 0
+  GET_TPE_PRM (req_number, prm_type, prm_int, prm_real,PRM_STRG, gm_status)
+  IF (gm_status = 17042) THEN -- no parameter
+    prm_type = NO_ARG
+  ENDIF
+
+  RETURN(prm_type)
+
+END get_param
+-------------------------------------------------------------------------------
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+BEGIN
+
+  Err_in_Param = FALSE -- Set the Err in Paramaters to False for validating AR
+  nd_found = FALSE -- set the node found to False
+  Max_Num_Reg = 500
+
+  tp_param[1] = get_param(1) -- go get 1st parameter
+  SELECT (tp_param[1]) OF -- Should be the Node number to check
+    CASE (INT_ARG):  -- Integer argument type
+          net_node = prm_int
+    ELSE: --
+     Err_in_Param = TRUE
+     POST_ERR(38000, 'CkEnetND AR[1] is NOT Node #', 0, 2) --
+     DELAY 2000
+     POST_ERR(38000, 'CkENetND Need # in AR[1]', 0, 2) --
+  ENDSELECT --
+
+  IF UNINIT(Net_Node) THEN -- should never get here but...
+    Net_Node = 0
+  ENDIF
+
+  IF (Net_Node<1) OR (Net_Node>64) THEN -- validate tehy dint send out of range
+    POST_ERR(38000, 'Node#'+int2Str(Net_Node)+' must be 1-64', 0, 0) --
+     Err_in_Param = TRUE
+  ENDIF
+
+IF NOT Err_in_Param THEN
+  -- Get system variable for the node user requested
+  GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2Str(net_node)+'].$HOST', Curr_Host, gm_status)
+    IF (gm_status <> 0) THEN
+      IF (gm_status <> 12311) THEN -- 12331 is UNinitialzed and can be actual
+        POST_ERR(38000, '[*SYSTEM*].$EIP_CONN['+int2Str(net_node)+'].$HOST FAILED', gm_status, 0) --
+      ENDIF
+    ENDIF
+
+    IF UNINIT(Curr_host) THEN -- got var but not set
+      POST_ERR(38000, '$EIP_CONN['+int2Str(net_node)+'].$HOST Not Set',0, 0) --
+      Err_in_Param = TRUE
+    ELSE -- Got the variable to set it
+      nd_found = TRUE
+      Curr_State = 0
+      -- Get system variable Status of the node the node user requested
+      GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2Str(net_node)+'].$STATE', Curr_State, gm_status)
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, '[*SYSTEM*].$EIP_CONN['+int2Str(net_node)+'].$STATE FAILED', gm_status, 0) --
+        ELSE
+          IF Curr_State <> 2 THEN -- 2 = running
+            Conn_Name = 'Unknown' -- go get connection name
+            GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2Str(net_node)+'].$DESC', Conn_Name, gm_status)
+              IF gm_status <> 0 THEN
+                POST_ERR(38000, '[*SYSTEM*].$EIP_CONN['+int2Str(net_node)+'].$DESC FAILED', gm_status, 0) --
+              ENDIF
+              WRITE TPERROR(CHR(cc_clear_win),Conn_Name, ' on Slot#',net_node,' is NOT Running')
+          ENDIF
+        ENDIF
+    ENDIF
+ENDIF
+
+ -- get the Register the user wants the answer placed into
+  tp_param[2] = get_param(2)
+  SELECT (tp_param[2]) OF -- Should be the Node number to check
+    CASE (INT_ARG):  -- Integer argument type
+          net_reg = prm_int
+    ELSE: --
+     Err_in_Param = TRUE
+     POST_ERR(38000, 'CkEnetND AR[2] is NOT Register #', 0, 2) --
+     DELAY 2000
+     POST_ERR(38000, 'CkENetND Need # in AR[2]', 0, 2) --
+  ENDSELECT --
+
+
+  IF UNINIT(net_reg) THEN
+    POST_ERR(38000, 'CkENetND Need # in AR[2]', 0, 2) --
+  ENDIF
+
+  IF UNINIT(Net_Reg) THEN
+    Net_Reg = 0
+  ENDIF
+
+-- Verify teh user has passed a correct register number
+  IF (Net_Reg < 1) OR (Net_Reg > Max_Num_Reg) THEN
+     POST_ERR(38000, 'Answer Reg#'+int2Str(Net_Reg)+' must be 1-'+int2str(Max_Num_Reg), 0, 2) --
+  ENDIF
+
+-- Check if all data was OK and FOund in the IP Connection location user defined
+  IF (nd_found = TRUE) AND (Err_in_Param = FALSE) THEN
+    IF Curr_State = 2 THEN
+    -- RK changed 9-25-19 Per KROLL GM never asked for this RK put in
+   --  SET_INT_REG(net_reg, 2, ignore_stat) -- 2 = up and running in location user wanted
+      SET_INT_REG(net_reg, 1, ignore_stat) --
+    ELSE
+      SET_INT_REG(net_reg, 1, ignore_stat) -- Mapped but not running
+    ENDIF
+  ELSE
+    SET_INT_REG(net_reg, 0, ignore_stat)
+  ENDIF
+
+END CKEnetND
+

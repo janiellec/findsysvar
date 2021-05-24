@@ -1,0 +1,652 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE: GM Wizard Data.kl
+--   TITLE:  Wizard Setup Menu
+--
+--   WRITTEN BY:     Randy Kosaski
+--   REVISION DATE:  04/6/2016
+--
+--   LANGUAGE:       KAREL 8.33
+--   CONTROL GROUP:  General Motor Global Center
+--
+--   ORDER NUMBER:   GM Global Center
+--   PROJECT NAME:
+--
+--
+--   COPYRIGHT:     Fanuc Robotics America, Inc. retains rights in any
+--                  and all Software contained in the material attached
+--                  hereto and said Software may not be copied
+--                  reproduced without the written permission Fanuc
+--                  Robotics America, Inc..
+--
+--                  All Software, (C) Copyright Fanuc Robotics
+--                  America, Inc., 2016
+--
+--         DESCRIPTION: This program controls the screens for setting up
+--                      the vision data the user wants to view.
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  -------------  --------------------
+--
+--------------------------------------------------------------------------
+PROGRAM GMVZDATA
+
+%SYSTEM
+--%INVISIBLE
+                --*****************************************************************
+%NOABORT = ERROR + COMMAND-- *** REMOVE COMMENT FOR PRODUCTION NEED TO IGNORE ABORT
+                --*****************************************************************
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOBUSYLAMP
+%NOLOCKGROUP
+%PRIORITY=100
+%NOPAUSESHFT
+%ALPHABETIZE
+%COMMENT = 'Vison Disp v4.0'
+%INCLUDE klevksp  -- TPMM KAREL softpart loader. and the device_stat and tpdc_tp_c
+%INCLUDE klevkmsk
+%INCLUDE kliosop
+%INCLUDE KLIOTYPS -- used for the GET_PORT_CMT builting for the port types
+
+
+ CONST
+
+  dly_time    = 4500    --time to keep messages up for
+  dict_name   = 'VISD'  --dictionary name for clear data
+  max_col_wid = 16      --max column width in schedule
+  update_only = 4
+  ver = '10/22/16'      -- REV. A
+  Contr_State = 1 -- read from $SYS_CONFIG.$STARTMD 1 = Controlled Start
+  Cold_State  = 2 -- read from $SYS_CONFIG.$STARTMD 2 = Cold Start
+
+VAR
+-- below is used for builtins
+rack_no,
+slot_no,
+phy_PortType,
+phy_port_no,
+n_ports : INTEGER
+ -- structure data must be in this program for the ACT_FORM or UNKNOWN variable error occurs
+ -- i.e. if FROM progname is used 5/5/03
+unlocked,
+loaded, -- used for the return from builtin PROG_STATUS if TRUE program is loaded
+initialized,-- used for the return from builtin PROG_STATUS if TRUE variable file is loaded
+Detail_done: BOOLEAN -- used to see if the detail is available
+
+ConStartStat IN CMOS : INTEGER -- used for the controller state 1= Control,2= Cold
+                               -- $SYS_CONFIG.$STARTMD
+
+i,
+entry,
+int_value,
+term_mask,
+term_char,
+open_id    : INTEGER -- Used for routine in getting teach pendant positions
+karel_name IN CMOS : STRING[16] -- Used for name of the fixture group variable will be read from
+status     IN CMOS :INTEGER -- Status of built-in procedure call nice to see if power cycled because of issue can see cmos
+
+form_number IN CMOS : INTEGER -- Used for which form to display
+value_array: ARRAY [60] OF STRING [120]
+inact_array: ARRAY [60] OF BOOLEAN
+change_array: ARRAY[60] OF BOOLEAN
+def_item: INTEGER
+Prog_name  : STRING[26] -- Used for
+Det_num_name  : STRING[60] -- Used for
+
+det_done IN CMOS : BOOLEAN -- Used for
+StrtFrmWizrd,               -- The menu was started from wizard.
+
+all_done:          BOOLEAN             --user wants to exit laser schedules
+prmp_file:         FILE                --prompt window on tp
+do_detail:         BOOLEAN             --go to detail page on next loop
+version_id    IN CMOS : STRING [15]
+Vis_Reg,   -- the register to positional information for the offset is to be read from
+
+group_no, -- used for group_number to use
+data_type, -- used for what data is being returned from GET_TPE_PRM
+Reg_Type, -- 1= Data Register,2=Position Register
+Reg_Num,
+num_axes,
+tol_arryNum,
+Posn_Type, -- used for the returned value for the Posntion type read from the position register
+int_val IN SHADOW FROM GMVZDATA	:INTEGER
+
+real_val :REAL
+sv:STRING[16]
+
+is_real :BOOLEAN
+
+Tolerance :ARRAY[6] of REAL
+Nominal  :ARRAY[6] of REAL
+Found    :ARRAY[6] of REAL
+jnt_pos  :ARRAY[6] OF REAL
+
+text_string :ARRAY[6] OF STRING[16]
+
+tmp_fnd IN SHADOW :XYZWPR
+
+PR_Jpos IN SHADOW :JOINTPOS
+
+%INCLUDE KLEVCCDF  -- provides character definition
+%INCLUDE FXVISDEG  -- dictionary constant file
+%INCLUDE klrdutil
+%INCLUDE klrdread
+
+-----------------------------------------------------------
+ROUTINE int_2_str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[4]
+BEGIN
+  l_string = ''
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int_2_str
+------------------------------------------------------------------------------
+-- ROUTINE Trim
+-- Remove leading and trailing spaces
+-------------------------------------------------------------------------------
+ROUTINE Trim (strText : STRING) : STRING
+
+VAR
+  strChar      : STRING[1]
+  strTemp      : STRING[128]
+  intFront     : INTEGER
+  intBack      : INTEGER
+  intIndex     : INTEGER
+  intLength    : INTEGER
+
+BEGIN
+
+  strChar = ''
+  strTemp = ''
+
+IF UNINIT(strText) THEN
+  strText = 'UNINT'
+  POST_ERR(38000, 'String Not Initialized??', 0, 0) --
+ENDIF
+
+
+  intLength = STR_LEN(strText)
+
+  IF intLength = 0 THEN RETURN(strText) ; ENDIF
+
+  intIndex = 1
+  intFront = intIndex
+
+  --find the front of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex + 1
+    IF intIndex <= intLength THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intFront = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+
+  ENDWHILE
+
+  intIndex = STR_LEN(strText)
+  intBack = intIndex
+
+  --find the back of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex - 1
+    IF intIndex >= 1 THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intBack = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+  ENDWHILE
+
+  -- using SUB_STR to extract the string between front and back doesn't work - so we do it the hard way
+  FOR intIndex=intFront TO intBack DO
+    strChar = SUB_STR(strText, intIndex, 1)
+    strTemp = strTemp + strChar
+  ENDFOR
+
+  RETURN(strTemp)
+
+END Trim
+-------------------------------------------------------------------------------
+-- ROUTINE Int2Str
+-- Converts integer number to string.
+-------------------------------------------------------------------------------
+ROUTINE Int2Str (intVal : INTEGER) : STRING
+
+VAR
+  strOut : STRING[15]
+
+BEGIN
+
+  CNV_INT_STR(intVal, 15, 0, strOut)
+  strOut = Trim(strOut)
+
+  RETURN (strOut)
+
+END Int2Str
+-----------------------------------------------------------------------------
+ROUTINE init_all_var
+-- PURPOSE: Initialize all variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(karel_name) THEN -- Identify Which program variables are being used
+  karel_name = 'GMVZDATA' -- made this program but if vars are elsewhere change
+ENDIF
+IF UNINIT(int_value) THEN
+  int_value = 1
+ENDIF
+IF UNINIT(initialized) THEN
+  initialized = FALSE
+ENDIF
+
+
+ -- get the load status to ensure variable are avaialable
+LOAD_STATUS(karel_name, loaded, initialized) -- check if loaded
+
+IF loaded THEN
+  --InitGMPTVars -- go make sure all vars are setup
+ELSE --Not loaded
+  IF (initialized = FALSE) THEN
+    POST_ERR(38000,karel_name + ' Not Loaded in GMVSDATA program', 0, 0) --
+    -- need to abort this gracfully after imforming user
+    do_detail = FALSE
+    det_done = TRUE
+    all_done = TRUE
+  ENDIF
+ENDIF
+
+END init_all_var
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE Visn_data
+-- PURPOSE: to review the vision data for the last vision
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(all_done) THEN
+  all_done = FALSE
+ENDIF
+
+FOR i = 1 TO ARRAY_LEN(inact_array) DO
+  inact_array[i] = FALSE
+ENDFOR --
+
+IF UNINIT(unlocked) THEN
+  unlocked = TRUE
+ENDIF
+--unlocked = TRUE
+-- set the value array to be the program variable from the current fixture group
+REPEAT --
+ FOR i = 1 TO ARRAY_LEN(inact_array) DO
+    IF unlocked THEN -- if user know secret to unlock
+      inact_array[i] = FALSE
+    ELSE
+      inact_array[i] = TRUE
+    ENDIF
+  ENDFOR --
+
+--IF UNINIT(karel_name) THEN -- Identify Which program variables are being used
+--  karel_name = 'GMCFGCELL'
+--ENDIF
+Prog_name = '['+karel_name+']'  -- Program name and software confiq array
+
+-- setup X values
+Value_array[1]=  Prog_name + 'text_string[1]' -- Nominal Position Register location
+Value_array[2]=  Prog_name + 'text_string[2]' -- Found Position Register location
+Value_array[3]=  Prog_name + 'text_string[3]' -- Tolerance Position Register or PR location
+
+-- setup X values
+--Value_array[4]=  Prog_name + 'Nominal[1]'    -- Nominal Position
+Value_array[5]=  Prog_name + 'Found[1]'      -- Found Position
+Value_array[4]=  Prog_name + 'Tolerance[1]'  -- Tolerance Position
+
+-- setup Y values
+--Value_array[7]=  Prog_name + 'Nominal[2]'    -- Nominal Position
+Value_array[7]=  Prog_name + 'Found[2]'      -- Found Position
+Value_array[6]=  Prog_name + 'Tolerance[2]'  -- Tolerance Position
+
+-- setup Z values
+--Value_array[10]=  Prog_name + 'Nominal[3]'    -- Nominal Position
+Value_array[9]=  Prog_name + 'Found[3]'      -- Found Position
+Value_array[8]=  Prog_name + 'Tolerance[3]'  -- Tolerance Position
+
+-- setup W values
+--Value_array[13]=  Prog_name + 'Nominal[4]'    -- Nominal Position
+Value_array[11]=  Prog_name + 'Found[4]'      -- Found Position
+Value_array[10]=  Prog_name + 'Tolerance[4]'  -- Tolerance Position
+
+-- setup P values
+--Value_array[16]=  Prog_name + 'Nominal[5]'    -- Nominal Position
+Value_array[13]=  Prog_name + 'Found[5]'      -- Found Position
+Value_array[12]=  Prog_name + 'Tolerance[5]'  -- Tolerance Position
+
+-- setup R values
+--Value_array[19]=  Prog_name + 'Nominal[6]'    -- Nominal Position
+Value_array[15]=  Prog_name + 'Found[6]'      -- Found Position
+Value_array[14]=  Prog_name + 'Tolerance[6]'  -- Tolerance Position
+
+                                                                 --term_mask
+-- kc_f1_type to handle the TYPE key processing with custommenu[x].$option = 31 will have TYPE work No FORCE USER!
+term_mask =  kc_item_chng  + kc_f1_type + kc_func_key-- kc_f1_type + kc_func_key  --kc_other
+term_char = -1
+  DISCTRL_FORM(dict_name, Vis_Display, value_array, inact_array, change_array, term_mask, def_item, term_char, status)
+    IF status<>0 THEN
+      all_done = TRUE
+      POST_ERR(38000, 'GM Vision Data Display Failed', status, 2) --
+    ENDIF
+
+--WRITE TPERROR(CHR(cc_clear_win),'SOMETHING CHANGED')
+ -- form has ended
+
+
+  SELECT (term_char) OF -- select how the form was ended or which key Cell
+    CASE(ky_new_menu):
+    CASE(ky_f1): -- [TYPE] functioning
+    CASE(ky_f2,ky_f2_s):
+    CASE(ky_f3,ky_f3_s): -- Include SHIFT in Case user is teaching -- Selected EXEC.
+    CASE(ky_f4,ky_f4_s):
+    CASE(ky_f7): -- Selected to Load the data file.
+    CASE(ky_f8): -- Selected to Save the data file.
+    CASE(ky_f9): -- Selected to Unlock
+    CASE(ky_undef):
+    ELSE: --
+  ENDSELECT   --det_term_chr OF
+
+--all_done = TRUE
+
+
+UNTIL ((term_char = ky_new_menu) OR (status <>0) OR (all_done=FALSE)) -- New Screen selected
+
+END Visn_data
+
+--------------------------------------------------------------------------------
+--------------------        MAIN BODY OF PROGRAM     ---------------------------
+--------------------------------------------------------------------------------
+
+BEGIN
+
+ version_id = ver
+
+init_all_var -- initailize all variables
+-- GO and get the controller state to determine if need to force User SCreen
+-- in controlled State, need to force user, if in cold state and menu is a CUSTOM MENU
+-- then dont need to, system will
+
+GET_VAR(entry, '*SYSTEM*' , '$SYS_CONFIG.$STARTMD', ConStartStat, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$SYS_CONFIG.$STARTMD FAILED', status, 0) --
+     ConStartStat = cold_state -- force at cold_state
+   ENDIF
+
+IF UNINIT(ConStartStat) THEN --make sure code can run
+  ConStartStat = Cold_State
+ENDIF
+
+IF UNINIT(StrtFrmWizrd) THEN
+  StrtFrmWizrd = FALSE
+ENDIF
+group_no = 1
+data_type = 0
+
+FOR i = 1 TO ARRAY_LEN(text_string) DO
+  text_string[i]=''
+ENDFOR --
+
+-- Go get the parameters to display
+IF UNINIT(Reg_Type) THEN
+  Reg_Type = 2
+ENDIF
+
+--  GET_TPE_PRM(1,data_type,Reg_Type, real_val, sv, status)
+-- one = use data register starting at value of NUM below
+--    IF data_type <> 1 THEN -- If not a Integer user doesnt have parameters correct
+--      POST_ERR(38000, 'Param#1 IS NOT interger value', 0, 2) --
+--    ENDIF
+
+IF UNINIT(Reg_num) THEN
+  Reg_num = 10
+ENDIF
+
+--  GET_TPE_PRM(2,data_type,Reg_Num, real_val, sv, status)
+-- the number the tolerance is at or starting data registers
+ --   IF data_type <> 1 THEN -- If not a Integer user doesnt have parameters correct
+ --     POST_ERR(38000, 'Param#2 IS NOT interger value', 0, 2) --
+ --   ENDIF
+
+SELECT (Reg_Type) OF --
+  CASE (1):  -- User wants data register
+
+    FOR i = Reg_Num TO (Reg_Num + 4) DO
+      tol_arryNum = i - (Reg_Num-1)
+      GET_REG(i,is_real,int_val,real_val,status)
+-- get the value from register
+      IF (status = 0) THEN
+        IF is_real THEN -- if register is a real
+          tolerance[tol_arryNum]= real_val
+        ELSE
+          tolerance[tol_arryNum]= (int_val * 1.00001)
+        ENDIF
+      ELSE
+        POST_ERR(38000, 'Get_Reg Failed on R['+int2str(i)+']', status, 2) --
+      ENDIF
+    ENDFOR --
+
+    tolerance[5] = tolerance[4] --WPR are all one register
+    tolerance[6] = tolerance[4] --WPR are all one register
+    text_string[3]= 'R['+int2str(Reg_num)+'-'+int2str(Reg_num+3)+']'
+  CASE (2):  -- User wants position register
+    POS_REG_TYPE (Reg_Num, 1, posn_type, num_axes, status)-- need to find postype in PR
+    IF status <>0 THEN
+    POST_ERR(38000, 'POS_REG_TYPE Failed on PR['+int2str(Reg_num)+']', status, 2) --
+    ENDIF
+    SELECT (posn_type) OF --
+      CASE (1):  --position
+        tmp_fnd = GET_POS_REG(Reg_Num,status,group_no)
+        IF (status<>0) THEN
+          POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Reg_num)+']', status, 0) --
+        ENDIF
+      CASE (2):  --XYZWPR
+        tmp_fnd = GET_POS_REG(Reg_Num,status,group_no)
+        IF (status<>0) THEN
+          POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Reg_num)+']', status, 0) --
+        ENDIF
+      CASE (6):  --XYZWPREXT
+        tmp_fnd = GET_POS_REG(Reg_Num,status,group_no)
+        IF (status<>0) THEN
+          POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Reg_num)+']', status, 0) --
+        ENDIF
+      CASE (9):  --JOINT
+        PR_Jpos  = GET_JPOS_REG(Reg_Num, status ,group_no)
+      ELSE: --
+        POST_ERR(38000, 'Posn_Type of '+int2str(posn_type)+' is unknown', status, 2) --
+    ENDSELECT --
+
+  IF UNINIT (tmp_fnd) THEN
+	tmp_fnd.config_data.cfg_turn_no1 = 0
+	tmp_fnd.config_data.cfg_turn_no2 = 0
+	tmp_fnd.config_data.cfg_turn_no3 = 0
+	tmp_fnd.config_data.cfg_flip = FALSE
+	tmp_fnd.config_data.cfg_left = FALSE
+	tmp_fnd.config_data.cfg_up = FALSE
+	tmp_fnd.config_data.cfg_front = FALSE
+    tmp_fnd.x = 0
+    tmp_fnd.y = 0
+    tmp_fnd.z = 0
+    tmp_fnd.w = 0
+    tmp_fnd.p = 0
+    tmp_fnd.r = 0
+  ENDIF
+
+    SELECT (posn_type) OF --
+      CASE (1,2,6):  -- Cartesion Position
+        tolerance[1] = tmp_fnd.x
+        tolerance[2] = tmp_fnd.y
+        tolerance[3] = tmp_fnd.z
+        tolerance[4] = tmp_fnd.w
+        tolerance[5] = tmp_fnd.p
+        tolerance[6] = tmp_fnd.r
+
+      CASE (9):  -- Joint position
+        CNV_JPOS_REL(PR_Jpos,jnt_pos,0)
+        tolerance[1] = jnt_pos[1]
+        tolerance[2] = jnt_pos[2]
+        tolerance[3] = jnt_pos[3]
+        tolerance[4] = jnt_pos[4]
+        tolerance[5] = jnt_pos[5]
+        tolerance[6] = jnt_pos[6]
+    ENDSELECT --
+    text_string[3]= 'PR['+int2str(Vis_Reg)+']'
+
+  ELSE: --   not coded for this
+    POST_ERR(38000, 'Argument #1 must be 1 or 2', 0, 2) --
+ENDSELECT --
+
+
+
+IF UNINIT(Vis_Reg) THEN
+  Vis_Reg = 41
+ENDIF
+
+--  GET_TPE_PRM(3,data_type,Vis_Reg, real_val, sv, status)-- get the vision result register where the results are placed
+
+
+--    IF data_type <> 1 THEN -- If not a Integer user doesnt have parameters correct
+ --     POST_ERR(38000, 'Param#3 IS NOT interger value', 0, 2) --
+--    ENDIF
+
+ POS_REG_TYPE (Vis_Reg, 1, posn_type, num_axes, status)-- need to find postype in PR
+  IF status <>0 THEN
+   POST_ERR(38000, 'POS_REG_TYPE Failed on PR['+int2str(Vis_Reg)+']', status, 2) --
+  ENDIF
+  SELECT (posn_type) OF --
+    CASE (1):  --position
+      tmp_fnd = GET_POS_REG(Vis_Reg,status,group_no)
+      IF (status<>0) THEN
+        POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Vis_Reg)+']', status, 0) --
+      ENDIF
+    CASE (2):  --XYZWPR
+      tmp_fnd = GET_POS_REG(Vis_Reg,status,group_no)
+      IF (status<>0) THEN
+        POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Vis_Reg)+']', status, 0) --
+      ENDIF
+    CASE (6):  --XYZWPREXT
+      tmp_fnd = GET_POS_REG(Vis_Reg,status,group_no)
+      IF (status<>0) THEN
+        POST_ERR(38000, 'GET_POS_REG Failed on PR['+int2str(Vis_Reg)+']', status, 0) --
+      ENDIF
+    CASE (9):  --JOINT
+      PR_Jpos  = GET_JPOS_REG(Vis_Reg, status ,group_no)
+    ELSE: --
+      POST_ERR(38000, 'Posn_Type of '+int2str(posn_type)+' is unknown', status, 2) --
+  ENDSELECT --
+   IF UNINIT(tmp_fnd.x) THEN -- status is zero even on uninit
+ --   tmp_fnd =$MOR_GRP[1].$NILPOS
+	tmp_fnd.config_data.cfg_turn_no1 = 0
+	tmp_fnd.config_data.cfg_turn_no2 = 0
+	tmp_fnd.config_data.cfg_turn_no3 = 0
+	tmp_fnd.config_data.cfg_flip = FALSE
+	tmp_fnd.config_data.cfg_left = FALSE
+	tmp_fnd.config_data.cfg_up = FALSE
+	tmp_fnd.config_data.cfg_front = FALSE
+    tmp_fnd.x = 0
+    tmp_fnd.y = 0
+    tmp_fnd.z = 0
+    tmp_fnd.w = 0
+    tmp_fnd.p = 0
+    tmp_fnd.r = 0
+ --   POST_ERR(38000, 'Vis REG['+int2str(Vis_reg)+'] untaught set $NILPOS', status, 0) --
+   ENDIF
+  SELECT (posn_type) OF --
+    CASE (1,2,6):  -- Cartesion Position
+      Found[1] = tmp_fnd.x
+      Found[2] = tmp_fnd.y
+      Found[3] = tmp_fnd.z
+      Found[4] = tmp_fnd.w
+      Found[5] = tmp_fnd.p
+      Found[6] = tmp_fnd.r
+
+    CASE (9):  -- Joint position
+      CNV_JPOS_REL(PR_Jpos,jnt_pos,0)
+      Found[1] = jnt_pos[1]
+      Found[2] = jnt_pos[2]
+      Found[3] = jnt_pos[3]
+      Found[4] = jnt_pos[4]
+      Found[5] = jnt_pos[5]
+      Found[6] = jnt_pos[6]
+  ENDSELECT --
+    text_string[2]= 'PR['+int2str(Reg_num)+']'
+
+
+--  GET_TPE_PRM(4,data_type,num3, real_val, sv, status)-- get the vision result register where the results are placed
+
+--
+-- IF data_type <> 1 THEN -- If not a Integer user doesnt have parameters correct
+--      POST_ERR(38000, 'Param#4 IS NOT interger value', 0, 2) --
+--    ENDIF
+
+-- NEED TO CHANGE TO FIND WHERE NOMINAL IS TAUGHT OR RECORDED, ONLY FOR FORM TESTING
+--FOR i = 1 TO 6 DO
+--  Nominal[i]=Tolerance[i]
+--ENDFOR --
+-- FIX ABOVE WHEN KNOW REGISTER OR WHERE THE ACTUAL IS
+
+--    text_string[1]= 'PR['+int2str(Reg_num)+']'
+
+-- Forcing the menu is not needed when using custom menu and $option set to 31 for TYPE function
+SELECT (ConStartStat) OF --
+CASE (Contr_State):  -- 1 = at Controlled Start Status
+  FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user screen to display forms
+CASE (Cold_State):  -- 2 = at cold state no need to force if system is handling
+  ---- Need to foce menu if Ran from Wizard
+ -- IF StrtFrmWizrd THEN
+ --   FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user screen to display forms
+ -- ENDIF
+ELSE: --
+  POST_ERR(38000, 'Unknown ConStartStat in GMVZDATA', 0, 2) --
+ENDSELECT --
+
+
+IF UNINIT(form_number) THEN
+  form_number = 1
+ENDIF
+  all_done = FALSE-- set the loop flag
+ --unlocked = FALSE
+ WHILE NOT (all_done) DO -- do diplay until they say stop
+   SELECT (form_number) OF --
+      CASE (1):  --
+        Visn_data -- this is for the initial setting
+      CASE (2):  --
+      ELSE: --
+   ENDSELECT --
+ ENDWHILE --
+
+
+END GMVZDATA

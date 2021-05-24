@@ -1,0 +1,567 @@
+/*  This material is the joint property of GMFanuc Robotics Corporation  and
+ *  FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+ *  Corporation or FANUC LTD Japan immediately upon request.  This  material
+ *  and   the  information  illustrated  or  contained  herein  may  not  be
+ *  reproduced, copied, used, or transmitted in whole or in part in any  way
+ *  without the prior written consent of both GMFanuc Robotics and FANUC.
+ *
+ *           All Rights Reserved
+ *           Copyright (C)   1995
+ *           GMFanuc Robotics Corporation
+ *           FANUC LTD Japan
+ *  +
+ *  Feature: GM RS4 ArcTool Customization
+ *
+ *  Description:  This file contains those elements of SpotTool+ which
+ *  are specific for GM RS 4.  These are then copied to a separate disk.
+ *
+ *  Source File:  rs4arc.fd
+ *
+ *  Author: FANUC Robotics Corporation
+ *          3900 West Hamlin Road
+ *          Rochester Hills, Michigan, 48309-3253
+ *
+ *  Modification history:
+ *  2017/02/13    marchaka     Global 4 V8.33P03 file created
+ *  2017/02/16    marchaka     Add GM arc and laser wizard files
+ *  2018/01/26    marchaka     Add gmawcust.kl.  Add new vision TP programs.  Remove gmwizard.
+ *                             Add laser TP programs.
+ *  2018/04/04    marchaka     Add GM setup manuals
+ *  2018/04/25    marchaka     Duplicate copying of exclusion files on FRS with different name to deal with an overwrite issue during auto update
+ *  2018/04/30    marchaka     Add wirefeedchk.tp
+ *  2018/09/25   marchaka      Add GM UD & C manual
+ *  2019/04/12    marchaka     Add gmdcsprot for DCS write protection during an auto update
+ *  2019/08/24    marchaka     Add gmautoup2
+ *  2019/09/16    marchaka     Add IPFO with RSI Interface application programs
+ *  2019/09/17    schoenberg   Add forcemsgtp and brake check
+ *  2019/10/17    marchaka     Add slr_setseam.tp for Trumpf+IPFO+RSI application
+ *  2019/11/04    kosaskrr     Added custom program AEFNDNOD and AECLEAR to load when option availalbe
+ *  2020/02/28    marchaka     Add GM version of varchg.xml --gmvarchg.xml
+ *  2020/03/23    schoensm     Added GMFSAC.KL for V833P09
+ *  2020/03/23    marchaka     Added gmeents3 for v833p09
+ *  2020/10/23    schoensm     Added gmwizmig for v833p10
+ *  2020/10/26    marchaka     Added collaborative files for support of collaborative robots on ArcTool.
+ *                             gmcolbio.pc, gmcolbvr.pc, gmcolbpg.pc, crsty25.tp
+ *  2020/11/03    marchaka     Remove aeclear and aefndnod.  Feature is now supported in the standard product.
+ *
+*/
+name RS4 Arc Customization
+order GMAT /* GM ArcTool */
+require h541 /*ArcTool */
+require h574 /*LR ArcTool */
+
+/*Set ArcTool Defaults for GM*/
+SETVAR $MAX_DIG_PRT 2048 init
+SETVAR $MACRO_MAXNU 200 init
+SETVAR $MAXUALRMNUM 200 init
+SETVAR $STYLE_COUNT 255 init
+SETVAR $THRTABLENUM[3] 64 init
+
+/* init will allow Karel programs to survive init start */
+
+/* Product Files */
+karel gmcusto  init
+karel gmawcust init
+
+/* G4 Wizard Programs - Common with SpotTool */
+karel gmlang1 init
+karel gmlang2 init
+karel gmpmc init
+karel gmenetsu init
+karel gmenets2 init
+karel gmenets3 init
+karel gmsafeio init
+karel gmsetvar init
+karel gmutility init
+karel gmerrcvy init
+karel gmwizlog init
+karel gmworkin init
+karel gmcellio init
+karel gmcellpg init
+karel gmcellrg init
+karel gmcellvr init
+karel gmvisnio init
+karel gmvisprg init
+karel gmvisreg init
+karel gmvisvar init
+karel gmwizvis init
+karel gmautoup init
+karel gmautoup2 init
+karel gmautocd init
+karel gmdcsprot init
+karel gmwzldsv init
+
+/* G4 Collaborative Programs */
+karel gmcolbio init
+karel gmcolbvr init
+karel gmcolbpg init
+
+/* G4 Wizard Programs - Arc and Laser */
+karel gmamain init
+karel gmarctl init
+karel gmarcio init
+karel gmarcpg init
+karel gmarcrg init
+karel gmarcvr init
+karel gmwizarc init
+karel gmlasr init
+karel gmlasio init
+karel gmlasio2 init
+karel gmlaspg init
+karel gmlasrg init
+karel gmlasvr init
+karel gmwizlas init
+karel gmainstl init
+karel gmalang init
+karel gmatdata init
+karel gmwizmig init
+karel gmmigio init
+karel gmmigpg init
+karel gmmigrg init
+karel gmmig init
+karel gmmigvr init
+
+
+/*GM Karel Programs */
+karel gmaspd init
+karel gmsavman init
+karel dmstat init
+karel custoyn init
+karel custook init
+karel custolst init
+karel brkcheck init
+karel dcdtch init
+karel dcd_text init
+karel hostset init
+karel disppage init
+karel gmhstset init
+karel userrtm init
+karel ir_optn1 init
+karel ir_optn2 init
+karel ir_optn3 init
+karel average init
+karel irmath750 init
+karel irhelp750 init
+karel irunfind init
+karel iroffset init
+karel static82 init
+karel gmvzdata init
+karel setdata init
+karel menuedt init
+karel gmpncdta init
+karel gm_interupt init
+karel gmfsac init
+
+/* duplicate installing of Karel files you want on FRS */
+
+/* Product Files */
+karel gmawcust NOLOAD
+
+/* G4 Wizard Programs */
+karel gmutility NOLOAD
+karel gmworkin NOLOAD
+karel gmerrcvy NOLOAD
+
+/*GM Karel Programs */
+karel gmaspd NOLOAD
+karel gmsavman NOLOAD
+karel dmstat NOLOAD
+karel custoyn NOLOAD
+karel custook NOLOAD
+karel custolst NOLOAD
+karel brkcheck NOLOAD
+karel dcdtch NOLOAD
+karel dcd_text NOLOAD
+karel hostset NOLOAD
+karel disppage NOLOAD
+karel gmhstset NOLOAD
+karel userrtm NOLOAD
+karel ir_optn1 NOLOAD
+karel ir_optn2 NOLOAD
+karel ir_optn3 NOLOAD
+karel average NOLOAD
+karel irmath750 NOLOAD
+karel irhelp750 NOLOAD
+karel irunfind NOLOAD
+karel iroffset NOLOAD
+karel static82 NOLOAD
+karel gmvzdata NOLOAD
+karel setdata NOLOAD
+karel menuedt NOLOAD
+karel gmpncdta NOLOAD
+karel gm_interupt NOLOAD
+karel gmfsac NOLOAD
+karel gmwizmig NOLOAD
+karel gmmigio NOLOAD
+karel gmmigpg NOLOAD
+karel gmmigrg NOLOAD
+karel gmmig NOLOAD
+karel gmmigvr NOLOAD
+
+/* Menu Utility vars */
+/* Vision */
+var menu202 NOLOAD
+var menu203 NOLOAD
+var menu302 NOLOAD
+var menu303 NOLOAD
+
+
+/* System variable files */
+
+/* BMON */
+ffile bootrom.udt bootrom.udt COMPRESSED
+
+/* Web files */
+hfile gm_lib.stm gm_lib.stm cgtp
+hfile gmprdspd.stm PrdSpd.stm cgtp
+hfile gmpdhome.stm ProdHome.stm cgtp
+hfile gmspdhlp.stm SpeedHelp.stm cgtp
+hfile cust.stm cust.stm diageg
+hfile wizinst.stm wizinst.stm cgtp
+
+/* Menu Edit Web Screen */
+hfile down.gif down.gif gui
+hfile up.gif up.gif gui
+hfile custolst.stm custolst.stm cgtp
+hfile custook.stm custook.stm cgtp
+hfile custoyn.stm custoyn.stm cgtp
+hfile lsthelp.stm lsthelp.stm cgtp
+hfile okhelp.stm okhelp.stm cgtp
+hfile ynhelp.stm ynhelp.stm cgtp
+hfile rangeok.xml rangeok.xml cgtp
+
+/* GM's varchg.xml */
+ffile gmvarchg.xml gmvarchg.xml uncompressed /*copy to frsu, wiz loads */
+
+/* iRVision */
+hfile static_rslt.stm static_rslt.stm cgtp
+
+hfile h17d01.gif h17d01.gif gui
+hfile h17d13.gif h17d13.gif gui
+hfile h17d0A.gif h17d0A.gif gui
+hfile h17d0C.gif h17d0C.gif gui
+hfile h17d12.gif h17d12.gif gui
+
+hfile gmpoint.gif pointing.gif cgtp
+hfile gmlogo.jpeg gmlogo.jpg gui
+hfile cstrt.jpeg cstrt.jpg gui
+hfile mhsetup.jpeg mhsetup.jpg gui
+hfile gm_spd.jpg spd.jpg gui
+
+/* GM G4 Laser Webscreen */
+hfile las_mon.jpg las_mon.jpg cgtp
+hfile iomon.stm iomon.stm cgtp
+hfile iohelp.stm iohelp.stm cgtp
+hfile laser2.gif laser2.gif cgtp
+hfile lasrotfipg.stm lasrotfipg.stm cgtp
+hfile lasrbrzll.stm lasrbrzll.stm cgtp
+hfile chart.gif chart.gif cgtp
+hfile chart2.stm chart2.stm cgtp
+hfile trumpfstat.stm trumpfstat.stm cgtp
+
+/* GM G4 Reamer/Nozzle Webscreen */
+hfile gmrmr1.stm gmrmr1.stm cgtp
+
+/* GM HMI Error Recovery */
+/* Add to both FR: and FRS: */
+ffile prompt.stm prompt.stm public
+ffile promptfky.stm promptfky.stm public
+ffile promptkey.stm promptkey.stm public
+ffile promptref.stm promptref.stm public
+ffile prompt.stm prompt.stm uncompressed
+ffile promptfky.stm promptfky.stm uncompressed
+ffile promptkey.stm promptkey.stm uncompressed
+ffile promptref.stm promptref.stm uncompressed
+
+/* CUST specific Error Dictionary Files */
+dictionary etcust cust compressed
+
+/* G4 Dictionary */
+dictionary fxmpnc mpnc compressed
+var mpnc
+dictionary fxvisd visd compressed
+var visd
+
+/* PMC */
+ffile gmarclad1.pmc gmarclad1.pmc uncompressed
+
+/* PDF */
+ffile gmwizman.pdf gmwizman.pdf uncompressed
+ffile gm_ffr_man.pdf gm_ffr_man.pdf uncompressed
+ffile g4visrec.pdf g4visrec.pdf uncompressed r685 /*only load on robots with iRVision */
+ffile gmarcman.pdf gmarcman.pdf uncompressed
+ffile gmbrzman.pdf gmbrzman.pdf uncompressed r828 /*only load on laser process control */
+ffile gmlasman.pdf gmlasman.pdf uncompressed
+ffile gmudcman.pdf gmudcman.pdf uncompressed /*GM UD&C manual*/
+
+/* FMD Filter Update */
+ffile kvareeg.dt kvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile kvareeg.dt gmkvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile posreeg.dt posreeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile posreeg.dt gmposreeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile regeeg.dt regeeg.dt UNCOMPRESSED     /* replaces one from fmddev.fd */
+ffile regeeg.dt gmregeeg.dt UNCOMPRESSED     /* replaces one from fmddev.fd */
+ffile svareeg.dt svareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile svareeg.dt gmsvareeg.dt UNCOMPRESSED   /* replaces one from fmddev.fd */
+ffile tplineeg.dt tplineeg.dt UNCOMPRESSED /* replaces one from fmddev.fd */
+ffile tplineeg.dt gmtplineeg.dt UNCOMPRESSED /* replaces one from fmddev.fd */
+
+/* GM DT Files */
+ffile lasargdisp.dt lasargdisp.dt UNCOMPRESSED
+
+/*DCD Text Setup */
+ffile dcdtext.cm dcdtext.cm uncompressed
+
+/*Break Check Settings */
+ffile brk_chk.cm brk_chk.cm uncompressed
+
+/* Vision Camera Files */
+ffile camera1.vd camera1.vd uncompressed
+ffile camera2.vd camera2.vd uncompressed
+ffile sensor1.vd sensor1.vd uncompressed
+ffile sensor2.vd sensor2.vd uncompressed
+ffile chk_sen1.vd chk_sen1.vd uncompressed
+ffile chk_sen2.vd chk_sen2.vd uncompressed
+ffile mvs1i1s1i2.vd mvs1i1s1i2.vd uncompressed
+ffile mvs1i1s2i2.vd mvs1i1s2i2.vd uncompressed
+ffile sv_sen1_3dl.vd sv_sen1_3dl.vd uncompressed
+
+/* Custom Macros. */
+tpp hmiocst  hmiocst  NOLOAD
+tpp phiocst phiocst NOLOAD
+tpp phiocst2 phiocst2 NOLOAD
+tpp ship_pos ship_pos NOLOAD
+tpp bypass bypass NOLOAD
+tpp rmbypass rmbypass NOLOAD
+tpp brakechk brakechk NOLOAD
+tpp gmabort abortit NOLOAD          /* replaces one from fmddev.fd */
+
+/* Standard macros */
+tpp gm_atpnc atpounce NOLOAD     /* loaded by arctool too?  */
+tpp gmpnc    pounce   NOLOAD
+tpp gm_ecopt echooptn NOLOAD
+tpp gm_entzn entrizon NOLOAD
+tpp gm_exzon exitizon NOLOAD
+tpp gm_mvrep mov_repr NOLOAD     /* loaded by arctool too?  */
+tpp postrepr postrepr NOLOAD
+tpp pre_repr pre_repr NOLOAD
+tpp gm_rqcon req_cont NOLOAD
+tpp gm_mvhom mov_home NOLOAD     /* loaded by arctool too? */
+tpp gm_invrt inv_rout NOLOAD
+tpp gm_ddrop dcd_drop NOLOAD
+tpp gm_dpick dcd_pick NOLOAD
+tpp reqmenu reqmenu NOLOAD            /* replaces one from pcsend.fd */
+tpp set_tool set_tool NOLOAD
+tpp mov_pounce mov_pounce
+tpp ref_pos_flt ref_pos_flt
+tpp bodyhmio bodyhmio NOLOAD
+tpp movrepr2 movrepr2 NOLOAD
+tpp movrepr3 movrepr3 NOLOAD
+tpp movrepr4 movrepr4 NOLOAD
+tpp style25 style25 NOLOAD
+tpp bypproc1 bypproc1 NOLOAD
+tpp bypproc2 bypproc2 NOLOAD
+
+tpp gm_mhrep gm_mhrep NOLOAD
+tpp req_erly req_erly NOLOAD
+tpp gm_stsgm set_segm NOLOAD
+
+/* Standard templates */
+tpp gm_hmpnc homfrpon NOLOAD
+tpp homtoprc homtoprc NOLOAD
+tpp prctohom prctohom NOLOAD
+tpp displaypage displaypage NOLOAD
+
+/* Collaborative */
+tpp crstyle25 crstyle25 NOLOAD
+
+/* Vision templates */
+tpp tm_vis_tcp7 tm_vis_tcp7 NOLOAD
+tpp chkoffst chkoffst NOLOAD
+tpp tm_cal_2d tm_cal_2d NOLOAD
+tpp tm_vis_tcp8 tm_vis_tcp8 NOLOAD
+tpp statistics statistics NOLOAD
+tpp set_3d_sen1 set_3d_sen1 NOLOAD
+tpp set_3d_sen2 set_3d_sen2 NOLOAD
+tpp ref_vis_data ref_vis_data NOLOAD
+tpp clear_regs clear_regs NOLOAD
+tpp tmvis_srch tmvis_srch NOLOAD
+tpp tmvis_strat1 tmvis_strat1 NOLOAD
+tpp tmvis_strat2 tmvis_strat2 NOLOAD
+tpp tmvis_strat3 tmvis_strat3 NOLOAD
+tpp tmvis_strat4 tmvis_strat4 NOLOAD
+tpp tmvis_strat5 tmvis_strat5 NOLOAD
+tpp tmvis_style2 tmvis_style2 NOLOAD
+tpp feature_srch feature_srch NOLOAD
+tpp tmchk_3dsen1 tmchk_3dsen1 NOLOAD
+tpp tmchk_3dsen2 tmchk_3dsen2 NOLOAD
+tpp tmstatictest tmstatictest NOLOAD
+tpp tmvis_nrackp tmvis_nrackp NOLOAD
+tpp tmvis_rackp tmvis_rackp NOLOAD
+tpp tmvissetrack tmvissetrack NOLOAD
+tpp tmvis_setmem tmvis_setmem NOLOAD
+tpp vis_rev_offst vis_rev_offst NOLOAD
+tpp visrjcttohom visrjcttohom NOLOAD
+tpp visproctohom visproctohom NOLOAD
+tpp vi_init vi_init NOLOAD
+tpp vi_req1 vi_req1 NOLOAD
+tpp vi_req4 vi_req4 NOLOAD
+tpp vi_pkoff vi_pkoff NOLOAD
+tpp vi_droff vi_droff NOLOAD
+tpp vecameas vecameas NOLOAD
+tpp vecamchk vecamchk NOLOAD
+tpp vecamcal vecamcal NOLOAD
+tpp flt_visn flt_visn NOLOAD
+tpp vical_rn vical_rn NOLOAD
+tpp vi_live1 vi_live1 NOLOAD
+tpp vi_live2 vi_live2 NOLOAD
+tpp vi_live3 vi_live3 NOLOAD
+tpp vi_live4 vi_live4 NOLOAD
+tpp dcd_drop dcd_drop NOLOAD
+tpp sxxdrop1 sxxdrop1 NOLOAD
+tpp sxxdrop2 sxxdrop2 NOLOAD
+tpp sxxdrop3 sxxdrop3 NOLOAD
+tpp sxxpick1 sxxpick1 NOLOAD
+tpp dcd_dp_rload dcd_dp_rload NOLOAD
+tpp perc_frm_slct perc_frm_slct NOLOAD
+tpp temp05_rfload temp05_rfload NOLOAD
+tpp forcemsgtp forcemsgtp NOLOAD
+
+/* ArcTool */
+tpp arc_homeio home_io NOLOAD
+tpp arc_hmiocst arc_hmiocst NOLOAD
+
+/* Laser Application */
+tpp movrepr2_tmpl movrepr2_tmpl NOLOAD
+tpp dcd_maint dcd_maint NOLOAD
+tpp sub1 sub1 NOLOAD
+/*tpp ipg_release ipg_release NOLOAD --not released on G4 yet*/
+/*tpp ipg_request ipg_request NOLOAD --not released on G4 yet*/
+tpp coupon coupon NOLOAD
+tpp coupon_tmpl coupon_tmpl NOLOAD
+tpp laser_release laser_release NOLOAD
+tpp laser_request laser_request NOLOAD
+tpp pwrmeter pwrmeter NOLOAD
+tpp pwrmeter_tmpl pwrmeter_tmpl NOLOAD
+tpp laser_fnctn laser_fnctn NOLOAD
+/*tpp crossjet crossjet NOLOAD --not released on G4 yet*/
+/*tpp otf_weld_tmpl otf_weld_tmpl NOLOAD --not released on G4 yet*/
+/*tpp pos_coupon pos_coupon NOLOAD --not released on G4 yet*/
+/*tpp rlsk_chk rlsk_chk NOLOAD --not released on G4 yet*/
+/*tpp rlsk_mode rlsk_mode NOLOAD --not released on G4 yet*/
+/*tpp set_rlsk set_rlsk NOLOAD --not released on G4 yet*/
+/*tpp pos_cpn_tmpl pos_cpn_tmpl NOLOAD --not released on G4 yet*/
+/*tpp prcsxx_tmpl prcsxx_tmpl NOLOAD --not released on G4 yet*/
+/*tpp ipg_pmm_weld ipg_pmm_weld NOLOAD --not released on G4 yet*/
+/*tpp ipg_pos_weld ipg_pos_weld NOLOAD --not released on G4 yet*/
+/*tpp ipg_postprcs ipg_postprcs NOLOAD --not released on G4 yet*/
+/*tpp ipg_pwrmrtt ipg_pwrmrtt NOLOAD --not released on G4 yet*/
+/*tpp ipg_pprcotf ipg_pprcotf NOLOAD --not released on G4 yet*/
+/*tpp ipg_pprcpos ipg_pprcpos NOLOAD --not released on G4 yet*/
+/*tpp pounce_tpl pounce_tpl NOLOAD --not released on G4 yet*/
+/*tpp tmf_pos_weld tmf_pos_weld NOLOAD--not released on G4 yet*/
+/*tpp tmf_pwrmrtt tmf_pwrmrtt NOLOAD --not released on G4 yet*/
+/*tpp tmf_pmm_weld tmf_pmm_weld NOLOAD --not released on G4 yet*/
+/*tpp tmf_postprcs tmf_postprcs NOLOAD --not released on G4 yet*/
+/*tpp tmf_pprcotf tmf_pprcotf NOLOAD --not released on G4 yet*/
+/*tpp tmf_pprcpos tmf_pprcpos NOLOAD --not released on G4 yet*/
+tpp cros_jet_off cros_jet_off NOLOAD
+tpp cros_jet_on cros_jet_on NOLOAD
+/*tpp dcd_weld dcd_weld NOLOAD --not released on G4 yet*/
+tpp postprocess postprocess NOLOAD
+tpp preprocess preprocess NOLOAD
+/*tpp readyrsk readyrsk NOLOAD --not released on G4 yet*/
+tpp style_tmpl style_tmpl NOLOAD
+/*tpp weldoff weldoff NOLOAD --not released on G4 yet*/
+/*tpp weldon weldon NOLOAD --not released on G4 yet*/
+tpp sa_range1 sa_range1 NOLOAD
+tpp sa_range2 sa_range2 NOLOAD
+tpp set_la_auto set_la_auto NOLOAD
+tpp set_la_pos set_la_pos NOLOAD
+tpp set_sa_force set_sa_force NOLOAD
+tpp set_sa_pos set_sa_pos NOLOAD
+tpp set_sa_range set_sa_range NOLOAD
+tpp set_ta_force set_ta_force NOLOAD
+tpp set_ta_range set_ta_range NOLOAD
+tpp sa_rng_flt sa_rng_flt NOLOAD
+tpp ss_iniat ss_iniat NOLOAD
+tpp e_box_iniat e_box_iniat NOLOAD
+tpp retract retract NOLOAD
+tpp wire_trim wire_trim NOLOAD
+tpp wirecut wirecut NOLOAD
+tpp wiretrimtmpl wiretrimtmpl NOLOAD
+tpp wirefeedchk wirefeedchk NOLOAD
+tpp opti_chk opti_chk NOLOAD
+tpp optit1 optit1 NOLOAD
+tpp optit2 optit2 NOLOAD
+tpp lessmul_capt lessmul_capt NOLOAD
+tpp lesm_iniat lesm_iniat NOLOAD
+/*tpp lesm_ipg_air lesm_ipg_air NOLOAD --not released on G4 yet*/
+tpp lesm_lasl_air lesm_lasl_air NOLOAD
+/*tpp plasmo_off plasmo_off NOLOAD --not released on G4 yet*/
+/*tpp plasmo_on plasmo_on NOLOAD--not released on G4 yet*/
+tpp gas_off_c gas_off_c NOLOAD
+tpp gas_on_c gas_on_c NOLOAD
+tpp handbrk handbrk NOLOAD
+tpp rsthndbrk_c rsthndbrk_c NOLOAD
+tpp sethighclt sethighclt NOLOAD
+tpp setlowclt setlowclt NOLOAD
+tpp lsr_sxxprc1t lsr_sxxprc1t NOLOAD
+tpp llss_pncetmp llss_pncetmp NOLOAD
+/*tpp trlsk_pncetmp trlsk_pncetmp NOLOAD --not released on G4 yet*/
+tpp lasln_pnctmpl lasln_pnctmpl NOLOAD
+tpp trump_pnctmpl trump_pnctmpl NOLOAD
+tpp tru_mvrep2tmp tru_mvrep2tmp NOLOAD
+tpp ipfo_cpntmpl ipfo_cpntmpl NOLOAD
+tpp crossjets crossjets NOLOAD
+tpp focus_monitor focus_monitor NOLOAD
+tpp focus_mon_tmp focus_mon_tmp NOLOAD
+tpp pos_wld pos_wld NOLOAD
+tpp ipfo_postproc ipfo_postproc NOLOAD
+tpp postprc_otf postprc_otf NOLOAD
+tpp preprocesspos preprocesspos NOLOAD
+tpp procxxotf_tmp procxxotf_tmp NOLOAD
+tpp procxx_tmpl procxx_tmpl NOLOAD
+tpp ipfo_pwrmtr ipfo_pwrmtr NOLOAD
+tpp ipfo_pwmttmp ipfo_pwmttmp NOLOAD
+tpp stylexxotf_tm stylexxotf_tm NOLOAD
+tpp prec_start prec_start NOLOAD
+tpp precitec_stop precitec_stop NOLOAD
+tpp slr_postproc slr_postproc NOLOAD
+tpp preproces_slr preproces_slr NOLOAD
+tpp slr_cpn_path slr_cpn_path NOLOAD
+tpp slr_cpn_tmp slr_cpn_tmp NOLOAD
+tpp slr_fin_comp slr_fin_comp NOLOAD
+tpp slr_resetsigs slr_resetsigs NOLOAD
+tpp slr_setcompid slr_setcompid NOLOAD
+tpp slrsetcompid2 slrsetcompid2 NOLOAD
+tpp slr_seam_wob slr_seam_wob NOLOAD
+tpp slr_setseam slr_setseam NOLOAD
+
+/* Mig Reamer/Nozzle Application */
+tpp chktpcln chktpcln NOLOAD
+tpp hometotr hometotr NOLOAD
+tpp migcutrlmt migcutrlmt NOLOAD
+tpp migcutrrplc migcutrrplc NOLOAD
+tpp nozzledetect nozzledetect NOLOAD
+tpp ream ream NOLOAD
+tpp reamerlmt reamerlmt NOLOAD
+tpp reamerrplc reamerrplc NOLOAD
+tpp spray spray NOLOAD
+tpp style29 style29 NOLOAD
+tpp templa35 templa35 NOLOAD
+tpp tmpcmigpr tmpcmigpr NOLOAD
+tpp tr_proc1 tr_proc1 NOLOAD
+tpp trtohome trtohome NOLOAD
+tpp wire_cut wire_cut NOLOAD
+tpp wld_mtr wld_mtr NOLOAD
+
+/* Run utility program to setup variables */
+/* and load TP programs */
+utility gmainstl  /*Runs during software install*/
+
+
+
+
+
+

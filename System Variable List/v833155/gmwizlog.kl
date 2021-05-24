@@ -1,0 +1,473 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMWIZLOG.KL
+--   TITLE:          GMWIZLOG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.30 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   000000
+--   PROJECT NAME:   GOOD CUSTOMER
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: X PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--                     4-21-16    R Kosaski       Changed so suport is only displayed on GMPT
+--                     7-26-16    R Kosaski       Changed for Llyod steed to not dispaly errors in Press
+--
+--                     1-29-17    R Kosaski       Changed so ensure the device is not somewhere else $DEV_PATH = '\'
+--              4.1   2017/03/12  marchaka        Modified current version recording for ArcTool
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMWIZLOG
+
+%COMMENT = 'GM WIZLOG V4.1'
+%STACKSIZE = 5000
+
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+CONST
+  -- Version
+  VER = 'Global 4 2017/03/12' -- Please change version when you make an update
+  WARN_MSG = 38000 -- make APSH-000 %s
+  ER_WARN = 0 -- used in the post error 1= Pause 2 = abort
+  cc_clear_win = 128
+
+  -- Log file name
+  LOG_NAME = 'GMWIZLOG.DT'
+  %INCLUDE GMCNSTNT -- all the constant declarations
+
+VAR
+
+  endtime,
+  endtimer     :INTEGER -- used for waintg for the enter value
+
+-- GM RS4 routines
+  ShopLogged   : STRING[16] -- used for teh Shop that start this log file
+  robot_id     : STRING[32]
+ -- install log vars
+  logEnabled   : BOOLEAN      -- install log opened
+  curTime      : INTEGER
+  errors       : INTEGER
+  LogFileLoc   : STRING[5] -- location to place the log file Default is FR:
+  errorsStr    : STRING[3]
+  logFileName  : STRING[60]
+  curTimeStr   : STRING[60]
+  appName      : STRING[60]
+  appVer       : STRING[60]
+  fNum         : STRING[30]
+  CustVer      : STRING[40]
+   Wiz_Ver     : STRING[30] -- used for the gte var from GMWIZARD for the curent wizard version running
+  logFile      : FILE         -- install log
+  entry,
+  status  : INTEGER --
+
+  mfg_area    IN SHADOW FROM GMCFGCEL :INTEGER -- which shop is runnning the wizard
+  DisplayStat IN SHADOW FROM GMCFGCEL :BOOLEAN -- used for if Errors are Written to TPDispaly
+  DisplayDely IN SHADOW FROM GMCFGCEL : INTEGER -- Used for how long to delay to allow a user to see DIsplay Messages
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded
+
+%INCLUDE GMCFGERR -- needed for the errors that can have ossured and the status of the wizard execution
+
+-- ROUTINE MHUSERCL  FROM MHUSERCL
+-- ROUTINE MHUSERPG  FROM MHUSERPG
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+
+%INCLUDE GMRDUTIL -- used for in2str and other common builtins used for GM wizard
+
+------------------------------------------------------------------------------
+ROUTINE closeLog
+------------------------------------------------------------------------------
+VAR
+  l_status   : INTEGER
+
+BEGIN
+
+  GET_TIME(curTime)
+  CNV_TIME_STR(curTime , curTimeStr)
+
+  writeLog('Wizard Ended On:      ' + curTimeStr, FALSE)
+
+  CLOSE FILE logFile
+  status = IO_STATUS(logFile)
+  IF (status <> 0) THEN
+    POST_ERR(WARN_MSG, '[GMWIZLOG] Close log Failed ' + logFileName, status, ER_WARN)
+  ENDIF
+  logEnabled = FALSE
+
+
+  -- Clear the TP USER screen
+  WRITE TPSTATUS (CHR(cc_clear_win))
+  WRITE TPDISPLAY (CHR(cc_clear_win))
+  WRITE TPFUNC (CHR(cc_clear_win))
+  WRITE TPPROMPT (CHR(cc_clear_win))
+
+--      MHUSERCL  -- clear any lingering text
+        WRITE(CHR(137),CHR(128));
+    --  MHUSERPG
+
+END closeLog
+ -------------------------------------------------------------------------------
+-- ROUTINE Trim
+-- Remove leading and trailing spaces
+-------------------------------------------------------------------------------
+ROUTINE Trim_it (strText : STRING) : STRING
+
+VAR
+  strChar      : STRING[1]
+  strTemp      : STRING[128]
+  intFront     : INTEGER
+  intBack      : INTEGER
+  intIndex     : INTEGER
+  intLength    : INTEGER
+
+BEGIN
+
+  strChar = ''
+  strTemp = ''
+
+  intLength = STR_LEN(strText)
+
+  IF intLength = 0 THEN RETURN(strText) ; ENDIF
+
+  intIndex = 1
+  intFront = intIndex
+
+  --find the front of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex + 1
+    IF intIndex <= intLength THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intFront = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+
+  ENDWHILE
+
+  intIndex = STR_LEN(strText)
+  intBack = intIndex
+
+  --find the back of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex - 1
+    IF intIndex >= 1 THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intBack = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+  ENDWHILE
+
+  -- using SUB_STR to extract the string between front and back doesn't work - so we do it the hard way
+  FOR intIndex=intFront TO intBack DO
+    strChar = SUB_STR(strText, intIndex, 1)
+    strTemp = strTemp + strChar
+  ENDFOR
+
+  RETURN(strTemp)
+
+END Trim_it
+
+------------------------------------------------------------------------------
+ROUTINE openLog(P_ShopLog:STRING): BOOLEAN
+------------------------------------------------------------------------------
+VAR
+  l_status   : INTEGER
+
+BEGIN
+
+IF UNINIT(LogFileLoc) THEN
+  LogFileLoc = 'FR:'
+ENDIF
+
+
+  logFileName = LogFileLoc + LOG_NAME
+  errors = 0
+
+  CLR_IO_STAT(logFile)
+  SET_FILE_ATR(logFile, ATR_IA)  --interactively write
+
+  OPEN FILE logFile('RW', logFileName)
+  l_status = IO_STATUS(logFile)
+  IF (l_status <> 0)  THEN -- INTP-326 File Var is Already Used   --AND (l_Status <>12326) )
+    POST_ERR(WARN_MSG, '[GMWizLog] Open log Failed ' + logFileName, l_status, ER_WARN)
+    RETURN(FALSE)
+  ELSE
+    WRITE logFile ('', CHR(13), CHR(10))  -- CR,LF
+    WRITE logFile ('*******************************************', CHR(13), CHR(10))  -- CR,LF
+    WRITE logFile ('******  ',P_ShopLog,' Wizard Log File   *****', CHR(13), CHR(10))  -- CR,LF
+    WRITE logFile ('*******************************************', CHR(13), CHR(10))  -- CR,LF
+    WRITE logFile ('', CHR(13), CHR(10))  -- CR,LF
+
+    RETURN(TRUE)
+  ENDIF
+
+END openLog
+------------------------------------------------------------------------------
+ROUTINE writeLog--(p_message: STRING; isError: BOOLEAN)
+------------------------------------------------------------------------------
+VAR
+  l_status  : INTEGER
+  l_str     : STRING[40]
+  Log_String:String[130]
+BEGIN
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF --ArcTool
+
+IF UNINIT(logEnabled) THEN
+  logEnabled = FALSE
+  POST_ERR(38000, 'Log File Not Opened in GMWIZLOG', 0, 0) --
+  RETURN
+  --logEnabled = openLog('Uninit Open')
+ENDIF
+   -- need to check if log is open
+
+IF NOT logenabled THEN
+  RETURN
+ENDIF
+
+IF UNINIT(errors) THEN
+  errors = 0
+ENDIF
+
+IF UNINIT(DisplayStat) THEN
+  DisplayStat = TRUE
+ENDIF
+
+  IF isError THEN
+    IF (arc_optn = TRUE) THEN --ArcTool
+      l_str = '[GMWizarc] ' + p_message
+    ELSE --SpotTool
+      l_str = '[GMWizard] ' + p_message
+    ENDIF
+  -- RK changed 7-23-16 most errors already logged to Alarm log
+  -- POST_ERR(WARN_MSG, l_str, 0, ER_WARN)
+    errors = errors + 1 -- Cant use now???? 3-27-16
+  ENDIF
+  IF (p_message <> '') THEN
+
+   IF (DisplayStat) THEN -- nobody but PT wants errors to TP as it runs
+     WRITE TPDISPLAY(CR, p_message, CR)
+   ENDIF
+  ENDIF
+
+  IF isError THEN --add a indentafier to log to draw attention for user
+    Log_String = '**- '+p_message +' -**'
+  ELSE
+    Log_String = p_message
+  ENDIF
+
+  IF logEnabled THEN
+    WRITE logFile (Log_String, CHR(13), CHR(10))  -- CR,LF
+    l_status = IO_STATUS (logFile)
+    IF (l_status <> 0) THEN
+      POST_ERR(WARN_MSG, '[GMWizLog] ' + logFileName+' Failed to write log' ,l_status, 0)
+      logEnabled = FALSE -- set so wont continue to try to log
+      closeLog
+    ENDIF
+  ENDIF
+
+  -- Give time for user to see error
+  IF isError THEN
+    IF (DisplayStat) THEN -- nobody but PT wants errors to TP as it runs
+      DELAY DisplayDely   -- From GMCFGCEL vars
+    ENDIF
+  ENDIF
+
+END writeLog
+-----------------------------------------------------------------------------
+ROUTINE Setup_Log(P_ShopLog:STRING)
+-- PURPOSE: to open the log file and prepare all the basic information
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF --ArcTool
+   ShopLogged = P_ShopLog
+
+  -- Open log file
+  logEnabled = openLog(P_ShopLog)
+  curTimeStr = 'unknown'
+  GET_TIME(curTime)
+  CNV_TIME_STR(curTime , curTimeStr)
+  GET_VAR (entry, '*SYSTEM*','$APPLICATION[1]', appName, status) -- name of application software
+  GET_VAR (entry, '*SYSTEM*','$APPLICATION[2]', appVer, status)  -- version of application software
+  GET_VAR (entry, '*SYSTEM*','$FNO', fNum, status)    -- F number
+  GET_VAR (entry, '*SYSTEM*','$APPLICATION[8]', CustVer, status) -- Customization version
+  IF (arc_optn = TRUE) THEN --ArcTool
+    GET_VAR(entry, 'GMWIZARC' , 'Current_Ver', Wiz_Ver, status)
+      IF status <> 0 THEN
+        POST_ERR(38000, '[GMWIZARC].Current_Ver FAILED', status, 0) --
+      ENDIF
+     IF UNINIT(Wiz_Ver) THEN
+       Wiz_Ver = 'Unknown Version'
+     ENDIF
+  ELSE
+    GET_VAR(entry, 'GMWIZARD' , 'Current_Ver', Wiz_Ver, status)
+    IF status <> 0 THEN
+      POST_ERR(38000, '[GMWIZARD].Current_Ver FAILED', status, 0) --
+    ENDIF
+    IF UNINIT(Wiz_Ver) THEN
+      Wiz_Ver = 'Unknown Version'
+    ENDIF
+  ENDIF
+
+  IF UNINIT(appName) THEN appName = ' '; ENDIF
+  IF UNINIT(appVer) THEN appVer = ' '; ENDIF
+  IF UNINIT(fNum) THEN fNum = ' '; ENDIF
+  IF UNINIT(CustVer) THEN CustVer = 'Not Set'; ENDIF
+
+  writeLog('Executed On:      ' + curTimeStr, FALSE)
+  GET_VAR(entry, '*SYSTEM*' , '$SCR_GRP[1].$ROBOT_ID', Robot_ID, status)
+     IF status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*]$SCR_GRP[1].$ROBOT_ID FAILED', status, 0) --
+       writeLog('Failed to Get Robot ID', FALSE)
+     ELSE
+       writeLog('Robot Type:       ' + Robot_ID, FALSE)
+     ENDIF
+  writeLog('OS Name:          ' + appName, FALSE)
+  writeLog('OS Version:       ' + appVer, FALSE)
+  writeLog('Custo Version:    ' + CustVer, FALSE)
+  writeLog('', FALSE)
+  writeLog('Wizard Version:   ' +  Wiz_Ver, FALSE)
+  writeLog('Robot FNumber:    ' + fNum, FALSE)
+  --writeLog('Install Path:     ' + src_dev + dev_path, FALSE)
+  writeLog('', FALSE)
+  writeLog('*******************************************', FALSE)
+  writeLog('*******************************************', FALSE)
+  writeLog('', FALSE)
+
+END Setup_Log
+-----------------------------------------------------------------------------
+ROUTINE Finish_Log
+-- PURPOSE: To close the log file with the detail of the wizard
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+TempText_str :STRING[60]
+
+BEGIN
+
+IF UNINIT(ShopLogged) THEN -- should never be uninit because set in Open log
+  ShopLogged = 'Unknown'
+ENDIF
+IF UNINIT(LogFileName) THEN
+  LogFileName = 'unknown'
+ENDIF
+IF UNINIT(mfg_area) THEN
+  mfg_area = 1
+ENDIF
+
+TempText_str='' -- clear the screen
+
+--   MHUSERCL
+--   WRITE(CHR(137),CHR(128));
+--   MHUSERPG
+
+ writeLog('', FALSE)
+
+-- IF (Errors = 0) THEN
+IF WizardStatus.Cnfg_Is_Done AND WizardStatus.SetupIs_Done THEN -- if totally succeful log it
+   TempText_str= ShopLogged+' Wizard Ended'
+-- ELSE
+ --  TempText_str= ShopLogged + ' Wizard Complete, with '+ (int2Str(errors)) +' errors'
+  -- WRITE TPDISPLAY (CR,'Use Alarm log History to view the errors')
+-- ENDIF
+
+   writeLog(TempText_str, FALSE)
+   POST_ERR(38000, TempText_str, 0, 0) --
+ENDIF
+
+ IF (errors >0) THEN
+   IF (mfg_area = mfg_area_ps) THEN
+     WRITE TPDISPLAY (CR,'Wizard Complete, configuration includes errors',CR)
+     WRITE TPDISPLAY (' See:FR:\GMWIZLOG.DT for details',CR)
+   ELSE
+     writeLog('', FALSE)
+     WRITE TPDISPLAY (CR,'Wizard Details logged ',LogFileName,CR)
+     writeLog('', FALSE)
+   ENDIF
+
+   writeLog('Correct Errors then Run Wizard again!', FALSE)
+   writeLog('', FALSE)
+   IF (mfg_area = mfg_area_pt) THEN
+     writeLog('Contact GMPT Controls for Support needs', FALSE)
+   ENDIF
+ ENDIF
+
+ --   WRITE TPPROMPT (CR,'Press ENTER to Acknowledge '+CHR(129))
+
+   --WRITE TPDISPLAY (CR,'Press ENTER to Acknowledge')
+ --   EndTimer =0
+ --  Endtime = 6000
+ --   CONNECT TIMER TO EndTimer --
+ --   WAIT FOR (TPIN[ky_enter]+) OR (Endtimer>Endtime) --
+  --  DISCONNECT TIMER Endtimer --
+
+ --  IF (Endtimer>Endtime) THEN
+ --    writeLog('Wizard Ended Timeout waiting for ENTER',FALSE)
+ --  ELSE
+ --    writeLog('Wizard Ended with ENTER Key input',FALSE)
+--   ENDIF
+
+ closeLog
+ --  MHUSERCL
+
+--DELAY 1000
+
+END Finish_Log
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+
+BEGIN
+
+END GMWIZLOG

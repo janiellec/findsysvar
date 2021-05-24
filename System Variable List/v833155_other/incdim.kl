@@ -1,0 +1,284 @@
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    
+--    Program: incdim 
+--    
+--    Description:
+--    
+--    Language: KAREL
+--    
+--    Source File: incdim.kl    04-SEP-2015   03:00PM
+--    
+--    Author: PRAJAPAK
+--            Fanuc America Corporation
+--            3900 W Hamlin Road
+--            Rochester Hills, Michigan    48309
+--    
+--    Modification history:
+--     - 2015/09/08  marchaka     added swweldio num_rows_out, num_item_out, 
+--				  num_item_in, num_rows_in and max_rows for 
+--				  VAR reallocation for GM Update 03   
+--     - 2016/04     marchaka     Max TP programs for axis limits added                
+
+---------------------------------------------------------------------------------
+PROGRAM incdim
+---------------------------------------------------------------------------------
+%COMMENT='Expand Array Dimensions'
+%NOBUSYLAMP
+%NOLOCKGROUP
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+
+VAR
+  status       : INTEGER
+  dims         : ARRAY[3] OF INTEGER
+  weld_pressur IN SHADOW FROM swshell : ARRAY [10,64] OF INTEGER
+
+  vo_type      FROM swweldio: ARRAY [18] OF STRING[2]
+  vo_port      FROM swweldio: ARRAY [18] OF INTEGER
+  vo_old_port  FROM swweldio: ARRAY [18] OF INTEGER  
+  vo_sim       FROM swweldio: ARRAY [18] OF BOOLEAN
+  vo_stat      FROM swweldio: ARRAY [18] OF STRING[12]
+  vo_statstr   FROM swweldio: ARRAY [18] OF STRING[6]
+
+  vo_changes   FROM swweldio: ARRAY [72] OF BOOLEAN
+  vo_inact     FROM swweldio: ARRAY [72] OF BOOLEAN
+  vo_vals      FROM swweldio: ARRAY [72] OF STRING[26]
+  vo_vptrs     FROM swweldio: ARRAY [72] OF INTEGER
+
+  vi_changes   FROM swweldio: ARRAY [72] OF BOOLEAN
+  vi_inact     FROM swweldio: ARRAY [72] OF BOOLEAN
+  vi_vals      FROM swweldio: ARRAY [72] OF STRING[26]
+  vi_vptrs     FROM swweldio: ARRAY [72] OF INTEGER
+
+  vi_type      FROM swweldio: ARRAY [18] OF STRING[2]
+  vi_port      FROM swweldio: ARRAY [18] OF INTEGER
+  vi_old_port  FROM swweldio: ARRAY [18] OF INTEGER
+  vi_sim       FROM swweldio: ARRAY [18] OF BOOLEAN
+  vi_stat      FROM swweldio: ARRAY [18] OF STRING[12]
+  vi_statstr   FROM swweldio: ARRAY [18] OF STRING[6]
+
+  v_lbr        FROM swweldio: ARRAY [18] OF STRING[1]
+  v_rbr        FROM swweldio: ARRAY [18] OF STRING[1]
+
+  tp_progs     FROM swtoolbx: ARRAY [200] OF STRING[max_prog_nam]  
+  
+-------------------------------------------------------------------------------
+
+BEGIN 
+  dims[1] = 255 -- New dimension i.e. 255 in [10, 255]
+  dims[2] = ARRAY_LEN(weld_pressur) -- Lower dimension i.e. 10 in [10, 255]
+  dims[3] = 0
+  REALLOC_VAR ('swshell', 'weld_pressur', dims, status)
+
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--swweldio --kam G3 update 3
+--num_rows_out
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_type)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_type', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_port)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_port', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_old_port)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_old_port', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_sim)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_sim', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_stat)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_stat', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 20 
+  dims[2] = ARRAY_LEN(vo_statstr)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_statstr', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--num_item_out
+  dims[1] = 80 
+  dims[2] = ARRAY_LEN(vo_changes)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_changes', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 80 
+  dims[2] = ARRAY_LEN(vo_inact)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_inact', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 80 
+  dims[2] = ARRAY_LEN(vo_vals)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_vals', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 80 
+  dims[2] = ARRAY_LEN(vo_vptrs)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vo_vptrs', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--num_item_in
+  dims[1] = 152
+  dims[2] = ARRAY_LEN(vi_changes)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_changes', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 152 
+  dims[2] = ARRAY_LEN(vi_inact)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_inact', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 152 
+  dims[2] = ARRAY_LEN(vi_vals)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_vals', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 152
+  dims[2] = ARRAY_LEN(vi_vptrs)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_vptrs', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--num_rows_in
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(vi_type)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_type', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(vi_port)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_port', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(vi_old_port)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_old_port', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38 
+  dims[2] = ARRAY_LEN(vi_sim)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_sim', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38 
+  dims[2] = ARRAY_LEN(vi_stat)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_stat', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(vi_statstr)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'vi_statstr', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--max_rows
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(v_lbr)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'v_lbr', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+  dims[1] = 38
+  dims[2] = ARRAY_LEN(v_rbr)
+  dims[3] = 0
+  REALLOC_VAR ('swweldio', 'v_rbr', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+--max number of TP programs that can be scanned for limit set in utilities menu
+  dims[1] = 400
+  dims[2] = ARRAY_LEN(tp_progs)
+  dims[3] = 0
+  REALLOC_VAR ('swtoolbx', 'tp_progs', dims, status)
+  IF (status <> 0) THEN
+    POST_ERR(status, '', 0, 0)
+  ENDIF
+
+END incdim
+
+

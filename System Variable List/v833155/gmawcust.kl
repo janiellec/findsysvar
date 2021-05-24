@@ -1,0 +1,1786 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:   atshcust
+--    
+--    Description:
+--    
+--    Language: KAREL
+--    
+--    Source File:   awshcust.kl Arc custom   18-DEC-98   04:05PM
+--    
+--    Author: SCHALLMA                 
+--            Fanuc Robotics Corporation
+--            2000 South Adams Road
+--            Auburn Hills, Michigan    48326-2800
+--    
+--    Modification history:
+--   2018/01/23 marchaka Create GM version of awshcust.  Added GM tasks
+--   2018/04/06 marchaka Add external interlock I/O power supply monitoring
+--   2018/09/12 marchaka  Do not allow $dcs_cfg.$pioc_dsp if DCS I/O connect write protection is being used
+--   2018/10/10 marchaka  Added a 250 ms delay and recheck of power supply I/O before posting CUST-472 and CUST-477 alarms 
+--			  for units that use the external I/O interlock power supply.  This logicial concept was used on 
+--			  G3 to fix an issue with signal transition delays on M2000 units.  Eventhough the G4 power supply 
+--			  is different and may not have the same issues, GM requested that the delay and recheck be added in.
+--   2018/10/30 marchaka  For virtual robots, do not write protec the DCS I/O connect map and hide it.
+--   2019/08/03 marchaka  Changed manual intevention output to get turned off to the user manual intervention digital output.
+--   2019/08/14 marchaka  Execute ATClnRcvyMnu for custo*.pc flags on cold start.
+--   2019/03/23 schoensm  V8.33P09 added code for $FSAC settings.
+--   2020/11/03 schoensm  V8.33P10 added gmmigcfg settings
+--   
+------------------------------------------------------------------
+PROGRAM ATSHCUST 
+------------------------------------------------------------------
+%RWACCESS
+%STACKSIZE = 1024
+%NOLOCKGROUP
+%SYSTEM
+%noabort = error + command
+%nopause = command + error + tpenable
+%nobusylamp
+%INVISIBLE
+%COMMENT='GM ARC Cust.Shell'
+%ENVIRONMENT sysdef
+%ENVIRONMENT multi
+%ENVIRONMENT uif
+%ENVIRONMENT celldef
+%ENVIRONMENT ioblt -- IOVALSET Command
+%ENVIRONMENT regope --registers
+%ENVIRONMENT sycedef  --  $MSKKEY
+%ENVIRONMENT TPATBDEF --$autobackup.$enable
+%ENVIRONMENT TPE --set_attr
+
+%INCLUDE atconst
+%INCLUDE atdcatsh
+%INCLUDE klevutil
+%include atdcsoft
+%INCLUDE KLEVCCDF   -- needed for the TPERROR
+%INCLUDE kliotyps    --need this for IO_FLAG
+%INCLUDE kliosop -- SOP I/O constants
+%INCLUDE klevkeys  -- TP I/O constants
+%INClUDE kliouop
+
+--GM RS4
+%INCLUDE etdccust  --custom errors
+%INCLUDE gm_ch_id  --GM condition handlers
+%INCLUDE SWEVSHLL --Offline IOVALSET
+
+--Programs to Run
+ TYPE
+  Setup_Prog FROM ATSHCUST = STRUCTURE -- Program that need start up
+    NeedToRun      : BOOLEAN -- True or False for Program needs to run or be checked
+    NeedForProd    : BOOLEAN -- True or False for Program needed for production, if cant start need to resolve
+    Prog_Name      : STRING[16] -- String Of programs that can be checked for Running
+    FailedToStrt   : INTEGER -- used for the times the program was attempted to start
+ ENDSTRUCTURE
+--Wizard setup configuration file name comments
+TYPE
+  SetupCmnt_at  = STRUCTURE -- Wizard Setup configuration files comments
+    vr_filename   : STRING[12] -- Used for program name to setup comment on
+    prog_comment  : STRING[16] -- Used for comment to put on VR_FILENAME
+  ENDSTRUCTURE
+
+CONST
+  --GM RS4
+  Revision = '2020-11-03'
+  
+  --condition handlers
+  CH_ATBRKR = 674
+  CH_T2PRMPT = CH_T2PROMPT --included in gm_ch_id --682
+  CH_CTRLRST = 690
+  CH_ATUsrAbrt = CH_UserAbort  --included in gm_ch_id --694
+  CHATWtchScrn = CHWatchScrn  --included in gm_ch_id --696
+  CHATWtchTmr = CHWatchTimer  --included in gm_ch_id --697
+  CH_AT_uopenb = 805
+  CH_HomeIO = 12
+  CH_AT_gmmisc = 673  --equivalent to CH_PAYID in SpotTool
+  
+VAR
+  pb_response: INTEGER  
+  --debug in CMOS from ATSHELL: BOOLEAN
+  init_done IN CMOS FROM ATSHELL: BOOLEAN
+
+  proccomplete in CMOS: BOOLEAN
+  s_item:  INTEGER
+  menu_sel from atsoftpa:    INTEGER
+  done_1 from atsoftpa: BOOLEAN
+  done_0 from atsoftpa: BOOLEAN
+
+  -- for application soft panel menu
+  value_array  from atsoftpa : ARRAY[10] OF STRING[40] 
+  vptr_array   from atsoftpa : ARRAY[10] OF INTEGER
+  inact_array  from atsoftpa : ARRAY[10] OF BOOLEAN
+  change_array from atsoftpa : ARRAY[10] OF BOOLEAN
+  form_data    from atsoftpa : WORK_T
+  
+  --GM RS4
+  curr_rev: STRING[32] --used for knowning the revision of this program
+  gm_status: INTEGER
+  acchigh: INTEGER --payload id accel high setting
+  acclow: INTEGER --payload id accel low setting
+  task_status  : INTEGER
+  value_str   : STRING[20]
+  psve:  INTEGER
+  value_int : INTEGER
+
+  task_num     IN CMOS : INTEGER
+  poll_timer1 IN SHADOW   : INTEGER  --condition handler timer for breaker
+
+  frvrc  IN CMOS from atshell   :  BOOLEAN
+  uopi_asgnd IN DRAM FROM ATSHELL: BOOLEAN
+
+  sh_sel_type IN SHADOW FROM ATSHCUST: INTEGER --$shell_cfg.$sel_type
+  FileComnt_at IN SHADOW FROM ATSHCUST :ARRAY[35] OF SetupCmnt_at  -- Wizard Configuration File Comments
+
+  prmpt_back    IN SHADOW FROM GMCUSTO  : BOOLEAN
+  dnet64size    IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+  ffr_dout      IN SHADOW FROM GMVARS: INTEGER  --FFR output
+  globalctrl    IN SHADOW FROM GMVARS :INTEGER  --Type of controller hardware (e.g. G4)
+  refhome_do    IN SHADOW FROM GMVARS: INTEGER  --Home Reference Position DO
+
+  gmmisc_at IN SHADOW FROM GMATVAR: BOOLEAN --run GM miscellaneous maintenace tasks
+  gmmenufav_at IN SHADOW FROM GMATVAR: BOOLEAN --protect menu favourites
+  tog_try_at IN SHADOW FROM GMATVAR: BOOLEAN
+  lsrproc_optn IN SHADOW FROM GMATVAR: BOOLEAN  -- Laser process tool option loaded on robot
+
+  --Custoyn / Custook / Custolst
+  ok_flag   IN SHADOW FROM CUSTOOK : BOOLEAN
+  yn_flag   IN SHADOW FROM CUSTOYN : BOOLEAN
+  lst_flag  IN SHADOW FROM CUSTOLST : BOOLEAN
+  ansd_yn,      -- Used as the answer the user entered in Y/N Menu
+  yn_answer     IN SHADOW FROM custoyn: INTEGER
+  ansd_ok,      -- Used as the answer the user entered in OK Menu
+  ok_answer     IN SHADOW FROM custook: INTEGER
+  ansd_lst,     -- Used as the answer the user entered in List Menu
+  lst_answer    IN SHADOW FROM custolst : INTEGER
+  user_abortat  , -- Used for identifying if the program was aborted or finished
+  rcvry_act_at IN SHADOW FROM GMATVAR: BOOLEAN -- Used for if the user recovery is being executed to start CH
+  RepostTimer,  -- used as a timer to repost reset to return to user
+  RepostTime    IN SHADOW : INTEGER -- used as a value to repost return to User
+  prmp_dout IN SHADOW FROM GMVARS: INTEGER  --User Prompt Box DO
+  
+  --power supply monitoring
+  deadman_sw    IN SHADOW FROM GMVARS: BOOLEAN  --   Deadman Switch
+  pwr3sply      IN SHADOW FROM GMVARS: BOOLEAN
+  di_NMotn      IN SHADOW FROM GMVARS: INTEGER  --   SPI 2 Non Motion Breaker
+  di_24Brk      IN SHADOW FROM GMVARS: INTEGER  --   SPI 1 24Vout Breaker
+  si_NM_24Bk    IN SHADOW FROM GMVARS: INTEGER  --   SOPIN 12 No Motion or 24Vout Breaker
+  si_10AAuxPwr  IN SHADOW FROM GMVARS: INTEGER  --   SOPIN 13 10 Amp Power Supply Aux Power Loss 
+  di_MCC        IN SHADOW FROM GMVARS: INTEGER  --   MCC 
+  grsltch       IN SHADOW FROM GMVARS: BOOLEAN  --   used in power supply monitoring
+  pwrs_extinlk  IN SHADOW FROM GMVARS: BOOLEAN
+  di_spo_1      IN SHADOW FROM GMVARS: INTEGER  --P: SPO[1]
+
+
+  --G4 power supply monitoring
+  rst_nmbk: BOOLEAN
+  rst_relay: BOOLEAN
+  rst_chkcp: BOOLEAN
+  rst_axpwr: BOOLEAN
+
+  SPI2DI_IOFlt :BOOLEAN -- used to indicate the DI mapped to SPI 2 read failed, and post error when this is FALSE
+  SSI10DIIOFlt :BOOLEAN -- used to indicate the DI mapped to SSI 10 read failed, and post error when this is FALSE
+  SPI1DI_IOFlt :BOOLEAN -- used to indicate the DI mapped to SPI 1 read failed, and post error when this is FALSE
+  SI12DI_IOFlt :BOOLEAN -- used to indicate the DI mapped to SI 12 read failed, and post error when this is FALSE
+  SPO1DI_IOFlt :BOOLEAN -- used to indicate the DI mapped to SPO 1 read failed, and post error when this is FALSE
+
+
+  --programs to run
+  MaxStrtFails IN SHADOW : INTEGER -- this is the maximum number of failures a "prgs2run" can fail
+  Prgs2RunAT   IN SHADOW FROM ATSHCUST :ARRAY[30] OF Setup_Prog -- ArcTool programs ran/check on power up
+  Prgs2RunLS   IN SHADOW FROM ATSHCUST :ARRAY[30] OF Setup_Prog -- Laser programs ran/check on power up
+
+  --UOP enable checks
+  at_uopenbtmr, at_chuoptime : INTEGER -- Used to set uop_disable automatically
+
+  --DCS display of write protected safe I/O connect items
+  gmsafeioprot  IN SHADOW FROM ATSHCUST: BOOLEAN --monitor use of DCS I/O write protection
+  unhide_dcs    IN SHADOW FROM GMVARS: BOOLEAN  --allows modifications to DCS I/O map in FRVRC
+
+  
+
+ROUTINE check_memory                             from atshell
+ROUTINE check_tryout from atsoftpa
+ROUTINE prompt_box_c(p_device:    INTEGER;
+                     p_dict_name: STRING;
+                     p_dict_ele:  INTEGER;
+                     p_curr_item: INTEGER;
+                     p_resp_type: INTEGER;
+                     p_response:  INTEGER;
+                     p_string:    STRING)        from atprompt
+ROUTINE homeio         FROM atshell
+
+--GM RS4
+ROUTINE Post_Custlst FROM CUSTOLST
+ROUTINE Post_Custok  FROM CUSTOOK
+ROUTINE Post_Custyn  FROM CUSTOYN
+ROUTINE set_arc_cold FROM gmamain --cold start setup from GM arc wizard
+ROUTINE lsrprc_ld    FROM gmwizarc
+ROUTINE fsac_1       FROM GMFSAC
+ROUTINE fsac_2       FROM GMFSAC
+
+%INCLUDE gmrdutil --GM utilities
+%INCLUDE klrdutil
+---------------------------------------------------------------
+ROUTINE init_vars
+-- initialize variables 
+---------------------------------------------------------------
+VAR
+  entry:  INTEGER
+
+BEGIN
+
+  --global controller
+  IF UNINIT (globalctrl) THEN
+    globalctrl = 4
+  ENDIF
+
+  --laser process control
+  IF UNINIT(lsrproc_optn) THEN
+    lsrprc_ld --Check to see if laser process tool is installed on the robot
+  ENDIF
+
+  --deadman
+  IF UNINIT(deadman_sw) THEN
+    deadman_sw = FALSE
+  ENDIF 
+
+  IF UNINIT(rcvry_act_at) THEN
+    rcvry_act_at = FALSE
+  ENDIF
+  IF UNINIT(user_abortat) THEN
+    user_abortat = FALSE
+  ENDIF
+  IF UNINIT(ok_flag) THEN
+    ok_flag = FALSE
+  ENDIF
+  IF UNINIT(yn_flag) THEN
+    yn_flag = FALSE
+  ENDIF
+  IF UNINIT(lst_flag) THEN
+    lst_flag = FALSE
+  ENDIF
+
+  GET_VAR(entry, '*system*', '$SHELL_CFG.$SEL_TYPE', sh_sel_type, gm_status)
+  IF (gm_status <> 0) THEN --failed
+    sh_sel_type = 0
+  ENDIF
+
+  IF UNINIT(gmmisc_at) THEN  --enable GM misc tasks
+    gmmisc_at = TRUE
+  ENDIF
+	
+  IF UNINIT(acchigh) THEN --payload id accel high
+    acchigh = 100
+  ENDIF 
+
+  IF UNINIT(acclow) THEN --payload id accel low
+    acclow = 100
+  ENDIF
+
+  IF UNINIT(tog_try_at) THEN
+    tog_try_at = FALSE
+  ENDIF
+
+  IF UNINIT(gmmenufav_at) THEN --gm menu favourites
+    gmmenufav_at = TRUE
+  ENDIF
+ 
+END init_vars
+----------------------------------------------------------------
+ROUTINE setrstflag
+--Set reset flag
+----------------------------------------------------------------
+BEGIN
+
+  rst_nmbk = TRUE
+  rst_chkcp = TRUE
+  rst_relay = TRUE
+  rst_axpwr = TRUE
+
+ENABLE CONDITION[CH_CTRLRST]
+
+END setrstflag
+---------------------------------------------------------------
+ROUTINE at_grsbrkr
+-- GRS Power Supply Monitoring
+-- Global 3 and Global 4 
+
+--  This routine is called 2.5sec to monitor power supply breakers.
+
+--GLOBAL 4
+
+--   DCS SPI,2, 'NonMtnBreaker'      Non Motion Breaker
+--   CUST-472 "Aux. Power Loss, NMBreaker Off[%s]"
+
+--   DCS SPI 1 24V Breaker and DCS SSI 10 MCC
+--   CUST-479 "Aux. Power Loss, OUTP Breaker OFF"
+
+--   DCS SPI 1 24V Breaker and DCS SSI 10 MCC
+--   CUST-477 "Aux. Power Relay Error"
+
+--   SOPIN,12,
+--   CUST-478 "Aux Power Loss (NM or OUT24)"
+
+--   SOPIN,13, 'IOPwrSupply3'      NEED CONFIRMATION ON HOW TO DO THIS FOR G4
+
+--GLOBAL 3
+--   SOPIN,12, 'NonMtnBreaker'      Non Motion Breaker
+--   CUST-472 "Aux. Power Loss, NMBreaker Off[%s]"
+
+--   SOPIN,13, '24Vout Breaker'     24Vout Breaker
+--   CUST-473 "Aux. Power Loss, OUT24v Breaker Off[%s]"
+
+--   SOPIN,14, '24Vout aftMCC'      24Vout After MCC DEADMAN
+--   CUST-474 "Aux. Power Loss, OUT24v after MCC short[%s]"
+
+--   SOPIN,15, 'IOPwrSupply3'       3rd Power Supply
+--   CUST-475 "Aux. Power Loss, IO Power supply 3[%s]"
+---------------------------------------------------------------
+VAR
+l_ignore   : INTEGER  --common for G4 and G3
+l_stat : INTEGER
+l_valMCC: INTEGER
+
+l_val_spi2 : INTEGER  --G4 only
+l_val_spi1 : INTEGER
+l_val_spin12: INTEGER
+l_val_spin13: INTEGER
+l_val_spo1:  INTEGER
+
+l_val12 : INTEGER  --G3 only
+l_val13 : INTEGER
+l_val14 : INTEGER
+l_val15 : INTEGER
+
+
+BEGIN
+
+--common to G4 and G3
+
+  IF UNINIT(deadman_sw) THEN
+    deadman_sw = TRUE
+  ENDIF
+
+  IF UNINIT(pwr3sply) THEN
+    pwr3sply = FALSE
+  ENDIF
+
+  IF ($MOR.$SAFETY_STAT AND 4) = 4 THEN --pulled out
+    deadman_sw = FALSE
+    l_stat = IOValSet(2 + IGNOR_OFFLIN, 2049, 0)
+  ENDIF
+  IF ($MOR.$SAFETY_STAT AND 4) = 0 THEN --pulled in
+    deadman_sw = TRUE
+    l_stat = IOValSet(2 + IGNOR_OFFLIN, 2049, 1)
+  ENDIF
+
+IF NOT frvrc THEN -- not a virtual controller
+
+  IF (globalctrl=4) THEN --G4 controller
+
+    IF UNINIT(rst_nmbk) THEN
+      rst_nmbk  = TRUE
+    ENDIF
+
+    IF UNINIT(rst_chkcp) THEN
+      rst_chkcp  = TRUE
+    ENDIF
+
+    IF UNINIT(rst_relay) THEN
+      rst_relay  = TRUE
+    ENDIF
+
+    IF UNINIT(rst_axpwr) THEN
+      rst_axpwr  = TRUE
+    ENDIF
+
+    IF UNINIT(pwrs_extinlk) THEN
+      pwrs_extinlk = FALSE
+    ENDIF
+
+    IF UNINIT(di_NMotn) THEN
+      di_NMotn = 2010
+    ENDIF
+
+    IF UNINIT(di_24Brk) THEN
+      di_24Brk = 2009
+    ENDIF
+
+    IF UNINIT(si_NM_24Bk) THEN
+      si_NM_24Bk = 12
+    ENDIF
+
+    IF UNINIT(si_10AAuxPwr) THEN
+      si_10AAuxPwr = 13
+    ENDIF
+
+    IF UNINIT(di_MCC) THEN
+      di_MCC = 2008
+    ENDIF
+
+    IF UNINIT(di_spo_1) THEN
+      di_spo_1 = 2011
+    ENDIF
+
+    IF UNINIT(SPI2DI_IOFlt) THEN
+      SPI2DI_IOFlt = FALSE
+    ENDIF
+    IF UNINIT(SSI10DIIOFlt) THEN
+      SSI10DIIOFlt = FALSE
+    ENDIF
+    IF UNINIT(SPI1DI_IOFlt) THEN
+      SPI1DI_IOFlt = FALSE
+    ENDIF
+    IF UNINIT(SI12DI_IOFlt) THEN
+      SI12DI_IOFlt = FALSE
+    ENDIF
+    IF UNINIT(SPO1DI_IOFlt) THEN
+      SPO1DI_IOFlt = FALSE
+    ENDIF
+
+   IF (pwrs_extinlk = FALSE) THEN --no external I/O interlock safety relay
+
+     l_ignore = iovalrd(IO_DIN,di_NMotn, l_val_spi2)  --DI 2010 (SPI 2)
+     IF (l_val_spi2 = 0) AND (rst_nmbk) AND (l_ignore=0) THEN
+       POST_ERR(CUST_NMBRAKE,'', 0, APSH_PAUSE)  --CUST-472 "Aux Power Loss, NMBreaker Off"
+       rst_nmbk = FALSE
+       SPI2DI_IOFlt = FALSE
+     ELSE -- check if failed and never posted failure before
+       IF (l_ignore <>0) AND (SPI2DI_IOFlt=FALSE) THEN
+         POST_ERR(38000,'Read of DI['+int2str(di_NMotn)+'] failed,SPI2',l_ignore,0)
+         SPI2DI_IOFlt = TRUE
+       ENDIF
+     ENDIF
+
+     l_ignore = iovalrd(IO_DIN,di_MCC, l_valMCC)  --DI 2008 (SSI 10)
+     IF (l_ignore=0) THEN
+       SSI10DIIOFlt = FALSE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+       l_ignore = iovalrd(IO_DIN,di_24Brk, l_val_spi1)  --DI 2009 (SPI 1)
+       IF (l_ignore=0) THEN
+         SPI1DI_IOFlt = FALSE
+         IF (l_valMCC = 1) AND (l_val_spi1 = 1) AND (rst_chkcp) THEN
+           POST_ERR(CUST_OUTPOFF,'', 0, APSH_PAUSE)  --CUST-479 "Aux Power Loss, OUTP Breaker Off"
+           rst_chkcp = FALSE
+         ENDIF
+
+         IF (l_valMCC = 0) AND (l_val_spi1 = 0) AND (rst_relay) THEN
+           POST_ERR(CUST_PWRRLY,'', 0, APSH_PAUSE)  --CUST-477 "Aux Power Relay Error"
+           rst_relay = FALSE
+         ENDIF
+       ELSE -- Read of DI Mapped to SPI 1 Failed to read
+         IF (l_ignore <>0) AND (SPI1DI_IOFlt=FALSE) THEN
+           POST_ERR(38000,'Read of DI['+int2str(di_24Brk)+'] failed,SPI 1',l_ignore,0)
+           SPI1DI_IOFlt = TRUE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+         ENDIF
+       ENDIF
+
+     ELSE -- Read of DI mapped to SSI 10 failed to read
+       IF (l_ignore <>0) AND (SSI10DIIOFlt=FALSE) THEN
+         POST_ERR(38000,'Read of DI['+int2str(di_MCC)+'] failed,SSI 10',l_ignore,0)
+         SSI10DIIOFlt = TRUE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+       ENDIF
+     ENDIF
+
+     l_ignore = iovalrd(IO_SOPIN,si_NM_24Bk, l_val_spin12)  --SI 12
+     IF (l_val_spin12 = 0) AND (rst_axpwr) AND (l_ignore=0) THEN
+       POST_ERR(CUST_PWRLSS,'', 0, APSH_PAUSE)  --CUST-478 "Aux Power Loss (NM or OUT24)"
+       rst_axpwr = FALSE
+       SI12DI_IOFlt = FALSE
+     ELSE
+       IF (l_ignore <>0) AND (SI12DI_IOFlt = FALSE) THEN -- Read of DI mapped to SI 12 failed to read
+         POST_ERR(38000, 'Read of DI['+int2str(si_NM_24Bk)+'] failed,SI 12', l_ignore, 0) --
+         SI12DI_IOFlt = TRUE -- this is reset in GMATCSTM program, "custpowerup" routine or above
+       ENDIF
+     ENDIF
+
+     --l_ignore = iovalrd(IO_SOPIN,si_10AAuxPwr, l_val_spin13)  --SI 13
+
+     --SI 13 MONITORING FOR THE THIRD POWER SUPPLY NEEDS TO BE ADDED IN.  NEED CONFIRMATION ON WHICH
+     --SPI WE WILL BE MONITORING.  ALSO WILL NEED A WAY TO DISTINGUISH BETWEEN A AND B CABINETS.  NEED
+     --TO DISCUSS THAT WITH GM
+
+   ELSE --external I/O interlock hardware relay
+
+     l_ignore = iovalrd(IO_DIN,di_NMotn, l_val_spi2)  --DI 2010 (SPI 2)
+     IF (l_val_spi2 = 0) AND (rst_nmbk) AND (l_ignore=0) THEN
+
+       DELAY 250 --wait 250 ms to allow for MCC and SPO[1] values to be udpated
+       l_ignore = iovalrd(IO_DIN,di_NMotn, l_val_spi2)  --DI 2010 (SPI 2)  --recheck value
+ 
+       IF (l_val_spi2 = 0) THEN --recheck if error is present
+         POST_ERR(CUST_NMBRAKE,'', 0, APSH_PAUSE)  --CUST-472 "Aux Power Loss, NMBreaker Off"
+       ENDIF
+       rst_nmbk = FALSE
+       SPI2DI_IOFlt = FALSE
+     ELSE -- check if failed and never posted failure before
+       IF (l_ignore <>0) AND (SPI2DI_IOFlt=FALSE) THEN
+         POST_ERR(38000,'Read of DI['+int2str(di_NMotn)+'] failed,SPI2',l_ignore,0)
+         SPI2DI_IOFlt = TRUE
+       ENDIF
+     ENDIF
+
+     l_ignore = iovalrd(IO_DIN,di_MCC, l_valMCC)  --DI 2008 (SSI 10)
+     IF (l_ignore=0) THEN
+       SSI10DIIOFlt = FALSE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+       l_ignore = iovalrd(IO_DIN,di_24Brk, l_val_spi1)  --DI 2009 (SPI 1)
+       IF (l_ignore=0) THEN
+         SPI1DI_IOFlt = FALSE
+
+         IF (l_valMCC = 0) AND (l_val_spi1 = 0) AND (rst_relay) THEN
+
+           DELAY 250 --wait 250 ms to allow for MCC and SPO[1] values to be updated
+           l_ignore = iovalrd(IO_DIN,di_MCC, l_valMCC)  --DI 2008 (SSI 10)  --update value
+           l_ignore = iovalrd(IO_DIN,di_24Brk, l_val_spi1)  --DI 2009 (SPI 1)  --update value
+
+           IF (l_valMCC = 0) AND (l_val_spi1 = 0) THEN  --recheck to see if error is present
+             POST_ERR(CUST_PWRRLY,'', 0, APSH_PAUSE)  --CUST-477 "Aux Power Relay Error"
+             POST_ERR(CUST_NMBRAKE,'',0, APSH_PAUSE)  --CUST-472 "Aux Power Loss, NMBreaker OFF"
+           ENDIF
+
+           rst_relay = FALSE
+         ENDIF
+
+         l_ignore = iovalrd(IO_DIN, di_spo_1, l_val_spo1) --DI 2011 (SPO 1)
+         IF (l_ignore = 0) THEN
+           SPO1DI_IOFlt = FALSE
+           IF (l_valMCC = 1) AND (l_val_spi1 = 0) AND (l_val_spo1 = 0) AND (rst_relay) THEN
+             
+             DELAY 250 --wait 250 ms to allow for MCC, SPI[1] adn SPO[1] values to be updated
+
+             l_ignore = iovalrd(IO_DIN,di_MCC, l_valMCC)  --DI 2008 (SSI 10)  --update value
+             l_ignore = iovalrd(IO_DIN,di_24Brk, l_val_spi1)  --DI 2009 (SPI 1)  --update value
+             l_ignore = iovalrd(IO_DIN, di_spo_1, l_val_spo1) --DI 2011 (SPO 1)  --update value
+
+             IF (l_valMCC = 1) AND (l_val_spi1 = 0) AND (l_val_spo1 = 0) THEN  --recheck to see if error is present
+               POST_ERR(CUST_PWRRLY,'', 0, APSH_PAUSE)  --CUST-477 "Aux Power Relay Error"
+             ENDIF
+             rst_relay = FALSE
+           ENDIF
+           IF (l_valMCC = 1) AND (l_val_spi1 = 1) AND (l_val_spo1 = 1) AND (rst_relay) THEN
+
+             DELAY 250 --wait 250 ms to allow for MCC, SPI[1] adn SPO[1] values to be updated
+
+             l_ignore = iovalrd(IO_DIN,di_MCC, l_valMCC)  --DI 2008 (SSI 10)  --update value
+             l_ignore = iovalrd(IO_DIN,di_24Brk, l_val_spi1)  --DI 2009 (SPI 1)  --update value
+             l_ignore = iovalrd(IO_DIN, di_spo_1, l_val_spo1) --DI 2011 (SPO 1)  --update value
+
+             IF (l_valMCC = 1) AND (l_val_spi1 = 1) AND (l_val_spo1 = 1) THEN --recheck to see if error is present
+               POST_ERR(CUST_PWRRLY,'', 0, APSH_PAUSE)  --CUST-477 "Aux Power Relay Error"
+             ENDIF
+             rst_relay = FALSE
+           ENDIF
+           
+          ELSE --  check if failed to read di 2011 (SPO 1)
+             IF (l_ignore <> 0) AND (SPO1DI_IOFlt=FALSE) THEN
+               POST_ERR(38000,'Read of DI['+int2str(di_spo_1)+'] failed,SPO1',l_ignore,0)
+               SPO1DI_IOFlt = TRUE  
+             ENDIF
+           ENDIF             
+        ELSE -- Read of DI Mapped to SPI 1 Failed to read
+          IF (l_ignore <>0) AND (SPI1DI_IOFlt=FALSE) THEN
+            POST_ERR(38000,'Read of DI['+int2str(di_24Brk)+'] failed,SPI 1',l_ignore,0)
+            SPI1DI_IOFlt = TRUE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+          ENDIF
+        ENDIF
+
+      ELSE -- Read of DI mapped to SSI 10 failed to read
+        IF (l_ignore <>0) AND (SSI10DIIOFlt=FALSE) THEN
+          POST_ERR(38000,'Read of DI['+int2str(di_MCC)+'] failed,SSI 10',l_ignore,0)
+          SSI10DIIOFlt = TRUE -- this is reset in GMATCSTM custpowerup routine, so only post once.
+        ENDIF
+      ENDIF
+
+      l_ignore = iovalrd(IO_SOPIN,si_NM_24Bk, l_val_spin12)  --SI 12
+      IF (l_val_spin12 = 0) AND (rst_axpwr) AND (l_ignore=0) THEN
+        POST_ERR(CUST_PWRLSS,'', 0, APSH_PAUSE)  --CUST-478 "Aux Power Loss (NM or OUT24)"
+        rst_axpwr = FALSE
+        SI12DI_IOFlt = FALSE
+      ELSE
+        IF (l_ignore <>0) AND (SI12DI_IOFlt = FALSE) THEN -- Read of DI mapped to SI 12 failed to read
+          POST_ERR(38000, 'Read of DI['+int2str(si_NM_24Bk)+'] failed,SI 12', l_ignore, 0) --
+          SI12DI_IOFlt = TRUE -- this is reset in GMATCSTM program, "custpowerup" routine or above
+        ENDIF
+      ENDIF
+
+      --l_ignore = iovalrd(IO_SOPIN,si_10AAuxPwr, l_val_spin13)  --SI 13
+
+     --SI 13 MONITORING FOR THE THIRD POWER SUPPLY NEEDS TO BE ADDED IN.  NEED CONFIRMATION ON WHICH
+     --SPI WE WILL BE MONITORING.  ALSO WILL NEED A WAY TO DISTINGUISH BETWEEN A AND B CABINETS.  NEED
+     --TO DISCUSS THAT WITH GM
+  
+    ENDIF --external I/O interlock hardware relay
+  ENDIF  --G4 Controller
+
+  IF (globalctrl = 3) THEN --G3 controller
+
+    l_ignore = iovalrd(IO_SOPIN, 12 , l_val12)
+    l_ignore = iovalrd(IO_SOPIN, 13 , l_val13)
+    l_ignore = iovalrd(IO_SOPIN, 14 , l_val14)
+    l_ignore = iovalrd(IO_DIN,2008, l_valMCC)
+
+    IF pwr3sply = TRUE THEN
+      l_ignore = iovalrd(IO_SOPIN, 15 , l_val15)
+    ENDIF
+
+    IF (l_val12 = 0) AND (NOT TPIN[tpi_reset_s]) THEN
+      IF (NOT OPOUT[sopo_fault]) THEN
+        POST_ERR(CUST_NMBRAKE,'', 0, APSH_PAUSE) --CUST-472 "Aux Power Loss, NMBreaker Off"
+      ENDIF
+    ENDIF
+
+    IF (l_val13 = 0) AND (NOT TPIN[tpi_reset_s]) THEN
+      IF (NOT OPOUT[sopo_fault]) THEN
+        POST_ERR(CUST_OUT24,'', 0, APSH_PAUSE)  --CUST-473 "Aux.Pwr Loss OUT24v Breaker Off"
+      ENDIF
+    ENDIF
+
+    -- Latch Checking for MCC shorted
+    IF (l_valMCC = 0) AND (l_val14 = 1) THEN
+      grsltch = TRUE
+    ENDIF
+
+    IF (l_valMCC = 0) AND (l_val14 = 0) THEN
+      grsltch = FALSE
+    ENDIF
+
+    DELAY 20
+
+    IF UNINIT(grsltch)  THEN
+      grsltch = FALSE
+    ENDIF
+
+    IF ($MCR_GRP[1].$MACHINELOCK = FALSE) AND (grsltch = TRUE) THEN
+      POST_ERR(CUST_AFTMCC,'', CUST_AX_MCC, APSH_PAUSE)  --CUST-474 "NM&OUT24v shorted after MCC"
+    ENDIF
+
+    IF (pwr3sply = TRUE) THEN
+      IF (l_val15 = 0)  AND (NOT TPIN[tpi_reset_s]) THEN
+        IF (NOT OPOUT[sopo_fault]) THEN
+          POST_ERR(CUST_PWR3IO,'', 0, APSH_PAUSE) --CUST-475 "Aux.Pwr Loss, IO Pwr Supply 3"
+        ENDIF
+      ENDIF
+    ENDIF
+
+  ENDIF --G3 Controller
+
+ENDIF  --not a virtual controller
+
+poll_timer1=0
+ENABLE CONDITION[CH_ATBRKR]
+
+END at_grsbrkr
+
+-------------------------------------------------------------------------------
+ROUTINE T2_PRMPTBOX
+-------------------------------------------------------------------------------
+VAR
+  rtn : INTEGER
+
+BEGIN
+  SET_REG_CMT(500,'T2 Prompmt Box', gm_status)
+  SET_INT_REG(500,  1, gm_status)
+  rtn = DB_PROMPT(DB_PS_OK,
+            'Switched to T2 Mode',
+            'Robot is capable of running at FULL Speed \nSELECT OK to Continue',
+            255)
+
+  SET_INT_REG(500,  0, gm_status)
+
+  ENABLE CONDITION[CH_T2PRMPT]
+
+END T2_PRMPTBOX
+
+-----------------------------------------------------------------------------
+ROUTINE ATClnRcvyMnu
+-- PURPOSE: to tun off alarm and set screen back for Custoxyz Alarm recovery
+--          if menu is active and ABORT condition occurs, then the routine is also
+--          called.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  CUSTOYN, CUSTOOK,CUSTOLST  ABORT condition handler in ATCUSTOM
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(rcvry_act_at) THEN
+    rcvry_act_at = FALSE
+  ENDIF
+  IF UNINIT(user_abortat) THEN
+    user_abortat = FALSE
+  ENDIF
+  IF UNINIT(ok_flag) THEN
+    ok_flag = FALSE
+  ENDIF
+  IF UNINIT(yn_flag) THEN
+    yn_flag = FALSE
+  ENDIF
+  IF UNINIT(lst_flag) THEN
+    lst_flag = FALSE
+  ENDIF
+
+--IF (rcvry_act_at = TRUE) THEN
+    DISABLE CONDITION[CHWatchTimer] -- don't need watch screen timer
+    DISABLE CONDITION[CHWatchScrn] -- don't need watch user screen
+
+    DISCONNECT TIMER RepostTimer  -- Disconnect timer Start the Timer
+
+    CANCEL FILE TPPROMPT -- Need to cancel read if aborting
+
+    CLR_STND_SCR(gm_status)
+
+    WRITE TPERROR(CHR(129))-- Clear line from previous writing
+    WRITE TPDISPLAY (CHR(128),CHR(137))
+    WRITE TPPROMPT(CHR(129))-- Clear line from previous writing
+    RepostTimer = 0 -- Reset the Timer
+
+    IF NOT (TPIN[tpi_enable]) THEN -- dont change screen on user???
+      FORCE_SPMENU(tp_panel,SPI_TPTCH,1)
+    ELSE
+      FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+    ENDIF
+
+    IF (user_abortat = TRUE) THEN
+      POST_ERR(38000, 'User Aborted Before Answer', 0, 0) --
+    ELSE
+      IF (ok_flag = TRUE) THEN
+        POST_ERR(38000, 'User is OK to Continue', 0, 0) --
+      ENDIF
+      IF (yn_flag = TRUE) THEN
+        POST_ERR(38000, 'R['+int2str(yn_answer)+'] = '+int2str(ansd_yn)+' for User Recovery', 0, 0) --
+      ENDIF
+      IF (lst_flag = TRUE) THEN
+        POST_ERR(38000, 'R['+int2str(lst_answer)+'] = '+int2str(ansd_lst)+' for User Recovery', 0, 0) --
+      ENDIF
+    ENDIF
+
+    -- Reset all menu related vars NO 2 should be active at once Right?
+    ok_flag = FALSE
+    yn_flag = FALSE
+    lst_flag = FALSE
+    rcvry_act_at = FALSE -- Reset the User menu is active
+    user_abortat = FALSE
+
+    IF dnet64size = FALSE THEN -- Not sure why this is a condition ????
+      gm_status = iovalset(2, prmp_dout, 0)
+      IF (gm_status <> 0) THEN 
+        POST_ERR(38000, 'Failed to set User Manual Inteverntion DO to OFF', 0, 0)
+      ENDIF 
+    ENDIF
+
+
+--  ENDIF -- ENDIF for rcvry_act_at=TRUE
+
+END ATClnRcvyMnu
+
+-----------------------------------------------------------------------------
+ROUTINE ATUsrRcvyAct
+-- PURPOSE: to put message on tp error window so user know to go back to the
+--          user menu for prompt to be answered. If user left, then came back
+--          need to turn off one handler and clean the TPERROR screen when TP is
+--          on because if reset it pressed and TP on, then the reposting doesnt occur
+--          so need to clear the previous write here. This stuff is so stupid!!!!
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: Condition Handlers
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF ($TP_INUSER=FALSE) THEN
+
+    IF (TPIN[tpi_enable]=OFF) THEN
+      WRITE TPERROR(CHR(129),CHR(137), 'Press RESET to return to Recovery  ')
+    ELSE
+      WRITE TPERROR(CHR(129),CHR(137), 'MENU then 9 to Complete Recovery   ')
+    ENDIF
+
+    RepostTimer = 0 -- Reset the Timer
+    CONNECT TIMER TO RepostTimer -- Remark Start the Timer
+    ENABLE CONDITION[CHWatchTimer]
+
+  ELSE -- Back on user screen
+
+    IF TPIN[tpi_enable] THEN -- only if TP is enabled otherwise reposting takes care of
+      WRITE TPERROR(CHR(129),CHR(137), '                                  ')
+    ENDIF
+
+    DISCONNECT TIMER RepostTimer --
+    DISABLE CONDITION[CHATWtchTmr]
+    ENABLE CONDITION[CHATWtchScrn] -- enable monitoring for going off screen
+
+  ENDIF
+
+END ATUsrRcvyAct
+-- --------------------------------------------------------------------
+ROUTINE at_ch_tasks (task_name:string):BOOLEAN
+-- TITLE:       Check to Programs For Status
+--
+-- DESCRIPTION: This routine Restarts a Paused Task or Restarts a Aborted Tasks
+--
+--
+-- PARAMETERS: [IN]  task_name to check upon reciving the cycle start &
+--                   group_number is the group for the robot to check if
+--                   it is ready
+--             [OUT] TRUE OR FALSE Based on whether the program was restarted
+-- --------------------------------------------------------------------
+VAR
+
+loaded,
+initialized : BOOLEAN
+
+BEGIN
+  task_status = 0 -- if task was not ever ran task_status is uninit.
+
+  loaded = FALSE
+  initialized = FALSE
+
+  IF UNINIT(task_name) THEN
+    POST_ERR(38000, 'at_ch_tasks was Passed UNINIT prog name', 0, 0) --
+    RETURN(FALSE)
+  ENDIF
+
+  LOAD_STATUS(task_name,loaded, initialized)
+
+  IF loaded = FALSE THEN
+    POST_ERR(38000, task_name +' is NOT LOADED', 0, 0) --
+    RETURN(FALSE)
+  ENDIF
+
+  REPEAT --
+
+    task_num = 0
+
+    GET_TSK_INFO(task_name,task_num,TSK_STATUS,task_status,value_str,gm_status) --
+      IF gm_status <> 0 THEN
+        IF gm_status = 3016 THEN -- task was not ran
+          RUN_TASK(task_name,0,FALSE,FALSE,0,gm_status)
+          IF gm_status <> 0 THEN
+            POST_ERR(38000,'FAILED RUN TASK ' + task_name, gm_status,0) --
+            RETURN(FALSE)
+          ENDIF
+        ELSE
+          POST_ERR(38000,'FAILED GET TASK INFO ' + task_name, gm_status,0) --
+          RETURN(FALSE)
+        ENDIF
+      ELSE -- when program not running abort it and restart it
+        IF task_status = PG_RUNNING THEN
+          RETURN(TRUE)
+        ENDIF
+        IF task_status = PG_PAUSED THEN -- Programs should be aborted in case of Program bugs cause it to pause
+          ABORT_TASK(task_name,TRUE,TRUE,gm_status)
+          IF gm_status <> 0 THEN
+            POST_ERR(38000, task_name +' FAILED TO ABORT', gm_status, 0) --
+            DELAY 2000
+          ENDIF
+        ENDIF
+      ENDIF
+
+  UNTIL (task_status = PG_ABORTED) OR (gm_status = 3016) --
+
+  RUN_TASK(task_name,0,FALSE,FALSE,0,gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000,task_name +' FAILED TO START', gm_status,0) --
+      DELAY 2000
+      RETURN(FALSE)
+    ENDIF
+  RETURN(TRUE)
+
+END at_ch_tasks
+-----------------------------------------------------------------------------
+ROUTINE ATChPrg2Run  
+-- PURPOSE: to check if specific programs that should be ran need to be started
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+i :INTEGER
+
+BEGIN
+
+  IF UNINIT(MaxStrtFails) THEN  -- if after this attempts to start need to set not to
+    MaxStrtFails = 10
+  ENDIF
+
+  -- Set up all ArcTool cell specific
+  FOR i = 1 TO (ARRAY_LEN(Prgs2RunAT)) DO
+    IF UNINIT(Prgs2RunAT[i].NeedToRun) THEN
+      Prgs2RunAT[i].NeedToRun = FALSE
+    ENDIF
+    IF UNINIT(Prgs2RunAT[i].Prog_Name) THEN
+      Prgs2RunAT[i].Prog_Name = ''
+    ENDIF
+    IF UNINIT(Prgs2RunAT[i].FailedToStrt) THEN
+      Prgs2RunAT[i].FailedToStrt = 0
+    ENDIF
+    IF UNINIT(Prgs2RunAT[i].NeedForProd) THEN
+      Prgs2RunAT[i].NeedForProd = FALSE
+    ENDIF
+  ENDFOR -- Make sure all ArcTool cell programs to Run have been setup
+
+  FOR i = 1 TO (ARRAY_LEN(Prgs2RunLS)) DO
+    IF UNINIT(Prgs2RunLS[i].NeedToRun) THEN
+      Prgs2RunLS[i].NeedToRun = FALSE
+    ENDIF
+    IF UNINIT(Prgs2RunLS[i].Prog_Name) THEN
+      Prgs2RunLS[i].Prog_Name = ''
+    ENDIF
+    IF UNINIT(Prgs2RunLS[i].FailedToStrt) THEN
+      Prgs2RunLS[i].FailedToStrt = 0
+    ENDIF
+    IF UNINIT(Prgs2RunLS[i].NeedForProd) THEN
+      Prgs2RunLS[i].NeedForProd = FALSE
+    ENDIF
+  ENDFOR -- Make sure all Laser programs to Run have been setup
+
+  -- GO through all the programs and any that should be ran ensure are running
+  -- Loop though and if ANY program is told to be used, then try to run it
+  FOR i = 1 TO (ARRAY_LEN(Prgs2RunAT)) DO
+    IF (Prgs2RunAT[i].NeedToRun) THEN
+      IF at_ch_tasks(Prgs2RunAT[i].Prog_Name) THEN
+        Prgs2RunAT[i].FailedToStrt = 0
+      ELSE
+        Prgs2RunAT[i].FailedToStrt = Prgs2RunAT[i].FailedToStrt + 1
+      ENDIF
+    ENDIF
+  ENDFOR -- Make sure all ArcTool cell programs to Run are checked to be running
+
+  FOR i = 1 TO (ARRAY_LEN(Prgs2RunLS)) DO
+    IF (Prgs2RunLS[i].NeedToRun) THEN
+      IF at_ch_tasks(Prgs2RunLS[i].Prog_Name) THEN
+        Prgs2RunLS[i].FailedToStrt = 0
+      ELSE
+        Prgs2RunLS[i].FailedToStrt = Prgs2RunLS[i].FailedToStrt + 1
+      ENDIF
+    ENDIF
+  ENDFOR -- Make sure all Laser programs to Run are checked to be running
+
+END ATChPrg2Run
+
+--------------------------------------------------------------------
+ROUTINE at_chkuopenb
+--
+-- This Routine is used to automatically re-enable the uops when
+-- the robot is in auto
+--------------------------------------------------------------------
+BEGIN
+
+  IF (OPIN[sopi_remote]=ON) AND
+    ($MSKKEY = CE_AUTO_MODE) AND
+    (uopi_asgnd = true) AND ($OPWORK.$UOP_DISABLE = 1) THEN
+         -------  ($shell_cfg.$start_sig <> 5) AND  (only uop and din)
+         -------  (OPIN[sopi_user2]) AND 
+    Set_I_sVar('$OPWORK.$UOP_DISABLE', 0)
+  ENDIF
+  at_uopenbtmr = 0
+  ENABLE CONDITION[CH_AT_uopenb]
+
+END at_chkuopenb
+
+------------------------------------------------------------------------------
+ROUTINE at_home
+--
+--  This routine runs when the robot is at home and not in FFR
+--  It executes home_io and hmiocst
+-----------------------------------------------------------------------------
+VAR
+prog_index: INTEGER
+
+BEGIN
+	
+  WRITE TPDISPLAY (CHR(128),CHR(137)) --clear user screen
+
+  IF NOT (CallThisProg('HOME_IO')) THEN
+    POST_ERR(38000,'HOME_IO not executed', 0, 0) 
+  ENDIF
+  IF NOT (CallThisProg('HMIOCST')) THEN
+    POST_ERR(38000,'HOMEIOCST not executed', 0, 0)
+  ENDIF 
+  ENABLE CONDITION[CH_HomeIO]
+
+  --V8.33P09 schoensm added hook to call $FSAC routine, all warnings are masked.
+  fsac_2
+
+END at_home
+
+------------------------------------------------------------------------------
+ROUTINE at_gm_misc
+--
+--  contains pay_id routine from swshell3 for ArcTool
+--  prevent the user from mucking up the payload ID settings
+--  other miscellaneous GM tasks
+-----------------------------------------------------------------------------
+VAR
+
+  l_high    : INTEGER
+  l_low     : INTEGER
+  l_acchigh : INTEGER
+  l_acclow  : INTEGER
+  l_value   : INTEGER
+  l_stat    : INTEGER
+
+BEGIN
+	
+  Set_I_sVar('$PLID_GRP[1].$SPEED_HIGH', 100)
+  Set_I_sVar('$PLID_GRP[1].$SPEED_LOW', 1)
+
+  GET_VAR(psve, '*system*', '$PLID_GRP[1].$ACCEL_HIGH', l_acchigh,  gm_status)
+  GET_VAR(psve, '*system*', '$PLID_GRP[1].$ACCEL_LOW', l_acclow,  gm_status)
+
+  IF ((l_acchigh < 100) OR (l_acclow < 100)) THEN
+    Set_I_sVar('$PLID_GRP[1].$ACCEL_HIGH', acchigh)
+    Set_I_sVar('$PLID_GRP[1].$ACCEL_LOW', acclow)
+  ENDIF
+
+  IF UNINIT($AUTOBACKUP.$ENABLE) THEN
+    Set_B_sVar('$AUTOBACKUP.$ENABLE', FALSE)
+  ENDIF
+  
+  IF ($AUTOBACKUP.$ENABLE = TRUE) THEN
+    Set_B_sVar('$AUTOBACKUP.$ENABLE', FALSE)
+  ENDIF
+
+  IF UNINIT($TPABRT_USED) THEN
+    Set_B_sVar('$TPABRT_USED', FALSE)
+    Set_B_sVar('$AP_PROC_DSB', FALSE)
+  ENDIF
+
+  --Correct $AP_PROC_DSB/$PRMPDSPON (prompt box up) from GM tp programs
+  IF ($TPABRT_USED = TRUE) THEN
+    $AP_PROC_DSB = FALSE
+    Set_B_sVar('$PRMPDSPON', FALSE)
+  ENDIF
+
+  --oneshot tryout mode when user goes to teach
+  IF NOT tp_enabled THEN
+    tog_try_at = TRUE
+  ENDIF
+
+  --$cell_setup.$do_tryout does not work the same way in v833 ArcTool as v833 SpotTool+
+  --this code is put into ArcTool because GM wanted this in the background logic
+  --and it is pulled from SpotTool+.  
+  IF (tog_try_at = TRUE) THEN
+    IF (tp_enabled) AND ($shell_wrk.$tryout_mode = TRUE) THEN
+      Set_B_sVar('$shell_wrk.$tryout_mode', FALSE)
+      l_stat = IOValSet($cell_setup.$do_tryout_t + IGNOR_OFFLIN,
+                      $cell_setup.$do_tryout_i, 0)
+      tog_try_at = FALSE
+    ENDIF
+  ENDIF
+
+  --GM menu favourites
+  IF (gmmenufav_at = TRUE) THEN
+    Set_B_sVar('$UI_CONFIG.$ENB_FCTNFAV', FALSE)
+    Set_B_sVar('$UI_CONFIG.$ENB_MENUFAV', TRUE)
+    Set_B_sVar('$UI_CONFIG.$ENB_USERFAV', FALSE)   
+  ENDIF
+
+  ENABLE CONDITION[CH_AT_gmmisc]
+
+END at_gm_misc
+
+------------------------------------------------------------------------------
+ROUTINE at_zdt_var
+--
+--  Ensure ZDT variables are set properly every power cycle
+--  
+--  
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_B_sVar('$RCMCFG.$MOTION_ENB', FALSE)
+  Set_B_sVar('$RCMCFG.$SYSTEM_ENB', FALSE)
+  Set_B_sVar('$RCMCFG.$APPL_ENB', FALSE)
+  Set_B_sVar('$RCMCFG.$COMM_ENB', FALSE)
+
+END at_zdt_var
+
+------------------------------------------------------------------------------
+ROUTINE at_set_wiz
+--
+--  Ensure gmwizard is on ArcSetup menu
+--  
+--  
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (lsrproc_optn = TRUE) THEN --laser setup menu is used at controlled start
+				--setup laser variables to configure gmwizarc on the menu
+    Set_S_sVar('$awlaser_cfg.$fname','gmwizarc')
+    Set_B_sVar('$awlaser_cfg.$fexec',FALSE)
+  ELSE --setup ArcTool variable for menu
+    Set_S_PVar('awsetup','cust_file','gmwizarc')
+    Set_B_PVar('awsetup','cust_exec', FALSE)
+  ENDIF --laser process option
+
+END at_set_wiz
+
+------------------------------------------------------------------------------
+ROUTINE at_cmntcnfg --
+--
+--  run configuration program attribute commenter             
+--  
+--  
+-----------------------------------------------------------------------------
+CONST
+
+   MSG_OK =  1 --tmenu_ok        -- 1 prompt box ok
+   MSG_YN = 2 --tmenu_yn        -- 2 prompt box yes/no
+   MSG_LIST = 3 --tmenu_lst     -- 3 select from a list
+   MSG_STAT = 4 --tmenu_status  -- 4 monitor values
+   MSG_OPER = 5 --tmenu_entry   -- 5 setup values
+   max_mnu_used = 50--WAS 24 12-11-15        -- maxinum number of menus used  (per type)
+
+VAR
+  i,ix,entry,int_value : INTEGER
+  menucomment  : STRING[16] -- the text to be added to attribute
+  vrfilename   : STRING[8] -- Variable name for the menu vr file names
+
+BEGIN
+
+  FOR i = 1 TO ARRAY_LEN(FileComnt_at) DO
+    IF UNINIT(FileComnt_at[i].vr_filename) THEN
+      FileComnt_at[i].vr_filename = ''
+    ENDIF
+    IF UNINIT(FileComnt_at[i].prog_comment) THEN
+      FileComnt_at[i].prog_comment = ''
+    ENDIF
+  ENDFOR --
+                                --1234567890123456--
+  FileComnt_at[1].vr_filename = 'GMCFGBDY'
+  FileComnt_at[1].prog_comment = 'Body Shop Config'
+  FileComnt_at[2].vr_filename = 'GMCFGCEL'
+  FileComnt_at[2].prog_comment = 'WorkCell Config'
+  FileComnt_at[3].vr_filename = 'GMCFGDMP'
+  FileComnt_at[3].prog_comment = 'Dimpler Config'
+  FileComnt_at[4].vr_filename = 'GMCFGDSP'
+  FileComnt_at[4].prog_comment = 'Dispense Config'
+  FileComnt_at[5].vr_filename = 'GMCFGERR'
+  FileComnt_at[5].prog_comment = 'Errors Config'
+  FileComnt_at[6].vr_filename = 'GMCFGFDS'
+  FileComnt_at[6].prog_comment = 'FlwDrlScrwConfig'
+  FileComnt_at[7].vr_filename = 'GMCFGMH'
+  FileComnt_at[7].prog_comment = 'M.H. Config'
+  FileComnt_at[8].vr_filename = 'GMCFGPJW'
+  FileComnt_at[8].prog_comment = 'ProjctWeldConfig'
+  FileComnt_at[9].vr_filename = 'GMCFGPNT'
+  FileComnt_at[9].prog_comment = 'Paint Config'
+  FileComnt_at[10].vr_filename = 'GMCFGPRS'
+  FileComnt_at[10].prog_comment = 'Press Config'
+  FileComnt_at[11].vr_filename = 'GMCFGPWR'
+  FileComnt_at[11].prog_comment = 'PowertrainConfig'
+  FileComnt_at[12].vr_filename = 'GMCFGSPR'
+  FileComnt_at[12].prog_comment = 'SlfPrcRvtConfig'
+  FileComnt_at[13].vr_filename = 'GMCFGSPT'
+  FileComnt_at[13].prog_comment = 'SpotWeld Config'
+  FileComnt_at[14].vr_filename = 'GMCFGSTD'
+  FileComnt_at[14].prog_comment = 'StudWeld Config'
+  FileComnt_at[15].vr_filename = 'GMCFGTLC'
+  FileComnt_at[15].prog_comment = 'ToolChnge Config'
+  FileComnt_at[16].vr_filename = 'GMCFGVIS'
+  FileComnt_at[16].prog_comment = 'Vision Config'
+  FileComnt_at[17].vr_filename = 'GMCFGLAS'
+  FileComnt_at[17].prog_comment = 'AT Laser Config'
+  FileComnt_at[18].vr_filename = 'GMCFGARC'
+  FileComnt_at[18].prog_comment = 'ArcTool Config'
+  FileComnt_at[19].vr_filename = 'GMCFGMIG'
+  FileComnt_at[19].prog_comment = 'Mig-Weld Config'
+
+  FOR i = 1 TO ARRAY_LEN(FileComnt_at) DO
+    USING FileComnt_at[i] DO --
+      IF vr_filename <> '' THEN
+        SET_ATTR_PRG(vr_filename, AT_COMMENT ,value_int, prog_comment, gm_status)
+        IF gm_status <> 0 THEN
+          POST_ERR(38000, 'Failed to set'+vr_filename +' to ' +prog_comment, gm_status, 0) --
+        ENDIF
+      ENDIF
+    ENDUSING --
+  ENDFOR --
+
+  FOR i = MSG_OK TO MSG_OPER DO -- Loop through all menu numbers
+     FOR ix = 1 TO max_mnu_used DO
+       vrfilename = 'MENU'+ Int2Str(i) -- make menu name
+       IF ix <10 THEN -- need to add zero to <10 to make name correct filename
+         vrfilename = vrfilename +'0'
+       ENDIF
+       vrfilename = vrfilename +Int2Str(ix) -- Add the menu element number
+         menucomment = '' -- clear comment name
+         GET_VAR(entry, vrfilename , 'menu_name', menucomment, gm_status)
+           IF (gm_status <> 0) AND (gm_status <> 16011) THEN -- 16011 = VARS-011 No Data Defined for Program
+             POST_ERR(38000, 'Get Var '+ vrfilename +' menu_name FAILED', gm_status, 0) --
+           ELSE
+             IF menucomment <>'' THEN  -- is a menu name avialable for comment
+               SET_ATTR_PRG(vrfilename, AT_COMMENT , int_value, menucomment, gm_status)
+               IF gm_status <>0 THEN
+                 POST_ERR(38000, 'Failed to set ' + vrfilename+ ' Comment Attribute', gm_status, 0) --
+                 DELAY 100
+               ENDIF
+             ENDIF
+           ENDIF
+      ENDFOR --
+  ENDFOR --
+
+END at_cmntcnfg
+------------------------------------------------------------------------------
+ROUTINE at_hidedcsio
+--
+--  hide hidden portion of DCS Safe I/O connect menu if DCS safe i/o connect
+--  menu write protection is being used
+--  
+--  
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF FRVRC THEN
+    --don't do anything, allow people to set this to display
+  ELSE --not virtual robot, make sure write protected safe I/O connect remains hiddeen
+    Set_B_sVAR('$dcs_cfg.$pioc_disp', false)
+  ENDIF --if FRVRC
+
+  ENABLE CONDITION[CH_dcsioprot]
+
+END at_hidedcsio
+------------------------------------------------------------------------------
+ROUTINE at_unhidedcs
+--
+--  turn off write protection and unhide the hidden lines of the DCS I/O 
+--  connect menu if FRVRC
+--  
+--  
+--  
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_I_sVar('$dcs_piocnum', 0) --turn off write protection on DCS I/O connect menu
+  Set_B_PVar('atcustom','gmsafeioprot',FALSE) --turn off condition handler before next power cycle
+                                              --to allow the DCS I/O connect menu to be unhidden
+  Set_B_sVar('$dcs_cfg.$pioc_disp', TRUE) --unhide the DCS I/O connect lines
+
+END at_unhidedcs
+---------------------------------------------------------------
+ROUTINE cust_reset
+-- customize routine for
+--  WHEN (TPIN[tpi_reset]+) OR (OPIN[sopi_reset]+) OR  (OPIN[uopi_reset + 15]+) DO
+---------------------------------------------------------------
+BEGIN
+
+  -- if menu active then need to do below, if not skip it
+   IF ((rcvry_act_at = TRUE) AND (NOT TPIN[tpi_enable])) THEN
+     IF (ok_flag = TRUE) THEN Post_Custok ; ENDIF  -- need to refresh screen
+     IF (yn_flag = TRUE) THEN Post_Custyn ; ENDIF  -- need to refresh screen
+     IF (lst_flag = TRUE) THEN Post_Custlst ; ENDIF  -- need to refresh screen
+     IF ($TP_INUSER=TRUE) THEN
+       DISCONNECT TIMER RepostTimer  -- Disconnect timer the Timer
+       DISABLE CONDITION[CHATWtchTmr] -- dont need to watch timer because should be back on user if above ran
+       ENABLE CONDITION[CHATWtchScrn] -- enable monitoring for going off screen
+     ENDIF
+   ENDIF
+
+   IF (ok_flag = FALSE) AND (yn_flag = FALSE) AND (lst_flag = FALSE) THEN
+     rcvry_act_at = FALSE
+   ENDIF
+
+
+END cust_reset
+
+
+---------------------------------------------------------------
+ROUTINE cust_utility
+-- customize routine run when utility program runs
+---------------------------------------------------------------
+BEGIN
+
+-- $SHELL_CFG.$PROD_MODE = SHM_DISTRT_C
+-- $SHELL_CFG.$SEL_TYPE = SHSEL_STYL_C
+-- $SHELL_CHK[SHC_HOME_X + 1].$ENABLE = TRUE  -- check at home when run
+-- $SHELL_CHK[SHC_HOME_X + 1].$PROMPT = TRUE  -- prompt if not at home 
+-- $SHELL_CHK[SHC_HOME_X + 1].$ERRPOST = FALSE 
+-- $SHELL_CHK[SHC_HOME_X + 1].$WARN   = FALSE 
+
+END cust_utility
+
+
+---------------------------------------------------------------
+ROUTINE cust_athome
+-- customize routine run when homeio program is run
+---------------------------------------------------------------
+BEGIN
+END cust_athome
+
+---------------------------------------------------------------
+ROUTINE cust_hscd_do
+-- customize routine run when homeio program is run
+---------------------------------------------------------------
+BEGIN
+END cust_hscd_do
+---------------------------------------------------------------
+ROUTINE cust_t1t2
+-- customize routine run when t1t2 is selected
+---------------------------------------------------------------
+BEGIN
+END cust_t1t2
+
+---------------------------------------------------------------
+ROUTINE cust_auto
+-- customize routine run when auto is selected
+---------------------------------------------------------------
+BEGIN
+END cust_auto
+
+
+---------------------------------------------------------------
+ROUTINE cust_tryout(p_status:BOOLEAN)
+-- customize routine for when the tryout input turns ON or OFF
+-- on entry - p_status - TRUE  - just turned ON
+--                       FALSE - just turned OFF
+---------------------------------------------------------------
+BEGIN
+
+END cust_tryout
+
+
+---------------------------------------------------------------
+ROUTINE tool_1stinit
+-- called at first coldstart only
+---------------------------------------------------------------
+BEGIN
+END tool_1stinit
+
+---------------------------------------------------------------
+ROUTINE toolinithot
+-- called at semi-hot start
+---------------------------------------------------------------
+BEGIN
+
+  curr_rev = Revision --set program revision
+
+  init_vars  --initialize settings
+  
+  at_set_wiz  --set wizard as executable on ArcSetup menu
+
+  ATChPrg2Run  --chekc programs to run for power up
+
+  at_zdt_var --ensure ZDT variables are set properly
+
+
+END toolinithot
+
+---------------------------------------------------------------
+ROUTINE toolinitcold
+-- called at coldstart 
+---------------------------------------------------------------
+BEGIN
+
+  curr_rev = Revision --set program revision
+
+  init_vars  --initialize settings
+
+  set_arc_cold --cold start settings after wizard execution
+
+  AtClnRcvyMnu --clean up custo*.pc flags on cold start
+
+  at_set_wiz  --set wizard as executable on ArcSetup menu
+
+  ATChPrg2Run  --chekc programs to run for power up
+
+  at_zdt_var --ensure ZDT variables are set properly
+
+  at_cmntcnfg --run configuration program attribute commenter
+
+  --V8.33P09 schoensm added hook to call $FSAC routine, only post warnings at start-up.
+  fsac_1
+
+END toolinitcold
+
+---------------------------------------------------------------
+ROUTINE toolinitcond
+-- to initialize conditions
+--   initialize condition handlers
+---------------------------------------------------------------
+VAR
+entry:  INTEGER
+result:  INTEGER
+
+BEGIN
+
+  --init settings
+  init_vars
+
+  --power supply monitoring
+  CONDITION[CH_CTRLRST]: WITH $SCAN_TIME = 200 --Monitor reset falling edge
+    WHEN (TPIN[tpi_reset]+) OR (OPIN[sopi_reset]+) OR (OPIN[uopi_reset + 15]+)DO
+      setrstflag 
+    ENDCONDITION
+  ENABLE CONDITION[CH_CTRLRST]
+  
+  poll_timer1 = 0
+  CONNECT TIMER TO poll_timer1
+  IF ((globalctrl = 3) OR (globalctrl = 4)) THEN --global 3 or global 4 controller
+    CONDITION[CH_ATBRKR]: WITH $SCAN_TIME = 50
+      WHEN (poll_timer1 >= 2500) DO
+        at_grsbrkr
+    ENDCONDITION
+    ENABLE CONDITION[CH_ATBRKR]
+  ENDIF --global 3 or global 4 controller
+  
+  --T2 Prompt Box
+  CONDITION[CH_T2PRMPT]: WITH $SCAN_TIME = 100
+    WHEN (TPIN[tpi_enable]+) AND (deadman_sw = TRUE) AND (OPIN[8] = OFF) AND (NOT OPOUT[sopo_fault]) DO
+      T2_PRMPTBOX
+    WHEN (TPIN[tpi_enable]) AND (deadman_sw = TRUE) AND (OPIN[8] = OFF) AND (OPOUT[sopo_fault]-) DO
+      T2_PRMPTBOX
+    WHEN (TPIN[tpi_enable]) AND (deadman_sw = TRUE) AND (OPIN[8]-) AND (NOT OPOUT[sopo_fault]) DO
+      T2_PRMPTBOX
+    WHEN (TPIN[tpi_enable]) AND (DOUT[2049]+) AND (OPIN[8] = OFF) AND (NOT OPOUT[sopo_fault]) DO
+      T2_PRMPTBOX
+    ENDCONDITION
+  ENABLE CONDITION[CH_T2PRMPT]  
+
+  --Clean up Recovery Menus (custo*.pc)
+  user_abortat = FALSE
+  PURGE CONDITION[CH_ATUsrAbrt] -- Purge to clear condition uses same one in All CUSTO 3 programs
+  CONDITION[CH_ATUsrAbrt]: -- 695
+    WHEN (user_abortat = TRUE) DO --
+      ATClnRcvyMnu -- Will clean up the recovery that is active if Rcvry_Active
+    ENABLE CONDITION[CH_AtUsrAbrt]
+  ENDCONDITION --
+  ENABLE CONDITION[CH_ATUsrAbrt]
+
+  -- Setup condition to monitor when user leaves screen with recovery active.
+  PURGE CONDITION[CHATWtchScrn]
+  CONDITION[CHATWtchScrn]: -- 696
+    WHEN ($TP_INUSER=FALSE) AND (rcvry_act_at = TRUE) DO -- if off user screen
+      ATUsrRcvyAct -- Indicate to the user recovery is active in User pane currently not Displayed
+  ENDCONDITION --
+  ENABLE CONDITION[CHATWtchScrn]
+
+  -- Setup condition handler for Reposting is triggered from UserRcvyActv routine after posting
+  -- to user they left the user screen, and how to return to it in TPERROR window
+  IF UNINIT(RepostTime) THEN
+    RepostTime = 5000
+  ENDIF
+  RepostTimer = 101  -- used as a timer to repost reset to return to user started in USERRCVYACTV routine
+  PURGE CONDITION[CHATWtchTmr]
+  CONDITION[CHATWtchTmr]: --697 -- this gets enabled in UserRcvyActive routine if CHWatchScrn Triggered
+    WHEN (RepostTimer > RepostTime) AND (rcvry_act_at = TRUE) DO --
+      ATUsrRcvyAct -- Indicate to the user recovery is active in User pane currently not Displayed
+    WHEN ($TP_INUSER=TRUE) AND (rcvry_act_at = TRUE) DO --
+      ATUsrRcvyAct -- In User pane again, clean message and enable CHWatchScrn
+  ENDCONDITION --
+
+  --UOPs enabled
+  IF UNINIT(at_chuoptime) THEN
+    at_chuoptime = 260
+  ENDIF
+  at_uopenbtmr = 0
+  CONNECT TIMER TO at_uopenbtmr
+  IF (sh_sel_type = 2) THEN -- style only V7.20
+    CONDITION[CH_AT_uopenb]: WITH $SCAN_TIME = 250
+      WHEN at_uopenbtmr > at_chuoptime DO
+        at_chkuopenb
+      ENDCONDITION
+    ENABLE CONDITION[CH_AT_uopenb]
+  ENDIF
+
+  --condition handler to run homeio when the robot goes home and not in FFR
+  CONDITION[CH_HomeIO]:
+    WHEN (NOT DOUT[ffr_dout]) AND (DOUT[refhome_do]+) DO
+      at_home
+  ENDCONDITION
+  ENABLE CONDITION[CH_HomeIO]
+
+  --GM misc tasks 
+  IF (gmmisc_at = TRUE) THEN
+    CONDITION[CH_AT_gmmisc]: WITH $SCAN_TIME = 5000  --equivalent to CH_PAYID in SpotTool
+      WHEN ($shell_wrk.$isol_mode = FALSE) DO
+          at_gm_misc  --pay_id routine in swshell3 in SpotTool equivalent
+    ENDCONDITION
+    ENABLE CONDITION[CH_AT_gmmisc]
+  ENDIF
+
+  GET_VAR(entry, '*system*', '$dcs_piocnum', result, gm_status)
+    IF (gm_status <> 0) THEN --couldn't read variable
+      gmsafeioprot = FALSE
+    ELSE  --succussful read
+      IF (result < 0) THEN --write protection is being used
+        gmsafeioprot = TRUE
+      ELSE
+        gmsafeioprot = FALSE
+      ENDIF
+    ENDIF
+ 
+   CONDITION[CH_dcsioprot]: WITH $SCAN_TIME = 5000
+     WHEN (gmsafeioprot = TRUE) DO
+       at_hidedcsio
+   ENDCONDITION
+   ENABLE CONDITION[CH_dcsioprot]
+
+  IF UNINIT(unhide_dcs) THEN
+    unhide_dcs = FALSE
+  ENDIF
+
+  IF FRVRC THEN --only for FRVRC
+    IF (unhide_dcs = TRUE) THEN
+      at_unhidedcs --turn off write protection adn unhide DCS I/O connect menu lines
+      unhide_dcs = FALSE
+    ENDIF --unhide DCS
+  ENDIF --FRVRC
+
+END toolinitcond
+
+---------------------------------------------------------------
+ROUTINE tool_cell
+-- to initialize cell I/O
+---------------------------------------------------------------
+BEGIN
+END tool_cell
+
+
+---------------------------------------------------------------
+ROUTINE tool_pause
+-- when job pauses
+---------------------------------------------------------------
+BEGIN -- tool_pause
+END tool_pause
+
+---------------------------------------------------------------
+ROUTINE tool_end
+-- at end of job
+---------------------------------------------------------------
+BEGIN -- tool_end
+END tool_end
+
+---------------------------------------------------------------
+ROUTINE tool_request(p_request,p_status:INTEGER)
+-- perform shell request
+---------------------------------------------------------------
+BEGIN
+  p_status = 0  -- default OK
+  IF debug THEN write(cr,'Arc Custom request ',p_request); ENDIF
+  SELECT p_request OF
+
+    CASE (SHX_INIT_C):    -- 1 test up
+     -- setup which extended requests are enabled.
+     -- case 1 and 6 will ALWAYS be called regardless of bit setting
+     $shell_cfg.$extend_enb = 0  -- initialize all off
+
+     -- Defined in /vob/include/syshell.hc
+     -- 6543 2109 9765 4321
+     -- 0000 0000 0000 0000
+     -- ^^^^ ^^^^ ^^^^ ^^^^- Initialize 			1
+     -- |||| |||| |||| ||+-- pre-run check			2
+     -- |||| |||| |||| |+--- pre-resume check			4
+     -- |||| |||| |||| +---- final pre-run actions		8
+     -- |||| |||| |||+------ final pre-resume actions		16
+     -- |||| |||| ||+------- user prompt			32
+     -- |||| |||| |+-------- program paused tp paused		64
+     -- |||| |||| +--------- program ended *interlock ver.	128
+     -- |||| |||+----------- interlock queryprogram abort	256
+     -- |||| ||+------------ program aborted			512
+
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb + 2  -- check 2 run safety
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb + 4  -- check 3 resume safety
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb + 8  -- check 4 before jun
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb + 16 -- check 5 before resume 
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb + 64 -- check 7 tp paused
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb +128 -- check 8 tp ended
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb +256 -- check 9 interlock ver.
+     --$shell_cfg.$extend_enb = $shell_cfg.$extend_enb +512 -- check 10 program abort 
+      
+
+    CASE (SHX_RUNCK_C):   -- 2 run safety checks
+      check_memory
+ 
+      -- do process specific checks here.
+      -- if error occurs, set $parm2 to 128 to get prompt box 7 (shc_proc_x) if enabled
+      -- $SHELL_COMM.$PARM2 = SHC_PROC_M -- 128 -- customized application check failed
+
+    CASE (SHX_RESCK_C):   -- 3 resume safety checks
+
+    CASE (SHX_PRERUN_C):  -- 4 before job run 
+
+    CASE (SHX_PRERES_C):  -- 5 before resume
+
+
+    CASE (SHX_PRMPT_C):   -- 6 prompt box       
+                          -- Please make application changes to the
+                          -- prompt boxes by using an application dictionary.   
+      IF debug THEN write(cr,'custom prompt box ',$SHELL_COMM.$PARM1); ENDIF
+      SELECT $SHELL_COMM.$PARM1 OF
+
+        CASE(SHC_HOME_X): -- 0   OK
+          prompt_box_c(pb_tp,'ATSH',athome_prmpt,1 ,pb_ok,pb_response,'')
+          pb_response = 0  -- abort 
+
+        CASE(SHC_RPOS_X): -- 1   CONT/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_resume,2,pb_ca,pb_response,'')
+
+        CASE(SHC_SIM_X): -- 2    CONT/FORCE/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_portsim,3,pb_cfa,pb_response,'')
+
+        CASE(SHC_GOVR_X): -- 3   CONT/FORCE/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_low_gride,3,pb_cfa,pb_response,'')
+
+        CASE(SHC_POVR_X): -- 4   CONT/FORCE/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_low_pride,3,pb_cfa,pb_response,'')
+
+        CASE(SHC_LOCK_X): -- 5   CONT/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_lock_on,2,pb_ca,pb_response,'')
+
+        CASE(SHC_STEP_X): -- 6   CONT/RECHECK/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_step_on,3,pb_cra,pb_response,'')
+
+        CASE(SHC_PROC_X): -- 7   CONT/RECHECK/ABORT
+          prompt_box_c(pb_tp,'ATSH',pb_process,3,pb_cra,pb_response,'')
+
+      ENDSELECT
+      $SHELL_COMM.$PARM2 = pb_response
+
+           
+    CASE (SHX_PAUSE_C):   -- 7 tp program is paused
+      tool_pause
+  
+    CASE (SHX_END_C):     -- 8 tp program has ended
+      tool_end
+      IF $SHELL_CHK[SHC_HOME_X + 1].$ENABLE THEN -- check at home when run 
+       -- If we're at home position then can assume program ran to completion.
+        -- If not at home, then assume program was aborted
+        IF (check_home <> 0) THEN  -- call routine that looks at refpos
+         -- not at home or no home defined - do nothing
+        ELSE
+          IF NOT init_done THEN
+            homeio
+          ENDIF  
+        ENDIF
+      ENDIF
+
+    CASE (SHX_ILOCK_C):   -- 9 interlock query     
+
+    CASE (SHX_ABORT_C):   -- 10 tp program aborted
+   
+
+    ELSE:
+      IF debug THEN write (cr,'Received illegal message from extended shell'); ENDIF
+
+  ENDSELECT
+   
+END tool_request
+
+-- this is no longer needed.  all apps have their own process control menu under test cycle now.
+---------------------------------------------------
+--ROUTINE application
+---------------------------------------------------
+--VAR
+--  l_i:      INTEGER
+--  save_key,key,term_char: INTEGER
+--  l_status: INTEGER
+--BEGIN
+--
+--  done_1=false
+--  FOR l_i = 1 to 10 DO
+--    inact_array[l_i] = false
+--    change_array[l_i] = false
+--    value_array[l_i] = ''
+--  ENDFOR
+--  s_item = 1
+--
+--  value_array[1] = '[*SYSTEM*]$mcr.$dry_run'
+--  value_array[2] = '[*SYSTEM*]$shell_wrk.$tryout_mode'
+--
+--
+--  INIT_FORM('CMSP', soft_panela, value_array, vptr_array, 
+--            inact_array, change_array, form_data, l_status)
+--
+--  IF l_status <> 0 THEN
+----    POST_ERR(l_status, '', 0, er_abort)
+--  ELSE
+--    -- display form
+--    ACT_FORM(ky_disp_updt,s_item, form_data, term_char, l_status)
+--    IF l_status <> 0 THEN
+----    POST_ERR(l_status, '', 0, er_abort)
+--    ENDIF
+--  ENDIF
+--  IF l_status = 0 THEN
+--     key = ky_reissue  -- read new key
+--    REPEAT    
+--      ACT_FORM(key, s_item, form_data, term_char, l_status)
+--
+--      IF change_array[2] THEN 
+--        check_tryout
+--        change_array[2]=false
+--      ENDIF
+--
+--      save_key = key
+--      key = ky_reissue
+--      
+--      SELECT term_char OF
+--        -----------------------------------
+--        CASE(KY_F1): -- let TPMM handle
+--        CASE(KY_NEW_MENU): 
+--        -----------------------------------
+--          done_1 = TRUE
+--          done_0 = TRUE  -- out of softpart
+--
+--        CASE (ky_f2):      -- [SHOW]
+--        -------------------------------------------------------
+--        -- menu selection pullup
+--        -------------------------------------------------------
+--          menu_sel = 2
+--          DISCTRL_PLMN('CMSP',msetup_p2,2,menu_sel,term_char,l_status)
+--   
+--          IF (term_char = ky_enter) THEN
+--            done_1 = TRUE
+--            done_0 = FALSE  -- go to next menu
+--          ELSE
+--            IF term_char=ky_new_menu THEN
+--              done_1 = TRUE
+--              done_0 = TRUE  -- out of softpart
+--            ELSE
+--              IF term_char = ky_f1 THEN
+--                key = ky_f1
+--              ENDIF
+--            ENDIF
+--          ENDIF
+--
+--        CASE(KY_UNDEF):
+--        ELSE:  
+--      ENDSELECT
+--    UNTIL done_1
+--    IF term_char <> ky_new_menu THEN
+--       ACT_FORM(ky_cancel, s_item, form_data, term_char, l_status)
+--    ENDIF
+--  ENDIF
+--
+--END application
+
+BEGIN
+END ATSHCUST

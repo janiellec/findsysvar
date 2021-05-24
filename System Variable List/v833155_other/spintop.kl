@@ -1,0 +1,2403 @@
+PROGRAM SpinTop
+
+%COMMENT = 'SpinTop V6.0G'
+%CMOSVARS -- Make sure variables are stored in CMOS
+%NOLOCKGROUP
+
+--VISIONSYSTEM VMT SpinTop 3D
+--****************************************
+-- Paket:    VMT SpinTop3D
+-- Function: Glue bead inspection
+-- Version:  Fanuc/Karel
+-- Name:     M.Fiedler
+-- Date:     30.09.2015
+-- Attention: Parts of this code are covered by patents and are intelectual property of VMT Systems
+-- Changes:
+--30.9.15 MF Added: Syncbytes, to make robot position data transfer failsafe
+--05.01.2016 FH: Bugfix, using Tool 0 caused an error, handled in separate case now
+--22.01.2016 MF: Updated the package to the new standard interface (ST_Ready(..)) etc..
+--10.02.2016 MF: Added commands "freeze(x ms)" and "override angle(x degrees)" 
+--03.03.2016 MF: Fixed orientation of robot positions sent to PC (Setpostooutputs, INV(...))
+--31.03.2016 MF: Changed to the new interface V2 (30 bytes) and added "sensor ready bit" input in ST_READY
+--14.04.2016 MF: Added new ST_BUSY signal to the ST_READY(...) Handshakes
+--19.04.2016 MF: ABORT_TASK removed in ROTATION_OFF, let the task run all the time
+--04.05.2016 MF: Angle sent is now applied with a modulo 360, just to be sure
+--04.05.2016 MF: Added signal to globally switch us off (ST_OFFLINE)
+--04.05.2016 MF: Reset trigger and start signals in ST_READY now
+--02.11.2016 MF: ST_IN_TC_Ack and ST_IN_TC_OK were flipped, so they formerly did not match the default interface
+--03.11.2016 MF: Changed RunOnce behavior to prevent user settings from being overwritten when 
+--				 calling RunOnce again after initial setup
+--04.11.2016 MF: Slightly changed the sequence in ST_READY (with handshakes) to work with the 
+--               current default PC-Robot-interface
+--04.11.2016 MF: Removed some "write(...)" commands that were used for testing, to increase performance
+--07.02.2017 MF: BugFix: TCP position was not used correctly when accessing GetCurPos(...) if not using RTCP  
+--06.06.2017 MF: ST_OFFLINE moved to offset 10, a reserved area on the interface towards MSS. 
+--               Signal must be mapped external later
+--20.06.2017 MF: Extended maximum path length (Fixmode) for path 1 from 5 meters to 15 meters
+--20.06.2017 MF: Added NOWAIT after Pulse command
+--07.07.2017 MF: Fix: 15m path was not working because of an unchanged 5m limit in GetPosAtIdx, added another NOWAIT
+--11.07.2017 MF: Increased maximum paths from 5 to 10
+--03.08.2017 MF: Added 2 checks for ST_OFFLINE at SetOutput methods to prevent 
+--               errors if the vmt bus member (PC) is turned off completely
+--14.08.2017 MF: Fix: paths 5 to 10 could not be accessed
+--21.08.2017 MF: Fix: paths 5 to 10 could still not be accessed
+--24.08.2017 MF: Fix: Exceeding the maximum path length was not caught properly
+--24.08.2017 MF: Extended paths lengths (2 to 10) to 6 meters
+--24.08.2017 MF: Added Call 11 and 12, start and stop bgr task manually
+--25.08.2017 MF: Added another check for frame0 at GetCurPos
+--09.10.2017 MF: Critical fix: Changed atan component -y to +y,  ctool applied even at "onaxis5" mode
+--11.10.2017 MF: Critical fix: Applied ctool at setpostoouts even when using rtcp
+--20.10.2017 MF: Removed SetAngle(0) when starting the tracking, sensor keeps old position now
+--29.11.2017 MF: Added "cycle_delta" - a variable telling the delay between the tp cycles in ms
+--29.11.2017 MF: Added feature sendNPos. Sends only every Nth position, to save CPU time. Use it for 'busy controllers'.
+--23.02.2018 MF: ++++++ Released v2.5ex -> as new v2.5 ++++++
+--23.02.2018 MF: +IMPORTANT: Behavior of the rotation is now flipped compared to prior versions due to a critical bugfix+
+--23.02.2018 MF: +IMPORTANT: If you used CTOOL with 'flip values' of 180 degrees before, you will have to remove these now.+
+--11.04.2018 MF: Pathposition arrays are now moved to separate files (...) 
+--11.04.2018 MF: (...) Depending on how many you need, choose the proper file to load
+--11.04.2018 MF: NOTE: Only try to access paths that exist in that file. i.E. addressing path 10 in a file with only 5 (...)  
+--11.04.2018 MF: NOTE: (...) paths will lead to an error.
+--09.05.2018 MF: Added command 13 "SET_COMPTIME" that allows to manually set the compensation time during the application
+--22.05.2018 MF: Fixed call for command 13 "SET_COMPTIME" 
+--24.05.2018 MF: New modes for sendNPos <0. Sends the TCP in parts, evenly distributed over multiple cycles
+--30.05.2018 MF: Optional usage of a Group Output instead of direct IO for sending the tracking angle
+--07.06.2018 MF: Delayed setting Strobe for Type code to work properly with faster IO layer of MSS 1.23
+--08.06.2018 MBL: Delayed strobe to 50ms instead of 12ms (for faster IO layer of MSS1.23)
+--19.06.2018 MF: Fix: SendNPos did not always calculate CTOOL and Axis5 values into the transmitted TCP values
+--19.06.2018 MF: ----!!Branch from here, or new module - Hardware Gateway !!-------------
+--##No more sync bytes, CRC instead, Interface is now changed to HW Gateway Interface!##
+--03.07.2018 MF: ST_OFFLINE is now a single bit, set it separately (direct IO input)
+--03.07.2018 MF: Init now clears values on the interface, too. 
+--24.07.2018 MF: Added option to use group outputs for pose transmission(much faster)
+--24.07.2018 MF: Cleanup: Removed obsolete things like nohandshakes, sendNpos, synccnt,SetPosToOuts...
+--24.07.2018 MF: add toggle for angle/pose gout - default from now on is ACTIVE
+--26.07.2018 MF: added GOUT/IN for CRC, optional
+--27.08.2018 MF: added GOUT for control plan, optional
+--30.08.2018 MF: added support for automatically setting up complete IO map via SPINTOPUTIL
+--12.09.2018 MF: Minor changes at user prompts
+--02.10.2018 MF: 2.71 Added mode for test body SpinTop(20,xx) : "SensorCheck"
+--09.10.2018 MF: Merged changes from RK to fix automatic IO setup. Added "InitIO_Dflts"
+--****************************************
+TYPE
+
+VMT_OUTPUT = STRUCTURE  
+	Offset : INTEGER
+	Length : INTEGER
+	ToGateway : BOOLEAN
+ENDSTRUCTURE
+
+VMT_INPUT = STRUCTURE
+	Offset : INTEGER
+	Length : INTEGER
+	FromGateway : BOOLEAN
+ENDSTRUCTURE
+
+-- Stepwidth (mm) for saving the current POSITIONs on the PATH
+-- StartDist = $DISTANCE in the moment we start the rotation
+
+SpinTopStruc  = STRUCTURE
+	  StartDist : REAL
+	  StepWidth: INTEGER
+ENDSTRUCTURE
+	
+	
+--===============
+--Variables
+--===============
+VAR
+
+--Set these 2 offsets to a free I/O area, according to your system
+OUT_OFFSETPC: INTEGER -- first bit of mapped communication for PC
+IN_OFFSETPC: INTEGER -- first bit of mapped communication for PC
+
+--Set these 2 offsets to a free I/O area, according to your system
+OUT_OFFSETGW: INTEGER -- first bit of mapped communication for Gateway
+IN_OFFSETGW: INTEGER -- first bit of mapped communication for Gateway
+
+--port slot numbers to be configured for the Ethernet Communications towards PC in the EtherNet/IP List menu 
+--leave uninitialized to prompt user when calling Spintop(-1) 
+EnetPortPC: INTEGER
+--port slot numbers to be configured for the Ethernet Communications towards Gateway in the EtherNet/IP List menu 
+--leave uninitialized to prompt user when calling Spintop(-1) 
+EnetPortGW: INTEGER
+
+
+--to completely use group outs, set CntrlPlnGOUT to number of first GOUT
+--with SPINTOP(-1) all other gouts will be set up automatically then 
+UsePoseGOUTS : BOOLEAN
+CntrlPlnGOUT : INTEGER
+ExecIOSet : BOOLEAN
+
+Pose_GOUT : INTEGER
+CRC_GOUT : INTEGER
+CRC_GIN : INTEGER
+
+--Use a GOUT for sending the angle, or classic IO (values < 0 : classic IO)
+Angle_GOUT : INTEGER 
+
+ST_TO_WaitPC: INTEGER  --wait until pc is ready -timeout 
+ST_TO_WaitCP: INTEGER  --wait until control plan has been accepted -timeout
+ST_To_CRC : INTEGER --wait for CRC to be returned, else send new TCP+CRC
+
+--tpe params
+PathNumPar, CmdPar, OffAnglePar,planPar, cTimePar, STATUS, LearnPar,datatype,intparam :INTEGER
+
+realparam: REAL
+stringparam : STRING[50]
+
+ST_OUT_ANGLE : VMT_OUTPUT
+ST_OUT_X : VMT_OUTPUT
+ST_OUT_Y : VMT_OUTPUT
+ST_OUT_Z : VMT_OUTPUT
+ST_OUT_RX : VMT_OUTPUT
+ST_OUT_RY : VMT_OUTPUT
+ST_OUT_RZ : VMT_OUTPUT 
+ST_OUT_RES: VMT_OUTPUT  --2 bytes reserved 
+ST_OUT_CRC : VMT_OUTPUT
+
+ST_OUT_TRIGG : VMT_OUTPUT
+ST_OUT_START : VMT_OUTPUT
+ST_OUT_CPLAN : VMT_OUTPUT
+ST_CPLAN_SET : VMT_OUTPUT
+
+ST_IN_PCAUTO : VMT_INPUT
+ST_IN_PCBusy : VMT_INPUT
+ST_IN_TC_Ack : VMT_INPUT
+ST_IN_TC_OK : VMT_INPUT
+ST_IN_PCRDY : VMT_INPUT
+ST_IN_SenRDY : VMT_INPUT
+
+ST_IN_CRC_RD: VMT_INPUT
+
+ST_OfflineIN :INTEGER --assign this input! Direct Input number
+
+ST_OnAxis5 : BOOLEAN
+RTCP_USED : BOOLEAN
+ST_AngleTol : REAL
+ST_CompTime : REAL
+ST_OffAngle : REAL
+ST_CTool : XYZWPR
+FIFOCOUNT : INTEGER
+FIFOSIZE : INTEGER
+ST_ToolDist : INTEGER
+
+SpinTopPath : ARRAY[20] OF SpinTopStruc  --max 20 paths to be adressed/managed currently
+
+--STATUS VARIABLES
+ST_PathNum : INTEGER
+ST_Running : BOOLEAN
+ST_Learning : BOOLEAN
+ST_LastIndex : REAL
+ST_LastAngle : REAL
+ST_ToolPOld : XYZWPR
+ST_DBGVECTOR : XYZWPR
+ST_LastDist : REAL
+ST_AutoMode : BOOLEAN
+ST_FixMode : BOOLEAN
+ST_SendPos : BOOLEAN
+
+Nullframe : XYZWPR
+
+--a clock in ms
+clock_var,clock_delta : INTEGER
+clock_dold, cycle_count, cycle_delta : INTEGER
+
+nPos_pos : XYZWPR --the stored TCP to be transmitted in parts
+
+
+
+FIFOPOS : ARRAY[10] OF XYZWPR
+ST_DebugInfo : BOOLEAN
+
+--for the bgr loop
+axis6, DistOnPath, lastDist : REAL
+cpos_loop,lastPos_loop : XYZWPR
+
+--timers
+ST_TMR : INTEGER
+ST_FRZ_TMR : INTEGER
+ST_CRC_TMR : INTEGER
+
+ST_OVERRIDE : BOOLEAN
+ST_OV_ANGLE : INTEGER
+
+TABLE FROM CRC16_8005 : ARRAY[256] OF INTEGER 
+LAST_RD_CRC : INTEGER --last received CRC
+LAST_SNT_CRC : INTEGER --last sent CRC
+
+---------------------------------------------
+-- Declarations
+---------------------------------------------
+ROUTINE RunOnce FROM SpinTop
+ROUTINE SetOutput(OutSignal : VMT_OUTPUT; Value : INTEGER) FROM SpinTop
+ROUTINE SetOutputB(OutSignal : VMT_OUTPUT; Value : BOOLEAN) FROM SpinTop
+ROUTINE SetOutputUI(OutSignal : VMT_OUTPUT; Value : INTEGER) FROM SpinTop
+ROUTINE GetInputB(InSignal : VMT_INPUT) : BOOLEAN FROM SpinTop
+ROUTINE GetInputUI(InSignal : VMT_INPUT) : INTEGER FROM SpinTop
+
+ROUTINE START_SCAN FROM SpinTop
+ROUTINE STOP_SCAN FROM SpinTop
+ROUTINE SetAngle(Angle : REAL) FROM SpinTop
+ROUTINE AngleAbs(Angle : REAL)  FROM SpinTop
+ROUTINE SET_PLAN(PLAN : INTEGER) FROM SpinTop
+ROUTINE AUTO_ON(offset_angle : REAL) FROM SpinTop
+ROUTINE AUTOANGLE(curr_pos : XYZWPR; axis6 : REAL) FROM SpinTop
+ROUTINE FIX_ON(PathNumber : INTEGER; Learn : BOOLEAN; OffsetAngle : REAL;CompTime : INTEGER) FROM SpinTop
+ROUTINE ROTATION_OFF FROM SPINTOP
+ROUTINE FIXANGLE(curr_pos : XYZWPR; axis6, Distance : REAL) FROM SpinTop
+ROUTINE AddFIFO(NewFrame : XYZWPR) FROM SPINTOP
+ROUTINE Calc_Dist(From_pos,To_pos : XYZWPR) : REAL FROM SpinTop
+ROUTINE GetCurPos : XYZWPR FROM SpinTop
+ROUTINE ST_Ready(ControlPlan : INTEGER) FROM SpinTop
+ROUTINE WAITFOR(INPUT : VMT_INPUT; STATUS : BOOLEAN; timeout : INTEGER) : BOOLEAN FROM SpinTop
+
+ROUTINE OVRD_ON(ov_angle : INTEGER) FROM SPINTOP
+ROUTINE OVRD_OFF FROM SPINTOP
+ROUTINE Freeze(duration : INTEGER) FROM SPINTOP
+ROUTINE SET_COMPTIME(comptime : INTEGER) FROM SPINTOP
+
+ROUTINE InitPaths FROM SpinTopPath
+ROUTINE ClrPaths(PathID : INTEGER) FROM SpinTopPath
+ROUTINE GetPosAtIdx(PathID : INTEGER; INDEX : REAL) : XYZWPR FROM SpinTopPath
+ROUTINE SetPosAtIdx(PathID : INTEGER; INDEX : REAL; C_POS : XYZWPR) FROM SpinTopPath 
+ROUTINE FinalizePath(PathID : INTEGER ) FROM SpinTopPath
+ROUTINE CompareFrame(frame1, frame2 : XYZWPR) : BOOLEAN FROM SpinTopPath
+ROUTINE GetCRC16(TCP_Values : XYZWPR) : INTEGER FROM SPINTOP
+ROUTINE Test_CRC FROM SPINTOP
+ROUTINE Test_CRC2(x,y,z,w,p,r : REAL) FROM SPINTOP
+
+ROUTINE InitCRCTable FROM CRC16_8005
+ROUTINE XOR (A,B :INTEGER) : INTEGER FROM SPINTOP
+
+ROUTINE GetLSW(Value :INTEGER) : INTEGER FROM SPINTOP
+ROUTINE GetMSW(Value :INTEGER) : INTEGER FROM SPINTOP
+
+ROUTINE int2str (p_integer:INTEGER):STRING FROM SPINTOP
+
+ROUTINE Spn_Cell_IO FROM SPINTOPUTIL 
+ROUTINE ST_PC_IO FROM SPINTOPUTIL 
+ROUTINE SP_Head_IO FROM SPINTOPUTIL 
+
+ROUTINE SensorCheck(ControlPlan : INTEGER) FROM SpinTop
+
+-----------------------------------------------------------------------------
+ROUTINE InitIO_Dflts
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+
+-- IO Configuration
+
+--INPUTS--
+
+--FOR ST_OFFLINE INPUT, SEE SECTION ABOVE
+
+--PC system is in automatic mode
+ST_IN_PCAUTO.Offset = 0
+ST_IN_PCAUTO.Length = 1
+ST_IN_PCAUTO.FromGateway = FALSE
+
+--PC is busy
+ST_IN_PCBusy.Offset = 1
+ST_IN_PCBusy.Length = 1
+ST_IN_PCBusy.FromGateway = FALSE
+
+--PC typecode has been set (acknowledge)
+ST_IN_TC_Ack.Offset = 2
+ST_IN_TC_Ack.Length = 1
+ST_IN_TC_Ack.FromGateway = FALSE
+
+--PC typecode valid
+ST_IN_TC_OK.Offset = 3
+ST_IN_TC_OK.Length = 1
+ST_IN_TC_OK.FromGateway = FALSE
+
+--PC system is ready for taking commands
+ST_IN_PCRDY.Offset = 4
+ST_IN_PCRDY.Length = 1
+ST_IN_PCRDY.FromGateway = FALSE
+
+--PC Sensor is ready, all paramters set
+ST_IN_SenRDY.Offset = 5
+ST_IN_SenRDY.Length = 1
+ST_IN_SenRDY.FromGateway = FALSE
+
+--PC 1 bit: Last result OK
+--PC 1 bit: Last result NOK
+
+--PC 8 bit reserved
+
+--GW CRC value back from sensor/gateway
+ST_IN_CRC_RD.Offset = 0
+ST_IN_CRC_RD.Length = 16
+ST_IN_CRC_RD.FromGateway = TRUE
+
+--OUTPUTS--
+
+--Vision System's start signal
+ST_OUT_START.Offset =  0
+ST_OUT_START.Length =1
+ST_OUT_START.ToGateway = FALSE
+
+--Set type code (strobe)
+ST_CPLAN_SET.Offset =1
+ST_CPLAN_SET.Length = 1
+ST_CPLAN_SET.ToGateway = FALSE
+
+--Vision System's control plan (or "Type code") selection
+ST_OUT_CPLAN.Offset = 8
+ST_OUT_CPLAN.Length = 8
+ST_OUT_CPLAN.ToGateway = FALSE
+
+--Trigger SIGNAL
+ST_OUT_TRIGG.Offset = 8
+ST_OUT_TRIGG.Length = 1
+ST_OUT_TRIGG.ToGateway = TRUE
+
+--robot sends the calculated SpinTop angle to the pc
+ST_OUT_ANGLE.Offset = 16
+ST_OUT_ANGLE.Length = 16
+ST_OUT_ANGLE.ToGateway = TRUE
+
+-- Tool POSITION information
+ST_OUT_X.Offset = 32
+ST_OUT_X.Length = 32
+ST_OUT_X.ToGateway = TRUE
+
+ST_OUT_Y.Offset = 64
+ST_OUT_Y.Length = 32
+ST_OUT_Y.ToGateway = TRUE
+
+ST_OUT_Z.Offset = 96
+ST_OUT_Z.Length = 32
+ST_OUT_Z.ToGateway = TRUE
+
+ST_OUT_RX.Offset = 128
+ST_OUT_RX.Length = 32
+ST_OUT_RX.ToGateway = TRUE
+
+ST_OUT_RY.Offset = 160
+ST_OUT_RY.Length = 32
+ST_OUT_RY.ToGateway = TRUE
+
+ST_OUT_RZ.Offset = 192
+ST_OUT_RZ.Length = 32
+ST_OUT_RZ.ToGateway = TRUE
+
+ST_OUT_RES.Offset = 224
+ST_OUT_RES.Length = 16
+ST_OUT_RES.ToGateway = TRUE
+
+ST_OUT_CRC.Offset = 240
+ST_OUT_CRC.Length = 16
+ST_OUT_CRC.ToGateway = TRUE
+
+
+END InitIO_Dflts
+--=============================
+ROUTINE RunOnce
+--=============================
+-- used once to initialize all variables
+--=============================
+VAR
+
+i: INTEGER
+UserConfrmd : INTEGER
+UserInteger : INTEGER
+Answered: BOOLEAN
+
+
+BEGIN
+
+WRITE (CHR(128),CHR(137) )--clear display
+FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+
+WRITE TPDISPLAY('->Begin VMT factory reset<-',CR)
+WRITE TPDISPLAY('--Set up IO map--',CR)
+
+UserInteger = -999
+REPEAT		
+	--	FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+		WRITE TPDISPLAY ('----------------------------------------',CR)
+		WRITE TPDISPLAY ('Creating a backup before running this',CR)
+		WRITE TPDISPLAY ('automatic setup is HIGHLY RECOMMENDED',CR)
+		WRITE TPDISPLAY ('----------------------------------------',CR)
+		WRITE TPDISPLAY ('Enter any number to acknowledge and ',CR)
+	    WRITE TPDISPLAY ('continue, then Press Enter',CR)
+		WRITE TPPROMPT(CR, 'Read and accepted =  '+CHR(129)) 
+	READ TPPROMPT(UserInteger)
+    UNTIL (UserInteger <> -999) 
+
+
+----IO Interface settings-------
+--Set these offsets to a free I/O area
+--We need 34 Bytes out and 10 bytes in, total
+--can be split in two sections (only do so if if necessary)
+--We also need minimum 1 GOUT, recommended 14 GOUTs total for default IO map
+
+--Ask for using default interface WITH GOUTS
+--if user wants to use complete GO set, angle and pose (recommended)
+--search free range of a total of 14 gouts, put number of 1st one in CntrlPlnGOUT!
+
+Answered = FALSE
+WHILE (Answered = FALSE) DO
+	
+
+--Ask for 1st GOUT
+IF UNINIT(CntrlPlnGOUT) THEN
+  FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  REPEAT	
+    UserInteger = -1
+  	WRITE(CHR(137),CHR(128));	
+	WRITE TPDISPLAY('--Configure Group Outputs-- ',CR)
+	WRITE TPDISPLAY('14 consecutive GOUTÆs needed default',CR)
+	WRITE TPDISPLAY('First 2 mandatory, other 12 optional',CR)
+	WRITE TPDISPLAY('Enter number of first free GOUT,',CR)
+	WRITE TPDISPLAY('then Press Enter',CR)
+	WRITE TPPROMPT(CR, 'First GOUT# =  '+CHR(129)) 
+	READ TPPROMPT(UserInteger)
+  UNTIL (UserInteger  > 0) 
+  
+	CntrlPlnGOUT = UserInteger
+		 
+ENDIF
+
+--ask for using default interface with pose gouts
+IF UNINIT(UsePoseGOUTS) THEN
+  FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  REPEAT	
+    UserConfrmd = -1  
+  	WRITE(CHR(137),CHR(128));
+	WRITE TPDISPLAY ('Use default interface with',CR)
+	WRITE TPDISPLAY ('14 Group Outputs? (Recommended)',CR)
+	WRITE TPDISPLAY ('Enter 1(Yes) or 0(No),',CR)
+	WRITE TPDISPLAY ('then Press Enter',CR)
+	WRITE TPPROMPT(CR, 'Answer = '+CHR(129)) 
+	READ TPPROMPT(UserConfrmd)
+  UNTIL (UserConfrmd = 0) OR (UserConfrmd = 1)
+	
+	IF (UserConfrmd = 0) THEN
+		UsePoseGOUTS = FALSE
+	ELSE
+	    	UsePoseGOUTS = TRUE	
+	ENDIF
+ENDIF
+
+
+--Ask IO Offsets
+IF UNINIT(OUT_OFFSETPC) OR UNINIT(IN_OFFSETPC) THEN
+ FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  REPEAT
+     UserInteger = -1
+  	  WRITE(CHR(137),CHR(128));
+	  WRITE TPDISPLAY('--Configure DIO IN/OUT-OFFSETS for PC--',CR)
+	  WRITE TPDISPLAY('34 consecutive Bytes OUT needed, total',CR)
+	  WRITE TPDISPLAY('10 consecutive Bytes IN needed, total',CR)
+	  WRITE TPDISPLAY('Using the same start bit for both,',CR)
+	  WRITE TPDISPLAY('IN and OUT, is recommended',CR)
+	  WRITE TPDISPLAY('Enter number of first free IO bit,',CR)
+	  WRITE TPDISPLAY('then Press Enter',CR)
+	  WRITE TPPROMPT(CR,'First DIO#= '+CHR(129)) 
+	  READ TPPROMPT(UserInteger)
+  UNTIL (UserInteger  > 0) 
+  
+  	OUT_OFFSETPC = UserInteger
+  	IN_OFFSETPC = UserInteger
+  
+  
+ENDIF
+
+--the offsets for the gateway are applied automatically:
+OUT_OFFSETGW = OUT_OFFSETPC + 16
+IN_OFFSETGW = IN_OFFSETPC + 64
+
+
+
+--Ask for OFFLINE_IN
+--Use this input to globally switch SpinTop off
+--This signal usually comes from the PLC, it has to be mapped manually!
+--IMPORTANT! Signal must be mapped manually, comes from external!
+--ST_OfflineIN: If this input signal is high, the tech pack will turn offline! 
+--If you do not want to use it, put in reserved area: IN_OFFSETPC + 10, for example
+IF UNINIT(ST_OfflineIN) THEN
+	  FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+	  REPEAT
+	      UserInteger = -1
+	   	 WRITE(CHR(137),CHR(128));
+		 WRITE TPDISPLAY('--Configure OFFLINE-Input-- ',CR)
+		 WRITE TPDISPLAY('Choose a digital input for ST_OfflineIN!',CR) 
+		 WRITE TPDISPLAY('When set active, this input will',CR) 
+		 WRITE TPDISPLAY('bypass all SpinTop calls!',CR) 
+		 WRITE TPDISPLAY('Enter number of free input,',CR) 
+		 WRITE TPDISPLAY('then Press Enter',CR)
+		 WRITE TPDISPLAY('(Enter "0" to put it in a reserved area)',CR) 
+		 WRITE TPPROMPT(CR,'"Offline Bit" DI#= '+CHR(129)) 
+		 READ TPPROMPT(UserInteger)
+	   UNTIL (UserInteger  >= 0) 
+	  
+	  IF (UserInteger = 0) THEN
+	  	WRITE TPDISPLAY('ST_OfflineIN will be set to a',CR)
+		WRITE TPDISPLAY('reserved area now:',CR)
+	  	WRITE TPDISPLAY('ST_OfflineIN =  IN_OFFSETPC + 10',CR)
+	  	ST_OfflineIN = IN_OFFSETPC + 10
+	  ELSE
+	  	ST_OfflineIN = UserInteger 
+	  ENDIF
+  
+ENDIF 
+
+
+--Final: Confirm all user input
+
+  FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  WRITE(CHR(137),CHR(128));
+  REPEAT	
+    UserConfrmd = -10
+	WRITE TPDISPLAY('(!) Confirm all user input (!) ',CR) 
+	WRITE TPDISPLAY('First bit on DI "IN_OFFSETPC"= ', +int2str(IN_OFFSETPC),CR)
+	WRITE TPDISPLAY('First bit on DO "OUT_OFFSETPC"= ', +int2str(OUT_OFFSETPC),CR)
+	WRITE TPDISPLAY('First GOUT "CntrlPlnGOUT"= ' +int2str(CntrlPlnGOUT) ,CR)
+	WRITE TPDISPLAY('Offline Bit "ST_OfflineIN"= ' +int2str(ST_OfflineIN),CR)	
+	WRITE TPDISPLAY ('If unsure, abort and read the manual!',CR)
+	WRITE TPDISPLAY('All values OK? 1(Yes)   0(Abort)',CR) 	
+	WRITE TPPROMPT (CR,'Answer = ' +CHR(129))
+	READ TPPROMPT(UserConfrmd)
+  UNTIL ((UserConfrmd = 0) OR (UserConfrmd = 1) OR (UserConfrmd = -1))
+	
+IF (UserConfrmd <> 1) THEN
+	WRITE(CHR(137),CHR(128));
+	WRITE TPDISPLAY('Setup Aborted!',CR)
+	WRITE TPDISPLAY('Check Karel Vars of SPINTOP.PC',CR)
+	WRITE TPDISPLAY('And adjust values manually and re-run,or',CR)
+	WRITE TPDISPLAY('delete SpinTop.VR file and start again!' ,CR)
+	WRITE TPDISPLAY('-Please refer to the VMT manual-' ,CR)
+	RETURN
+ENDIF
+
+
+FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  WRITE(CHR(137),CHR(128));
+  REPEAT	
+    UserConfrmd = -10
+	ExecIOSet = FALSE
+	WRITE TPDISPLAY('All needed IO settings will now be made',CR) 
+	WRITE TPDISPLAY('-GOUTS will be defined and commented',CR)
+	WRITE TPDISPLAY('-DIO will be commented',CR)
+	WRITE TPDISPLAY('-ENIP adapters will be defined',CR)
+	WRITE TPDISPLAY('Proceed? 1(Yes)   0(Skip)',CR) 		
+	WRITE TPPROMPT (CR,'Answer = ' +CHR(129))
+	READ TPPROMPT(UserConfrmd)
+  UNTIL ((UserConfrmd = 0) OR (UserConfrmd = 1))
+
+  IF (UserConfrmd = 0) THEN
+	WRITE(CHR(137),CHR(128));
+	WRITE TPDISPLAY('Auto Setup Skipped!',CR)
+	WRITE TPDISPLAY('Please set up GOUTs and all',CR)
+	WRITE TPDISPLAY('other IO settings manually',CR)
+	WRITE TPDISPLAY('-Please refer to the VMT manual-' ,CR)
+  ENDIF
+
+  IF (UserConfrmd =1 ) THEN
+	ExecIOSet = TRUE
+  ENDIF
+
+
+Answered = TRUE
+
+ENDWHILE
+
+--Now, set up missing IO/GO settings relative to "CntrlPlnGOUT"--
+IF UNINIT(Angle_GOUT) THEN
+	Angle_GOUT = CntrlPlnGOUT + 1
+ENDIF
+	
+--Decision 8/29/18: CRC GOUT/IN NOT used per default:
+CRC_GOUT = -1
+CRC_GIN = -1
+	
+IF UsePoseGOUTS THEN
+	IF UNINIT(Pose_GOUT) THEN
+		Pose_GOUT = CntrlPlnGOUT + 2
+	ENDIF
+ELSE
+	Pose_GOUT = -1 --inactive	
+ENDIF
+
+InitIO_Dflts -- set defaults Changed by Randy 10-4-18 because not setup before
+             -- calling the setup programs
+			
+--###Set up all IOs based ON user settings###
+--call Randy's routines to set up and comment all IO:
+IF ExecIOSet = TRUE THEN
+	WRITE TPDISPLAY('- Running SPINTOPUTIL -' ,CR)
+	 Spn_Cell_IO 
+	 ST_PC_IO 
+	 SP_Head_IO 
+	WRITE TPDISPLAY('- SPINTOPUTIL Completed. -' ,CR)
+ENDIF
+
+
+FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen		
+WRITE('--Set up IO map complete--',CR)
+
+
+ABORT_TASK('SpinTopBGR',TRUE,TRUE, STATUS)	
+
+
+
+--reset our all-purpose-clock(R)
+DISCONNECT TIMER clock_var
+clock_var = 0
+cycle_count = 0
+CONNECT TIMER TO clock_var
+
+DISCONNECT TIMER clock_delta
+clock_delta = 0
+clock_dold = 0
+CONNECT TIMER TO clock_delta
+
+--Set to true to enable more detailed output in user menu, for debug purposes
+IF UNINIT(ST_DebugInfo) THEN
+  ST_DebugInfo = FALSE
+ENDIF
+
+IF ST_DebugInfo THEN
+	WRITE('Stopping BGR-Task',CR)
+ENDIF
+
+--PR[5:currAngles] = JPOS
+$SCR_GRP[1].$M_POS_ENB = TRUE
+
+clock_var = 0
+cycle_count = 0
+
+Nullframe.X = 0
+Nullframe.Y = 0
+Nullframe.Z = 0
+Nullframe.W = 0
+Nullframe.P = 0
+Nullframe.R = 0
+
+FIFOPOS[1] = Nullframe
+FIFOPOS[2] = Nullframe
+FIFOPOS[3] = Nullframe
+FIFOPOS[4] = Nullframe
+FIFOPOS[5] = Nullframe
+FIFOPOS[6] = Nullframe
+FIFOPOS[7] = Nullframe
+FIFOPOS[8] = Nullframe
+FIFOPOS[9] = Nullframe
+FIFOPOS[10] = Nullframe
+
+
+-------------------------------------
+--USER SETTINGS
+---- according to the system we are attached to, make the set-up here: --
+
+--Set TO TRUE IF we are mounted on axis5, that means IF a rotation OF axis6 does not rotate the sensor (default)
+--Set TO FALSE, IF the sensor is mounted on axis6, that means IF it will rotate IF you rotate axis6
+IF UNINIT(ST_OnAxis5) THEN
+  ST_OnAxis5 = FALSE
+ENDIF
+
+--Set to true if you use a remote TCP.
+--Remote TCP means the nozzle/tool is fixed and the robot moves the part.
+IF UNINIT(RTCP_USED) THEN
+  RTCP_USED = FALSE
+ENDIF
+
+--Use this transformation if nozzle is NOT pointing in Z+ direction!
+--Refer to manual on how to use
+IF UNINIT(ST_CTool) THEN
+  ST_CTool.X = 0
+  ST_CTool.Y = 0
+  ST_CTool.Z = 0
+  ST_CTool.W = 0
+  ST_CTool.P = 0
+  ST_CTool.R = 0
+ENDIF
+
+--POSITION information gets stored in a FIFO buffer
+--set it up here:
+IF UNINIT(FIFOCOUNT) OR UNINIT(FIFOSIZE) THEN
+  FIFOCOUNT = 5
+  FIFOSIZE = 5
+ENDIF
+
+--only changes (from one angle to the next angle) greater than this value (in degrees)will be sent TO the sensor 
+--use a negative value FOR "always send"
+ST_AngleTol = 0.5
+
+
+ST_TO_WaitPC = 5000  --wait until pc is ready -timeout 
+ST_TO_WaitCP = 2000  --wait until control plan has been accepted -timeout
+ST_To_CRC = 500 --keep current pose and wait for CRC to return (be mirrored back)
+
+--distance between rotation AXIS and laser plane - a hardware parameter 
+---> should not be changed!
+IF UNINIT(ST_ToolDist) THEN
+  ST_ToolDist = 20
+ENDIF
+
+
+-------------------------------------
+--STATUS VARIABLES
+---- (!) You can look things up here, but do not change anything (!) --
+
+--The Currently active angle-offset between Tool's X-Axis direction and "0"-Angle of the Sensor Device (User defined)
+ST_OffAngle = 0
+
+
+--currently set PATH number
+ST_PathNum = 1
+
+--shows if the angle calculation FOR the sensor is running
+ST_Running = FALSE
+
+--shows if the learning-mode (referencing) is currently active
+ST_Learning = FALSE
+
+--an IDX pointer in the ST_PathPosition ARRAY
+ST_LastIndex = 0
+
+--last sent angle
+ST_LastAngle = 0
+
+--currently active compensationTime in ms
+ST_CompTime= 50
+
+--Tool's position before XX mm (XX = specified "ST_ToolDistance" )
+ST_ToolPOld = Nullframe
+
+--A debug STRUCTURE (for experts, don't be confused):
+--x,y,z : pointer VECTOR FROM current TO old POSITION
+--A: raw angle in tool XY-plane 
+--B: A WITH Tool orientation in account
+--C: B + user-defined OffsetAngle
+ST_DBGVECTOR = Nullframe
+
+--the last received value OF $DISTANCE ALONG the PATH
+ST_LastDist = 0
+
+--SPS Loop will ask for this variable - shows if SpinTop is in automatic-rotation-mode
+ST_AutoMode = FALSE
+
+--SPS Loop will ask for this variable - shows if SpinTop is in automatic-rotation-mode
+ST_FixMode = FALSE
+
+--SPS Loop will ask for this variable - defines if we continuously send POSITION data (TOOL POSITION)or not
+ST_SendPos = TRUE
+
+--init path array handlers
+FOR i = 1 TO 20 DO
+	SpinTopPath[i].StartDist= 0 
+	SpinTopPath[i].StepWidth = 10
+ENDFOR
+
+
+
+-- IO Configuration
+
+--INPUTS--
+
+--FOR ST_OFFLINE INPUT, SEE SECTION ABOVE
+
+--PC system is in automatic mode
+--ST_IN_PCAUTO.Offset = 0
+--ST_IN_PCAUTO.Length = 1
+--ST_IN_PCAUTO.FromGateway = FALSE
+
+--PC is busy
+--ST_IN_PCBusy.Offset = 1
+--ST_IN_PCBusy.Length = 1
+--ST_IN_PCBusy.FromGateway = FALSE
+
+--PC typecode has been set (acknowledge)
+--ST_IN_TC_Ack.Offset = 2
+--ST_IN_TC_Ack.Length = 1
+--ST_IN_TC_Ack.FromGateway = FALSE
+
+--PC typecode valid
+--ST_IN_TC_OK.Offset = 3
+--ST_IN_TC_OK.Length = 1
+--ST_IN_TC_OK.FromGateway = FALSE
+
+--PC system is ready for taking commands
+--ST_IN_PCRDY.Offset = 4
+--ST_IN_PCRDY.Length = 1
+--ST_IN_PCRDY.FromGateway = FALSE
+
+--PC Sensor is ready, all paramters set
+--ST_IN_SenRDY.Offset = 5
+--ST_IN_SenRDY.Length = 1
+--ST_IN_SenRDY.FromGateway = FALSE
+
+--PC 1 bit: Last result OK
+--PC 1 bit: Last result NOK
+
+--PC 8 bit reserved
+
+--GW CRC value back from sensor/gateway
+--ST_IN_CRC_RD.Offset = 0
+--ST_IN_CRC_RD.Length = 16
+--ST_IN_CRC_RD.FromGateway = TRUE 
+
+--OUTPUTS--
+
+--Vision System's start signal
+--ST_OUT_START.Offset =  0
+--ST_OUT_START.Length =1
+--ST_OUT_START.ToGateway = FALSE
+
+--Set type code (strobe)
+--ST_CPLAN_SET.Offset =1
+--ST_CPLAN_SET.Length = 1
+--ST_CPLAN_SET.ToGateway = FALSE
+
+--Vision System's control plan (or "Type code") selection
+--ST_OUT_CPLAN.Offset = 8
+--ST_OUT_CPLAN.Length = 8
+--ST_OUT_CPLAN.ToGateway = FALSE
+
+--Trigger SIGNAL
+--ST_OUT_TRIGG.Offset = 8
+--ST_OUT_TRIGG.Length = 1
+--ST_OUT_TRIGG.ToGateway = TRUE
+
+--robot sends the calculated SpinTop angle to the pc
+--ST_OUT_ANGLE.Offset = 16
+--ST_OUT_ANGLE.Length = 16
+--ST_OUT_ANGLE.ToGateway = TRUE
+
+-- Tool POSITION information
+--ST_OUT_X.Offset = 32
+--ST_OUT_X.Length = 32
+--ST_OUT_X.ToGateway = TRUE
+
+--ST_OUT_Y.Offset = 64
+--ST_OUT_Y.Length = 32
+--ST_OUT_Y.ToGateway = TRUE
+
+--ST_OUT_Z.Offset = 96
+--ST_OUT_Z.Length = 32
+--ST_OUT_Z.ToGateway = TRUE
+
+--ST_OUT_RX.Offset = 128
+--ST_OUT_RX.Length = 32
+--ST_OUT_RX.ToGateway = TRUE
+
+--ST_OUT_RY.Offset = 160
+--ST_OUT_RY.Length = 32
+--ST_OUT_RY.ToGateway = TRUE
+
+--ST_OUT_RZ.Offset = 192
+--ST_OUT_RZ.Length = 32
+--ST_OUT_RZ.ToGateway = TRUE
+
+--ST_OUT_RES.Offset = 224
+--ST_OUT_RES.Length = 16
+--ST_OUT_RES.ToGateway = TRUE
+
+--ST_OUT_CRC.Offset = 240
+--ST_OUT_CRC.Length = 16
+--ST_OUT_CRC.ToGateway = TRUE
+
+--init path arrays 
+InitPaths
+
+--InitCRCTable
+IF UNINIT(Table[1]) THEN
+  InitCRCTable
+ENDIF
+
+ST_TMR = 0  --general timer
+ST_FRZ_TMR = 1  --freeze timer
+ST_CRC_TMR = 0  --crc timer
+
+ST_OVERRIDE = FALSE
+ST_OV_ANGLE = 0
+
+WRITE('--Factory reset done--',CR)
+FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+
+
+END RunOnce	
+
+
+--============================================================
+ROUTINE ST_INIT
+--============================================================
+
+VAR
+i : INTEGER
+BEGIN
+
+
+ABORT_TASK('SpinTopBGR',TRUE,TRUE, STATUS)	
+
+IF ST_DebugInfo THEN
+WRITE('Stopping BGR-Task',CR)
+ENDIF
+
+WRITE('--SpinTop INIT--',CR)
+
+WRITE('CTOOL: ', ST_CTool.X,' mm',CR)
+WRITE('CTOOL: ', ST_CTool.Y,' mm',CR)
+WRITE('CTOOL: ', ST_CTool.Z,' mm',CR)
+WRITE('CTOOL: ', ST_CTool.W,' mm',CR)
+WRITE('CTOOL: ', ST_CTool.P,' mm',CR)
+WRITE('CTOOL: ', ST_CTool.R,' mm',CR)
+
+--reset our all-purpose-clock(R)
+DISCONNECT TIMER clock_var
+clock_var = 0
+cycle_count = 0
+CONNECT TIMER TO clock_var
+
+
+DISCONNECT TIMER clock_delta
+clock_delta = 0
+clock_dold = 0
+CONNECT TIMER TO clock_delta
+
+DISCONNECT TIMER ST_TMR
+ST_TMR = 0
+DISCONNECT TIMER ST_FRZ_TMR
+ST_FRZ_TMR = 1
+
+DISCONNECT TIMER ST_CRC_TMR
+ST_CRC_TMR = 0
+CONNECT TIMER TO ST_CRC_TMR
+
+--InitCRCTable
+IF UNINIT(Table[1]) THEN
+  InitCRCTable
+ENDIF
+
+
+--STATUS VARIABLES
+--(!) You can look things up here, but do not change anything (!) --
+
+--currently set PATH number
+ST_PathNum = 1
+
+--shows IF the angle calculation FOR the sensor is running
+ST_Running = FALSE
+
+--shows IF the learning-mode (referencing) is currently active
+ST_Learning = FALSE
+
+--an IDX pointer in the ST_PathPosition ARRAY
+ST_LastIndex = 0
+
+--last sent angle
+ST_LastAngle = 0
+
+--Tool's position before XX mm (XX = specified "ST_ToolDistance" )
+ST_ToolPOld = Nullframe
+
+--A debug STRUCTURE (for experts, don't be confused):
+--x,y,z : pointer VECTOR FROM current TO old POSITION
+--A: raw angle in tool XY-plane 
+--B: A WITH Tool orientation in account
+--C: B + user-defined OffsetAngle
+ST_DBGVECTOR = Nullframe
+
+--the last received value OF $DISTANCE ALONG the PATH
+ST_LastDist = 0
+
+--SPS Loop will ask for this variable - shows if SpinTop is in automatic-rotation-mode
+ST_AutoMode = FALSE
+
+--SPS Loop will ask for this variable - shows if SpinTop is in automatic-rotation-mode
+ST_FixMode = FALSE
+
+--SPS Loop will ask for this variable - defines if we continuously send POSITION data (TOOL POSITION)or not
+ST_SendPos = TRUE
+
+ST_OVERRIDE = FALSE
+ST_OV_ANGLE = 0
+
+--reset handshake signals
+SetOutputB(ST_OUT_TRIGG, FALSE) 
+SetOutputB(ST_OUT_START, FALSE)
+SetOutputB(ST_CPLAN_SET, FALSE) 
+
+--reset signals
+SetOutputB(ST_OUT_TRIGG,FALSE)
+--Note: angle value will not be reset
+SetOutput(ST_OUT_X, 0)
+SetOutput(ST_OUT_Y, 0)
+SetOutput(ST_OUT_Z, 0)
+SetOutput(ST_OUT_RX, 0)
+SetOutput(ST_OUT_RY, 0)
+SetOutput(ST_OUT_RZ, 0)
+SetOutput(ST_OUT_RES, 0)
+
+LAST_SNT_CRC = 0
+SetOutput(ST_OUT_CPLAN,0)
+SetOutputUI(ST_OUT_CRC, 0) 
+
+END ST_INIT
+
+
+
+--============================================================
+--ROUTINE SetOutput(OutSignal : VMT_OUTPUT; Value : INTEGER)
+ROUTINE SetOutput
+--============================================================
+VAR
+	i : INTEGER
+	Mask : INTEGER
+	Offset : INTEGER
+BEGIN
+	
+IF (DIN[ST_OfflineIN] = TRUE) THEN --IF GetInputB(ST_OFFLINE) = TRUE THEN
+  RETURN
+ENDIF
+	
+IF (OutSignal.ToGateway) THEN	
+   Offset = OUT_OFFSETGW + OutSignal.Offset
+ELSE
+   Offset = OUT_OFFSETPC + OutSignal.Offset
+ENDIF
+   
+	Mask = 1
+	FOR i = 0 TO OutSignal.Length-2 DO
+		IF (Value AND Mask) > 0 THEN
+			DOUT[Offset + i] = TRUE
+		ELSE
+			DOUT[Offset + i] = FALSE
+		ENDIF
+		Mask = Mask * 2
+	ENDFOR
+	DOUT[Offset + OutSignal.Length - 1] = (Value < 0)
+END SetOutput
+
+--=============================
+--ROUTINE SetOutputUI(OutSignal : VMT_OUTPUT; Value : INTEGER)
+ROUTINE SetOutputUI
+--=============================
+VAR
+  i : INTEGER
+  Mask : INTEGER
+  Offset : INTEGER
+BEGIN
+
+IF (DIN[ST_OfflineIN] = TRUE) THEN 
+  RETURN
+ENDIF
+
+IF (OutSignal.ToGateway) THEN	
+   Offset = OUT_OFFSETGW + OutSignal.Offset
+ELSE
+   Offset = OUT_OFFSETPC + OutSignal.Offset
+ENDIF
+
+  Mask = 1
+  FOR i = 0 TO OutSignal.Length-1 DO
+    IF (Value AND Mask) > 0 THEN
+      DOUT[Offset + i] = TRUE
+    ELSE
+      DOUT[Offset + i] = FALSE
+    ENDIF
+    Mask = Mask * 2
+  ENDFOR
+END SetOutputUI
+
+--=============================
+--ROUTINE SetOutputB(Outsignal : VMT_OUTPUT; Value : BOOLEAN)
+ROUTINE SetOutputB
+--=============================
+VAR
+	i : INTEGER
+	Offset : INTEGER
+BEGIN
+
+IF DIN[ST_OfflineIN] = TRUE THEN --IF GetInputB(ST_OFFLINE) = TRUE THEN
+  RETURN
+ENDIF
+	
+IF (OutSignal.ToGateway) THEN	
+   Offset = OUT_OFFSETGW + OutSignal.Offset
+ELSE
+   Offset = OUT_OFFSETPC + OutSignal.Offset
+ENDIF
+
+	FOR i = 0 TO Outsignal.Length-1 DO
+		DOUT[Offset + i] = Value
+		--Write('Setting Out ', Offset + i,' to ',Value ,CR)
+	ENDFOR
+END SetOutputB
+
+--=============================
+--ROUTINE GetInputB(InSignal : VMT_INPUT) : BOOLEAN
+ROUTINE GetInputB
+--=============================
+VAR
+	Offset : INTEGER
+BEGIN
+
+IF (DIN[ST_OfflineIN] = TRUE) THEN 
+  RETURN (FALSE)
+ENDIF
+
+IF (InSignal.FromGateway) THEN	
+   Offset = IN_OFFSETGW + InSignal.Offset
+ELSE
+   Offset = IN_OFFSETPC + InSignal.Offset
+ENDIF
+		
+	RETURN (DIN[Offset])
+END GetInputB
+
+--=============================
+--ROUTINE GetInputUI(InSignal : VMT_INPUT) : INTEGER
+ROUTINE GetInputUI
+--=============================
+VAR
+  Value : INTEGER
+  i : INTEGER
+  Mask : INTEGER
+  Offset : INTEGER
+BEGIN
+
+IF (DIN[ST_OfflineIN] = TRUE) THEN 
+  RETURN(0)
+ENDIF
+
+    IF (InSignal.FromGateway) THEN	
+		Offset = IN_OFFSETGW + InSignal.Offset
+	ELSE
+		Offset = IN_OFFSETPC + InSignal.Offset
+	ENDIF
+
+  Value = 0
+  Mask = 1
+  
+  FOR i = 0 TO InSignal.Length - 1 DO
+    IF DIN[Offset + i] THEN
+      Value = Value + Mask
+    ENDIF
+    Mask = Mask * 2
+  ENDFOR
+  RETURN (Value)
+END GetInputUI
+
+
+--============================================================
+--start scanning...
+ROUTINE START_SCAN
+BEGIN
+SetOutputB(ST_OUT_TRIGG,TRUE)
+WRITE('Trigger = ON',CR)
+ --Write('Setting Out ', ST_OUT_TRIGG.Offset,' to TRUE' ,CR)
+END START_SCAN
+
+--============================================================
+--AND STOP scanning...
+ROUTINE STOP_SCAN
+BEGIN
+SetOutputB(ST_OUT_TRIGG , FALSE)
+WRITE('Trigger = OFF',CR)
+ --Write('Setting Out ', ST_OUT_TRIGG.Offset,' to FALSE' ,CR)
+END STOP_SCAN
+
+--============================================================
+--set angle -> the offset gets applied, too (!)
+--ROUTINE SetAngle(Angle : REAL)
+ROUTINE SetAngle
+BEGIN
+AngleAbs(Angle + ST_OffAngle)
+END SetAngle
+
+--============================================================
+--Set angle in absolute degrees, without an offset
+--ROUTINE AngleAbs(Angle : REAL)
+ROUTINE AngleAbs
+
+VAR
+Value : INTEGER
+
+BEGIN
+
+--manual override 
+IF (ST_OVERRIDE = TRUE) THEN
+ANGLE = ST_OV_ANGLE
+ENDIF
+
+--revolt negative angle values 
+IF ANGLE < 0 THEN
+ANGLE = ANGLE + 360
+ENDIF
+
+IF ANGLE > 360 THEN
+ANGLE = ANGLE - 360
+ENDIF
+
+--Value gets transmitted in 1/10s degrees
+Value = TRUNC(Angle * 10)
+
+--if freeze is active, ignore angle transmit
+IF (ST_FRZ_TMR >= 0) THEN
+	IF (Angle_GOUT > 0) THEN
+		GOUT[Angle_GOUT] = Value
+	ELSE	
+		SetOutput(ST_OUT_ANGLE,Value)
+	ENDIF
+ENDIF
+
+
+--WRITE('Angle: ', Value,' deg',CR)
+
+END AngleAbs
+
+
+
+--============================================================
+--Set automatic-angle mode on 
+--ROUTINE AUTO_ON_inline(offset_angle : REAL) FROM SpinTop
+ROUTINE AUTO_ON
+
+VAR
+curr_pos : XYZWPR
+
+--value_int :INTEGER
+--value_str :STRING
+--status :INTEGER
+
+BEGIN
+
+WRITE('Starting rotation (auto)',CR)
+
+IF (ST_OnAxis5) THEN
+WRITE('Sensor mounted on Axis5',CR)
+ELSE
+WRITE('Sensor mounted on Axis6',CR)
+ENDIF
+
+--turn off override, if active
+OVRD_OFF
+
+curr_pos = GetCurPos  
+
+ST_ToolPOld = curr_pos
+ST_OffAngle = offset_angle
+ST_AutoMode = TRUE
+ST_FixMode = FALSE
+ST_Running = TRUE
+
+--GET_TSK_INFO('SpinTopBGR',0,PG_RUNNING,value_int,value_str,status)
+
+ABORT_TASK('SpinTopBGR',TRUE,TRUE, STATUS)	
+
+IF ST_DebugInfo THEN
+WRITE('Stopping BGR-Task',CR)
+ENDIF
+
+RUN_TASK('SpinTopBGR', 1, FALSE, FALSE, 0, STATUS)	--Start background task 
+
+IF ST_DebugInfo THEN
+WRITE('Starting BGR-Task',CR)
+ENDIF
+
+END AUTO_ON
+
+
+--============================================================
+--gets called FROM background SPS LOOP
+--ROUTINE AUTOANGLE(curr_pos : XYZWPR; axis6 : REAL) FROM SpinTop
+ROUTINE AUTOANGLE
+
+VAR
+pointer_vec,Rot_Z,T1,T1inv,T1ctool : XYZWPR
+debug_int : INTEGER
+A,B,C,diff_angle,StepDistance :REAL
+
+
+BEGIN
+
+StepDistance = ST_ToolDist / FIFOSIZE
+
+IF ST_OnAxis5 THEN
+  Rot_Z = Nullframe
+  Rot_Z.R = axis6 --mounted on AXIS 5 -> we need to remove the influence of AXIS 6 THEN
+  T1ctool = curr_pos:ST_CTool
+  T1 = T1ctool:Rot_Z
+ELSE
+  T1 = curr_pos:ST_CTool
+ENDIF
+
+
+
+IF FIFOCOUNT = 0 THEN
+  AddFIFO(T1)
+  RETURN
+ENDIF
+
+T1inv = INV((T1))
+pointer_vec =T1inv:FIFOPOS[1] 
+
+
+--only deviations in x-y plane OF the tool trigger an "angle update"
+IF SQRT((pointer_vec.X * pointer_vec.X) + (pointer_vec.Y * pointer_vec.Y)) > StepDistance THEN
+  IF FIFOCOUNT = FIFOSIZE THEN
+    pointer_vec = T1inv:FIFOPOS[FIFOSIZE]
+    ST_DBGVECTOR = pointer_vec
+    A = ATAN2(pointer_vec.X, pointer_vec.Y)
+    B = A - pointer_vec.R
+    C = B + ST_OffAngle
+    ST_DBGVECTOR.R = A
+    ST_DBGVECTOR.P = B
+    ST_DBGVECTOR.W = C
+    diff_angle = C
+    AngleAbs(diff_angle)
+  ENDIF
+
+  AddFIFO(t1)
+ENDIF
+
+END AUTOANGLE
+
+--============================================================
+--Set Fixed-angle mode on
+--CompTime is temporarily available as parameter - FOR testing
+--ROUTINE FIX_ON(PathNumber : INTEGER; Learn : BOOLEAN; OffsetAngle : REAL;CompTime : INTEGER)
+ROUTINE FIX_ON
+
+VAR
+i : INTEGER
+
+BEGIN
+
+ABORT_TASK('SpinTopBGR',TRUE,TRUE, STATUS)
+IF ST_DebugInfo THEN
+WRITE('Stopping BGR-Task',CR)
+ENDIF
+	
+RUN_TASK('SpinTopBGR', 1, FALSE, FALSE, 0, STATUS)	--Start background task 
+
+IF ST_DebugInfo THEN
+WRITE('Starting BGR-Task',CR)
+ENDIF
+
+WRITE('Starting rotation (fix)',CR)
+
+IF ST_OnAxis5 THEN
+WRITE('Sensor mounted on Axis5',CR)
+ELSE
+WRITE('Sensor mounted on Axis6',CR)
+ENDIF
+
+--turn off override, if active
+OVRD_OFF
+
+ST_OffAngle = OffsetAngle
+
+ST_ToolPOld = GetCurPos  
+lastPos_loop = ST_ToolPOld -->for bgr loop
+lastDist = 0  -->for bgr loop
+DistOnPath = 0 -->for bgr loop
+
+ST_PathNum = PathNumber 
+ST_CompTime = CompTime
+
+ST_Running = TRUE
+ST_Learning = Learn
+ST_LastIndex = 1
+
+WRITE('Learn = ', Learn, CR)
+
+  IF ST_Learning = TRUE THEN 
+		ClrPaths(ST_PathNum)
+  ENDIF
+  
+ST_FixMode = TRUE
+ST_AutoMode = FALSE
+END FIX_ON
+
+--============================================================
+--Set angle mode OFF, stop rotation
+ROUTINE ROTATION_OFF
+
+BEGIN
+
+ST_Running = FALSE
+	
+  IF (ST_AutoMode = TRUE) THEN
+  	ST_OffAngle = 0
+	AngleAbs(0)
+	ST_AutoMode = FALSE	
+	RETURN
+  ENDIF
+		
+  IF ST_Learning = TRUE THEN
+  
+ FinalizePath(ST_PathNum)
+      
+  ENDIF
+  
+  ST_PathNum = 1
+  ST_Learning = FALSE
+  ST_FixMode = FALSE
+
+IF ST_DebugInfo THEN
+WRITE('Stopping BGR-Task',CR)
+ENDIF
+
+WRITE('Rotation = OFF',CR)
+
+END ROTATION_OFF
+
+
+--============================================================
+--gets called FROM background SPS LOOP
+--ROUTINE FIXANGLE(curr_pos : XYZWPR; axis6, Distance : REAL) FROM SpinTop
+ROUTINE FIXANGLE
+
+VAR
+IDX,SpinTopIndex, AdvanceMM, AdvanceIndex, diff_angle, A, B, C,TCP_SPD : REAL 
+Rot_Z, T1, T1ctool, pointer_vec :XYZWPR
+
+BEGIN
+
+IF ABS(ST_LastDist-Distance) < 2.0 THEN
+RETURN
+ENDIF
+
+ST_LastDist = Distance
+
+  IF (ST_Running = FALSE) THEN
+    RETURN
+  ENDIF
+  
+  IF (ST_PathNum < 1) THEN
+    WRITE('Invalid path number < 1',CR)
+    RETURN
+  ENDIF
+  IF (ST_PathNum > 20) THEN
+  WRITE('Invalid path number > 20',CR)
+    RETURN  
+  ENDIF
+  
+  IDX = (Distance - SpinTopPath[ST_PathNum].StartDist) / SpinTopPath[ST_PathNum].StepWidth
+ 
+  IF ST_Learning = FALSE THEN	
+    TCP_SPD = 1 
+	--TCP_SPD = $TCPPSPEED.$SPEED  - >still a TODO. 
+	--But since all Fanuc systems so far only run at a certain speed along the path, not that critical
+	
+    AdvanceMM = (TCP_SPD * ST_CompTime)
+    AdvanceIndex = AdvanceMM / SpinTopPath[ST_PathNum].StepWidth
+    IDX = IDX + AdvanceIndex
+  ENDIF
+  
+  IF (IDX > ST_LastIndex) THEN
+    IF ST_Learning = TRUE THEN
+        
+    IF ST_OnAxis5 THEN
+	  Rot_Z=Nullframe
+	  Rot_Z.R = axis6 --mounted on AXIS 5 -> we need to remove the influence OF AXIS 6 THEN
+	  T1ctool = curr_pos:ST_CTool
+	  T1 = T1ctool:Rot_Z 
+	ELSE
+	  T1 = curr_pos:ST_CTool
+	ENDIF
+    
+      SetPosAtIdx(ST_PathNum,IDX,T1)
+          
+    ELSE
+        
+        SpinTopIndex = IDX - (ST_ToolDist / SpinTopPath[ST_PathNum].StepWidth)
+         
+        IF SpinTopIndex < 1 THEN
+            SpinTopIndex = 1
+        ENDIF
+                  
+        pointer_vec = INV(GetPosAtIdx(ST_PathNum,IDX)):GetPosAtIdx(ST_PathNum, SpinTopIndex)
+        ST_DBGVECTOR = pointer_vec
+                  
+        IF (ABS(pointer_vec.X) < 0.1) AND (ABS(pointer_vec.Y) < 0.1) THEN
+          RETURN
+                  
+    ENDIF
+          
+      A = ATAN2(pointer_vec.X, pointer_vec.Y)
+      B = A - pointer_vec.R
+      C = B + ST_OffAngle
+  
+     ST_DBGVECTOR.R = A
+     ST_DBGVECTOR.P = B
+     ST_DBGVECTOR.W = C
+     diff_angle = C
+          
+
+          IF ABS(diff_angle - ST_LastAngle) > ST_AngleTol THEN
+             AngleAbs(diff_angle)
+                 ST_LastAngle = diff_angle
+          ENDIF
+              
+        ENDIF
+    ST_LastIndex = IDX
+  ENDIF
+
+END FIXANGLE
+
+
+
+--============================================================
+-- Internal methods
+--============================================================
+
+
+
+--============================================================
+--ROUTINE AddFIFO(NewFrame : XYZWPR) FROM SPINTOP
+ROUTINE AddFIFO
+
+VAR
+i : INTEGER
+
+BEGIN
+FOR I=FIFOSIZE DOWNTO 2 DO
+  FIFOPOS[I] = FIFOPOS[I-1]
+ENDFOR
+  FIFOPOS[1] = NewFrame
+IF FIFOCOUNT < FIFOSIZE THEN
+  FIFOCOUNT = FIFOCOUNT + 1
+ENDIF
+
+END AddFIFO
+
+--============================================================
+ROUTINE ClearFIFO
+
+VAR
+i : INTEGER
+
+BEGIN
+
+FOR I=1 TO FIFOSIZE DO
+  FIFOPOS[I] = Nullframe
+ENDFOR
+  FIFOCOUNT = 0
+END ClearFIFO
+
+
+
+
+--============================================================
+ROUTINE Calc_Dist
+
+VAR
+dist,dx,dy,dz : REAL
+
+BEGIN
+	dx = From_pos.X - To_pos.X
+	dy = From_pos.Y - To_pos.Y
+	dz = From_pos.Z - To_pos.Z
+		
+dist = SQRT(dx*dx + dy*dy + dz*dz)
+	
+RETURN (dist)
+END Calc_Dist
+
+--===============================
+ROUTINE GetCurPos
+--===============================
+VAR
+FrameTool,FrameToolInv,FramePos,FrameUserInv,FramePosInv,FrameUser,A : XYZWPR
+ResFrame : XYZWPR
+
+BEGIN
+
+IF RTCP_USED THEN
+	--set utool and such so that CUSPOS gives flange and base values
+	--because we do the calculation ourselves when using RTCP:
+	$GROUP[1].$UTOOL = Nullframe 
+	$GROUP[1].$UFRAME = Nullframe
+
+	FramePos = CURPOS(0,0)
+	FramePosInv = INV((FramePos))
+
+	IF ($MNUTOOLNUM[1] = 0) THEN
+	  FrameTool = Nullframe
+	  FrameToolInv = Nullframe
+	ELSE
+	  FrameTool = $MNUTOOL[1,$MNUTOOLNUM[1]]
+	  FrameToolInv = INV((FrameTool))
+	ENDIF
+
+	IF ($MNUFRAMENUM[1] = 0) THEN
+	  FrameUser = Nullframe
+	  FrameUserInv = Nullframe
+	ELSE
+	  FrameUser = $MNUFRAME[1, $MNUFRAMENUM[1]]
+	  FrameUserInv = INV((FrameUser))
+	ENDIF
+
+	ResFrame = FrameToolInv : FramePosInv : FrameUser 
+ELSE
+	--set utool and such so that CUSPOS gives correct values!
+	IF ($MNUTOOLNUM[1] = 0) THEN
+		$GROUP[1].$UTOOL = Nullframe
+	ELSE
+		$GROUP[1].$UTOOL = $MNUTOOL[1,$MNUTOOLNUM[1]]
+	ENDIF
+	
+	IF ($MNUFRAMENUM[1] = 0) THEN
+		$GROUP[1].$UFRAME = Nullframe
+	ELSE
+		$GROUP[1].$UFRAME = $MNUFRAME[1,$MNUFRAMENUM[1]]
+	ENDIF
+	
+	ResFrame = CURPOS(0,0)
+ENDIF
+
+RETURN(ResFrame)
+
+END GetCurPos
+
+--===============================
+ROUTINE TP_CLS
+BEGIN
+WRITE (CHR(128),CHR(137)) -- By default this will clear TPDISPLAY
+WRITE TPERROR (CHR(128),CHR(137))
+WRITE TPSTATUS(CHR(128),CHR(137))
+WRITE TPPROMPT(CHR(128),CHR(137))
+WRITE TPFUNC (CHR(128),CHR(137))
+FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+-- to be visible last.
+-- This will avoid the screen from
+-- flashing since the screen will
+-- be clean when you see it.
+END TP_CLS
+
+
+ROUTINE ST_LOOP
+VAR
+
+T1,Rot_Z : XYZWPR
+Value : INTEGER
+CRC : INTEGER
+
+SignalMSW : INTEGER
+SignalLSW : INTEGER
+Temp : INTEGER
+
+BEGIN
+
+----measure cycle time here
+IF clock_var >= 1000 THEN
+  clock_var = 0
+  cycle_count = 0
+ELSE
+  cycle_count = cycle_count +1
+ENDIF
+
+--measure delta to last cycle
+cycle_delta = clock_delta - clock_dold
+clock_dold = clock_delta
+axis6 = $SCR_GRP[1].$MCH_ANG[6] 
+cpos_loop = GetCurPos 
+
+IF (ST_SendPos = TRUE) THEN
+   
+    IF (CRC_GIN > 0) THEN 
+		LAST_RD_CRC = GIN[CRC_GIN]
+		 --modify value for signed/unsigned for GIN
+		   IF LAST_RD_CRC < 0 THEN
+				LAST_RD_CRC = LAST_RD_CRC +  65536 
+		   ENDIF
+	ELSE
+	    LAST_RD_CRC = GetInputUI(ST_IN_CRC_RD)
+    ENDIF	
+		
+    IF ((LAST_RD_CRC = LAST_SNT_CRC) OR (ST_CRC_TMR > 0)) THEN		
+	
+		DISCONNECT TIMER ST_CRC_TMR
+		ST_CRC_TMR = -ST_To_CRC
+		CONNECT TIMER TO ST_CRC_TMR
+
+		--modify TCP for a proper visualization
+		IF ST_OnAxis5 THEN
+			Rot_Z=Nullframe
+			Rot_Z.R = axis6 --mounted on AXIS 5 -> we need to remove the influence if axis 6 then
+			T1 = cpos_loop:Rot_Z
+		ELSE 
+			T1 = cpos_loop:(ST_CTool) 
+		ENDIF
+	
+		 nPos_pos = T1  --store the current TCP value 		 
+		
+		--use a set of 12 gouts to send the pose (way faster):
+		IF (Pose_GOUT > 0) THEN 
+			 Value = TRUNC(nPos_pos.X*100)
+ 
+			 GOUT[Pose_GOUT] =  GetLSW(Value) 
+			 GOUT[Pose_GOUT + 1] = GetMSW(Value) 
+			 
+			 Value = TRUNC(nPos_pos.Y*100)
+			 GOUT[Pose_GOUT + 2] = GetLSW(Value) 
+			 GOUT[Pose_GOUT + 3] = GetMSW(Value) 
+			 
+			 Value = TRUNC(nPos_pos.Z*100)
+			 GOUT[Pose_GOUT + 4] = GetLSW(Value) 
+			 GOUT[Pose_GOUT + 5] = GetMSW(Value) 
+			 
+			 Value = TRUNC(nPos_pos.W*100)
+			 GOUT[Pose_GOUT + 6] = GetLSW(Value) 
+			 GOUT[Pose_GOUT + 7] = GetMSW(Value) 
+			 
+			 Value = TRUNC(nPos_pos.P*100)
+			 GOUT[Pose_GOUT + 8] = GetLSW(Value) 
+			 GOUT[Pose_GOUT + 9] = GetMSW(Value) 
+			 
+			 Value = TRUNC(nPos_pos.R*100)
+			 GOUT[Pose_GOUT + 10] = GetLSW(Value) 
+			 GOUT[Pose_GOUT + 11] = GetMSW(Value) 
+			 
+		ELSE --use classic DIO to send the pose
+			 Value = TRUNC(nPos_pos.X*100)
+			 SetOutput(ST_OUT_X, Value)
+			 
+			 Value = TRUNC(nPos_pos.Y*100)
+			 SetOutput(ST_OUT_Y, Value)
+			 
+			 Value = TRUNC(nPos_pos.Z*100)
+			 SetOutput(ST_OUT_Z, Value)
+			 
+			 Value = TRUNC(nPos_pos.W*100)
+			 SetOutput(ST_OUT_RX, Value)
+			 
+			 Value = TRUNC(nPos_pos.P*100)
+			 SetOutput(ST_OUT_RY, Value)
+			 
+			 Value = TRUNC(nPos_pos.R*100)
+			 SetOutput(ST_OUT_RZ, Value)
+			 		 
+		ENDIF		
+
+		LAST_SNT_CRC = GetCRC16(nPos_pos)--calculate CRC sum	
+		
+		--set CRC sum to bus
+		IF (CRC_GOUT > 0) THEN 	  		  			
+		   GOUT[CRC_GOUT] =  LAST_SNT_CRC
+		ELSE
+			   SetOutputUI(ST_OUT_CRC, LAST_SNT_CRC) 
+		ENDIF
+		
+  ENDIF
+	
+ENDIF
+	  
+IF (ST_AutoMode = TRUE) THEN
+    AUTOANGLE(cpos_loop,axis6)
+ELSE
+	IF (ST_FixMode = TRUE) THEN
+	   -- build our own "encoder" along the path
+	   lastDist =  Calc_Dist(lastPos_loop, cpos_loop);
+	   DistOnPath = DistOnPath + lastDist;
+	   lastPos_loop = cpos_loop;
+	  
+		IF DistOnPath > 1 THEN
+		   FIXANGLE(cpos_loop,axis6,DistOnPath)
+		ENDIF     
+	ENDIF
+ENDIF
+
+
+END ST_LOOP
+
+
+--=============================
+ROUTINE ST_Ready
+--ROUTINE ST_Ready(ControlPlan : INTEGER)
+--=============================
+
+BEGIN
+
+IF DIN[ST_OfflineIN] = TRUE THEN --IF GetInputB(ST_OFFLINE) = TRUE THEN
+  WRITE('SpinTop has been turned OFFLINE!',CR)
+  FORCE_SPMENU(TP_PANEL,SPI_TPUSER,1) -- Force the USER menu screen
+  RETURN
+ENDIF
+
+--reset signals
+SetOutputB(ST_OUT_TRIGG, FALSE) 
+SetOutputB(ST_OUT_START, FALSE)
+SetOutputB(ST_CPLAN_SET, FALSE) 
+
+--wait for automatic mode
+IF WAITFOR(ST_IN_PCAUTO,TRUE,ST_TO_WaitPC) = FALSE THEN
+  WRITE TPERROR(  'Timeout: PC not in automatic mode', CR)	
+ENDIF
+
+--wait for mss not busy
+IF WAITFOR(ST_IN_PCBusy,FALSE,ST_TO_WaitPC) = FALSE THEN
+  WRITE TPERROR(  'Timeout: PC busy', CR)	
+ENDIF
+
+SET_PLAN(ControlPlan)
+
+IF WAITFOR(ST_IN_TC_OK,TRUE,ST_TO_WaitCP) = FALSE THEN 
+  WRITE TPERROR(  'Timeout: Type code is not valid', CR)	
+ENDIF
+
+--wait for mss ready
+IF WAITFOR(ST_IN_PCRDY,TRUE,ST_TO_WaitPC) = FALSE THEN
+  WRITE TPERROR(  'Timeout: PC not ready', CR)	
+ENDIF
+
+PULSE DOUT[OUT_OFFSETPC + ST_OUT_START.Offset] FOR 1000 NOWAIT
+WRITE('Setting ST_OUT_START to ', ST_OUT_START.Offset,CR)
+
+--wait for sensor ready
+IF WAITFOR(ST_IN_SenRDY,TRUE,ST_TO_WaitPC) = FALSE THEN
+  WRITE TPERROR(  'Timeout: Sensor not ready', CR)	
+ENDIF
+
+END ST_Ready
+
+--============================================================
+ROUTINE WAITFOR
+--ROUTINE WAITFOR(input,Status,Timeout)
+--============================================================
+BEGIN
+
+IF (GetInputB(INPUT) <> STATUS) THEN	
+		DISCONNECT TIMER ST_TMR
+		ST_TMR = -Timeout
+		CONNECT TIMER TO ST_TMR
+
+		REPEAT
+			DELAY 5
+		UNTIL (GetInputB(INPUT) = STATUS) OR (ST_TMR > 0) OR (DIN[ST_OfflineIN] = TRUE)
+		DISCONNECT TIMER ST_TMR 
+		
+		IF (ST_TMR > 0) THEN 	
+			 RETURN (FALSE)
+		ENDIF
+ENDIF
+
+RETURN (TRUE)
+
+END WAITFOR
+
+--============================================================
+--ROUTINE SET_PLAN(PLAN:INTEGER)
+ROUTINE SET_PLAN
+BEGIN
+
+SetOutputB(ST_CPLAN_SET, FALSE)
+
+IF CntrlPlnGOUT > 0 THEN
+    GOUT[CntrlPlnGOUT] = PLAN
+ELSE
+    SetOutput(ST_OUT_CPLAN,PLAN)
+ENDIF
+  
+DELAY 100
+SetOutputB(ST_CPLAN_SET, TRUE)
+
+IF WAITFOR(ST_IN_TC_Ack,TRUE,ST_TO_WaitCP) = TRUE THEN 
+  SetOutputB(ST_CPLAN_SET, FALSE)
+ELSE
+  WRITE TPERROR('Timeout(R): Setting Control plan number', CR)
+ENDIF
+
+IF WAITFOR(ST_IN_TC_Ack,FALSE,ST_TO_WaitCP) = TRUE THEN
+  SetOutputB(ST_CPLAN_SET, FALSE)
+ELSE
+  WRITE TPERROR('Timeout(F): Setting Control plan number', CR)
+ENDIF
+
+END SET_PLAN
+
+
+--=============================
+--ROUTINE OVRD_ON(ov_angle : integer) FROM SPINTOP
+ROUTINE OVRD_ON
+--=============================
+BEGIN
+
+ST_OVERRIDE = TRUE
+ST_OV_ANGLE = ov_angle 
+
+END OVRD_ON
+
+--=============================
+--ROUTINE OVRD_OFF FROM SPINTOP
+ROUTINE OVRD_OFF
+--=============================
+BEGIN
+
+ST_OVERRIDE = FALSE
+ST_OV_ANGLE = 0 
+
+END OVRD_OFF
+
+--=============================
+--ROUTINE Freeze(duration : integer) FROM SPINTOP
+ROUTINE Freeze
+--=============================
+BEGIN
+
+DISCONNECT TIMER ST_FRZ_TMR
+	ST_FRZ_TMR = -duration
+CONNECT TIMER TO ST_FRZ_TMR
+
+END Freeze
+
+--=============================
+--ROUTINE SET_COMPTIME(comptime : integer) FROM SPINTOP
+ROUTINE SET_COMPTIME
+--=============================
+BEGIN
+
+ST_CompTime = comptime
+
+IF ST_DebugInfo THEN
+WRITE('Setting comp.time to ', ST_CompTime ,CR)
+ENDIF
+
+END SET_COMPTIME
+
+--=============================
+--ROUTINE GetCRC16 (TCP_Values : XYZWPR) : FROM SPINTOP
+ROUTINE GetCRC16
+
+VAR
+   Data : ARRAY[26] OF INTEGER
+   DataCoords : ARRAY[6] OF INTEGER
+   tmp : INTEGER
+   CRC_value  : INTEGER
+   mask  : INTEGER
+
+   i,j,idx,crc, idx_coords  : INTEGER
+   x,y,z,rx,ry,rz  : INTEGER
+   A,B,C : INTEGER
+   wasNegative : BOOLEAN
+BEGIN
+
+
+mask = 255 --0xFF
+ 
+DataCoords[1] = TRUNC(TCP_Values.X * 100)
+DataCoords[2] = TRUNC(TCP_Values.Y * 100)
+DataCoords[3] = TRUNC(TCP_Values.Z * 100)
+DataCoords[4] = TRUNC(TCP_Values.W * 100)
+DataCoords[5] = TRUNC(TCP_Values.P * 100)
+DataCoords[6] = TRUNC(TCP_Values.R * 100)
+ 
+--step over 6 coords, split them into bytes   
+idx_coords = 0
+j = 1
+FOR i = 1 TO 6 DO
+
+	  --pick each of the 6 coordinates
+	  tmp = DataCoords[i]
+	  wasNegative = FALSE
+	   
+	  --toggle last (sign) bit
+	  IF (tmp < 0) THEN
+		tmp = 2147483647 AND tmp 
+		wasNegative = TRUE
+	  ENDIF
+
+		 --int to bytes:
+		 data[j] = tmp AND mask
+		  tmp = tmp DIV 256
+		 data[j + 1] = tmp AND mask 
+		  tmp = tmp DIV 256
+		 data[j + 2] = tmp AND mask 
+		  tmp = tmp DIV 256
+	   
+		--toggle back
+		IF (wasNegative = TRUE) THEN
+		  tmp = 128 OR tmp
+		  wasNegative = FALSE
+		ENDIF
+
+		data[j + 3] = tmp AND mask 
+	 
+	 
+	 j = i*4 + 1
+ 
+ENDFOR
+
+--reserved area for later use
+data[25] = 0
+data[26] = 0
+
+--calculate CRC16 from byte array:
+crc = 0
+FOR i = 1 TO 26 DO   
+	idx = XOR(data[i],TRUNC(crc / 256)) AND 255
+	crc = XOR(TABLE[idx + 1],(crc * 256)) AND 65535   
+ENDFOR
+
+RETURN (crc)
+
+
+END GetCRC16
+
+--======================================
+--ROUTINE XOR (A,B :INTEGER) : INTEGER FROM SPINTOP
+ROUTINE XOR 
+
+--X = NOT(A & B)
+--Y = A OR B
+--C= X AND Y
+
+VAR
+X, Y, C : INTEGER	
+
+BEGIN 
+
+X = NOT(A AND B)
+Y = A OR B
+C = X AND Y
+
+RETURN (C)
+END XOR
+
+--ROUTINE Test_CRC FROM SPINTOP
+ROUTINE Test_CRC
+VAR
+
+testPose : XYZWPR
+Value : INTEGER
+
+BEGIN
+
+--use defined test pose and send it, together with CRC
+testPose.x = 1500
+testPose.y = -250
+testPose.z = 1
+testPose.w = 8500
+testPose.p = -1.2
+testPose.r = -9001
+		
+AngleAbs(0)	
+ST_READY(1)
+
+Value = TRUNC(testPose.X*100)
+SetOutput(ST_OUT_X, Value)
+
+Value = TRUNC(testPose.Y*100)
+SetOutput(ST_OUT_Y, Value)
+
+Value = TRUNC(testPose.Z*100)
+SetOutput(ST_OUT_Z, Value)
+
+Value = TRUNC(testPose.W*100)
+SetOutput(ST_OUT_RX, Value)
+
+Value = TRUNC(testPose.P*100)
+SetOutput(ST_OUT_RY, Value)
+
+Value = TRUNC(testPose.R*100)
+SetOutput(ST_OUT_RZ, Value)
+
+LAST_SNT_CRC = GetCRC16(testPose)--calculate CRC sum	
+SetOutputUI(ST_OUT_CRC, LAST_SNT_CRC) --set CRC sum to bus
+
+START_SCAN
+
+AngleAbs(0)
+DELAY 500
+AngleAbs(90)
+DELAY 500
+AngleAbs(180)
+DELAY 500
+AngleAbs(270)
+DELAY 500
+
+STOP_SCAN
+
+LAST_RD_CRC = GetInputUI(ST_IN_CRC_RD)
+	
+WRITE('CRC Check: 64635 expected',CR)
+WRITE('CRC Sent =',LAST_SNT_CRC ,CR)
+WRITE('CRC recv.=',LAST_RD_CRC ,CR)
+
+IF (LAST_SNT_CRC = 64635) THEN
+  WRITE('CRC Calculation is OK',CR)
+ELSE
+  WRITE('CRC Calculation failed',CR)
+ENDIF
+
+IF ((LAST_SNT_CRC = LAST_RD_CRC) AND(LAST_SNT_CRC = 64635)) THEN 
+  WRITE('Test Successful',CR)
+ELSE
+  WRITE('Test failed',CR)
+ENDIF
+
+END Test_CRC
+
+
+--======================================
+--ROUTINE GetLSW(Value :INTEGER) : INTEGER FROM SPINTOP
+ROUTINE GetLSW
+VAR
+LSW : INTEGER
+--MSW : INTEGER
+Temp : INTEGER
+
+BEGIN
+
+IF (Value < 0) THEN
+	Temp = (Value+1) DIV 65536
+	--MSW = 65535 + Temp
+	LSW = 65536 + (Value - (Temp * 65536))
+ELSE
+	Temp = Value DIV 65536
+	--MSW = Temp
+	LSW = Value - (Temp * 65536)
+ENDIF
+
+RETURN (LSW)
+
+END GetLSW
+
+
+--======================================
+--ROUTINE GetMSW(Value :INTEGER) : INTEGER FROM SPINTOP
+ROUTINE GetMSW
+VAR
+--LSW : INTEGER
+MSW : INTEGER
+Temp : INTEGER
+
+BEGIN
+
+IF (Value < 0) THEN
+	Temp = (Value+1) DIV 65536
+	MSW = 65535 + Temp
+	--LSW = 65536 + (Value - (Temp * 65536))
+ELSE
+	Temp = Value DIV 65536
+	MSW = Temp
+	--LSW = Value - (Temp * 65536)
+ENDIF
+
+RETURN (MSW)
+
+END GetMSW
+
+-----------------------------------------------------------
+ROUTINE int2str
+--ROUTINE int2str (p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[9]
+BEGIN
+  l_string = ''
+IF UNINIT(p_integer) THEN
+  p_integer = 0
+ENDIF
+
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int2str
+
+--ROUTINE SensorCheck(ControlPlan : INTEGER) FROM SpinTop
+ROUTINE SensorCheck
+
+BEGIN
+AngleAbs(0)	
+ST_READY(ControlPlan)
+DELAY 500
+
+START_SCAN
+
+AngleAbs(0)
+DELAY 1500
+AngleAbs(90)
+DELAY 1500
+AngleAbs(180)
+DELAY 1500
+AngleAbs(270)
+DELAY 1500
+
+STOP_SCAN
+
+END SensorCheck
+
+-------------------the entry point---------------------------
+BEGIN 
+
+$TP_USESTAT=TRUE
+  
+  -- Check for uninitialized data
+  IF (UNINIT(ST_OnAxis5)) THEN
+    RunOnce
+  ENDIF
+
+  GET_TPE_PRM(1, datatype, CmdPar, realparam, stringparam, STATUS)
+  IF (STATUS = 0) THEN
+    IF (datatype = 1) THEN
+      SELECT CmdPar OF
+        CASE (-1): -- R’cksetzen aller Variablen / reset all variables
+          RunOnce      
+          
+		CASE (0):  --INIT  
+		  ST_INIT
+		  
+        CASE (1): --'MSS Ready + ControlPlan set
+          GET_TPE_PRM(2,1,planPar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+
+          ST_READY(planPar)
+           
+		    
+        CASE (2): --formerly "MSS get Ready" in spintop v1.0, now free
+        	
+			--free space for future features to be used in Call spintop (2,..) 
+			
+        CASE (3): --Start FixMode Rotation
+         GET_TPE_PRM(2,1,PathNumPar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+          GET_TPE_PRM(3,1,LearnPar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+          GET_TPE_PRM(4,1,OffAnglePar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+         GET_TPE_PRM(5,1,cTimePar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+         
+         IF (LearnPar = 0) THEN
+         	FIX_ON(PathNumPar, FALSE, (OffAnglePar),cTimePar)
+         ELSE
+         	IF ( LearnPar = 1) THEN
+         	FIX_ON(PathNumPar, TRUE, (OffAnglePar),cTimePar)
+              ELSE
+                GO TO LBLUSAGE
+         	ENDIF
+         ENDIF
+         
+        CASE (4): --Start AutoMode Rotation
+          GET_TPE_PRM(2,1,OffAnglePar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+          
+          Auto_ON((OffAnglePar))
+          
+        CASE (5):--Start Scan
+         
+         START_SCAN --DOUT[ST_OUT_TRIGG.Offset] = TRUE
+         
+        CASE (6):--Stop Scan
+        
+          STOP_SCAN --DOUT[ST_OUT_TRIGG.Offset] = FALSE
+        
+        CASE (7):--Stop Rotation
+
+        ROTATION_OFF
+        
+		CASE (8):--Manual Override on
+		GET_TPE_PRM(2,1,intparam,realparam,stringparam, STATUS) 
+		IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+        ENDIF
+		 
+		OVRD_ON(intparam)
+		
+		CASE (9):--Manual Override OFF
+		
+		OVRD_OFF
+		
+		CASE (10):--Freeze current angle
+        GET_TPE_PRM(2,1,intparam,realparam,stringparam, STATUS)   
+		IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+        ENDIF
+		  
+		Freeze(intparam)
+		
+		CASE (11):--Start bgr task
+        
+           RUN_TASK('SpinTopBGR', 1, FALSE, FALSE, 0, STATUS)	
+		   WRITE('Bgr. task manually started',CR)
+		   
+		CASE (12):--stop bgr task
+        
+           ABORT_TASK('SpinTopBGR',TRUE,TRUE, STATUS)	
+		   WRITE('Bgr. task manually stopped',CR)
+		   
+		CASE (13):--Set compensation time
+		GET_TPE_PRM(2,1,intparam,realparam,stringparam, STATUS) 
+		IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+        ENDIF
+		 
+		SET_COMPTIME(intparam)
+		   
+		CASE (20):--Routine to scan test body	
+		GET_TPE_PRM(2,1,planPar,realparam,stringparam, STATUS)
+          IF (STATUS <> 0) THEN
+            GO TO LBLUSAGE
+          ENDIF
+
+		  SensorCheck(planPar)
+	  
+	  CASE (21):--
+	      Test_CRC
+		  
+      ELSE:
+        WRITE TPERROR('SpinTop - Unknown command :', CmdPar,' !',CR)
+        GO TO LBLUSAGE
+        
+      ENDSELECT
+      
+      
+      
+    ENDIF
+    RETURN
+  ENDIF
+LBLUSAGE::
+  TP_CLS
+  WRITE('Usage:',CR)
+  WRITE(' SpinTop (1 (Set ContolPlan), ControlPlanNumber)',CR)
+  WRITE(' SpinTop (2 (MSS get Ready)',CR)
+  WRITE(' SpinTop (3 (Start FixMode Rotation), PathID, Learning (1= On, 0=Off), OffsetAngle(in Deg),CompTime(in msec) )',CR)
+  WRITE(' SpinTop (4 (Start AutoMode Rotation), OffsetAngle )',CR)  
+  WRITE(' SpinTop (5 (Start Scan)',CR)
+  WRITE(' SpinTop (6 (Stop Scan)',CR)
+  WRITE(' SpinTop (7 (Stop Rotation)',CR)
+  WRITE(' SpinTop (8 (Manual Override ON), Angle)',CR)
+  WRITE(' SpinTop (9 (Manual Override OFF))',CR)
+  WRITE(' SpinTop (10 (Freeze current angle), duration in ms)',CR)
+  WRITE(' SpinTop (11 (Start Bgr Task)',CR)
+  WRITE(' SpinTop (12 (Stop Bgr Task)',CR)
+  WRITE(' SpinTop (13 (Set compensation time), CompTime',CR)
+  WRITE(' SpinTop (20 (SensorCheck),ControlPlanNumber',CR)
+  WRITE(' SpinTop (21 (Test CRC16)',CR)
+  WRITE(' SpinTop (0 (Initialize))',CR)
+  WRITE(' SpinTop (-1 (Factory RESET))',CR)
+  POST_ERR(STATUS, '', 0, 0)
+
+ END SpinTop

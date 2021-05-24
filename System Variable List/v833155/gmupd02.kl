@@ -1,0 +1,169 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMUPD02
+--
+--    Description:
+--
+--    GM G4 Rev02 Update
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--    Other Application files:
+--    
+--    
+--    
+-------------------------------------------------------------------------------
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--    2019/05/15  marchaka  v833p06 rev02
+
+
+----------------------------------------------------------
+PROGRAM GMUPD02
+-----------------------------------------------------------------------------
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+%ENVIRONMENT proddef
+
+CONST
+Revision='2019-05-15'
+
+VAR
+  gm_status:  INTEGER
+  psve:  INTEGER
+  temp_str:  STRING[25]
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  run_fix      IN SHADOW FROM RUNFIX   : ARRAY[30] OF STRING[25]
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+
+ROUTINE dcsio_prot FROM gmdcsprot
+-----------------------------------------------------------------------------
+ROUTINE common_updt
+-- PURPOSE:  Set common updates
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Flex Data
+  Set_I_sVar('$CONDET_CFG.$EXT_MASK', 63) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[1].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[1].$VAR_NAME', '$SFZN_CFG.$ENABLE') 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$REG_NUM', 0) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$STYLE', 0) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[2].$PROG_NAME', '*SYSTEM*') 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[2].$VAR_NAME', '$MNUFRAMENUM[1]') 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$REG_NUM', 0) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$STYLE', 0) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[3].$PROG_NAME', '*SYSTEM*') 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[3].$VAR_NAME', '$MNUTOOLNUM[1]') 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$REG_NUM', 0) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$STYLE', 0) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[4].$PROG_NAME', '*SYSTEM*') 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[4].$VAR_NAME', '$HSCDMNGRP[1].$THRESHOLD') 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$REG_NUM', 0) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$STYLE', 0) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[5].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[5].$VAR_NAME', '$MCR.$GENOVERRIDE') 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$REG_NUM', 0) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$STYLE', 0) 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[6].$PROG_NAME', '') 
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[6].$VAR_NAME', '')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$REG_NUM', 50) 
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$STYLE', 0) 
+
+  --H607 R2000iB/100P, H730 R2000iC/100P, H630 M900iA/200P
+  IF (Chk_Feature('H630')) OR (Chk_Feature('H607')) OR (Chk_Feature('H730')) THEN  
+    Set_I_sVar('$CONDET_CFG.$ENABLE', 1)
+    Set_I_sVar('$CONDET_CFG.$MODE', 28)  	  
+    Set_I_sVar('$CONDET_TRIG.$IO_TYPE', 2)  	
+    Set_I_sVar('$CONDET_TRIG.$IO_PORT', 313)
+    Set_I_sVar('$CONDET_TRIG.$IO_STYLE', 0)
+    Set_I_sVar('$CONDET_TRIG.$DELAY', 10)
+    Set_I_sVar('$CONDET_TRIG.$STYLE_TYPE', 18)
+    Set_I_sVar('$CONDET_TRIG.$STYLE_PORT', 1)
+
+    --Flex Data
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$STYLE', 2)
+
+  ENDIF
+
+END common_updt
+-----------------------------------------------------------------------------
+ROUTINE run_update02
+-- PURPOSE:  Run update 02 setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Revision
+
+  dcsio_prot --run DCS I/O protection update
+
+  common_updt
+
+  --clear run_fix array item 1, need to make sure variable structure exists
+  GET_VAR(psve, 'runfix', 'run_fix[1]', temp_str, gm_status)
+  IF (gm_status = 0) THEN --variable structure exists
+    Set_S_PVar('runfix', 'run_fix[1]', '   ')
+  ENDIF
+
+  --set Hints screen version
+  $application[8] = 'GM Global 4 Rev02'  
+
+END run_update02
+-----------------------------------------------------------------------------
+BEGIN
+
+  run_update02
+
+END GMUPD02
+

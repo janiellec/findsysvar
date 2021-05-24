@@ -1,0 +1,1123 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmcellrg
+--
+--    Description: Copied from swwizio4 due to size requirements.
+--				   Origional creator L. Steed
+--
+--    gmcellrg -- program for setting registers and position registers comments and default values
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--    Other Application files:
+--    GMCELLIO -- program to setup and comment the press I/O GMCELLIO is also required to setup workcell interface
+--    GMCELLPG -- program for loading all unique program that are specific to  applications
+--    GMCELLVR -- program for setting variables specific to  application
+-------------------------------------------------------------------------------
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--    2016/09/02 marchaka Updated data registers 296 and 297. Updated position registers
+--                        24, 25 and 26.
+--    2016/11/08 marchaka Reset num_errors to 0.
+--    2016/12/05 marchaka Add register comment 39
+--    2017/01/10 marchaka Added position registers 30-69 for DVG. Added data regiseters 294-295.
+--                        Added position registers 70-74 and 89-98 for iRVis.  Added data regiseters
+--                        104-105 and 163-167 for iRVis.  Register 460-461 for cap changer addded.
+--    2017/03/12 marchaka Modifications to support ArcTool
+--    2017/03/21 marchaka Added press_shop so IF conditions can be used for both SpotTool+ and ArcTool
+--    2017/06/24 marchaka Update registers 146-147
+--    2018/11/07 KosaskiR Update registers 480 to be 'DCSLOG Status'
+--    2019/08/24 marchaka Added reference position tolerance settings for group 1
+--    2019/08/27 marchaka Change cap wear setting for servo nut weld applications
+--    2019/09/16 marchaka Put a check for ArcTool before setting data registers 333 and 334 (SpotTool+ only app)
+--    2019/10/03 marchaka Added data register comment 14 for collision guard sensitivity
+--    2020/02/24 schoensm V8.33P09 Added data register comment 399--Brake Jx Fail, and 465-468--G1G2 legacy.
+--    2020/05/07 schoensm V8.33P09 Added data register comment 399--Brake Jx Fail, and 465-468--G1G2 legacy, fixed press load.
+-----------------------------------------------------------------------------
+PROGRAM GMCELLRG
+-----------------------------------------------------------------------------
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+%ENVIRONMENT REGOPE -- required for register builtins
+%ENVIRONMENT proddef -- Required for the $FEATURE.$MOD[i] variable
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gm_var    -- GM variables
+%INCLUDE gmcfgerr  -- has the structures for the error tracking
+%INCLUDE gmcfgcel  -- has the workcell variable setting for configuration
+
+CONST
+Revision='2020-05-07'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+
+  i,
+  gm_status    : INTEGER
+  l_stat       : INTEGER
+  l_status     : INTEGER
+  entry	       : INTEGER
+  a	       : INTEGER
+  press_shop   : BOOLEAN
+  num_errors   : INTEGER
+  StrtinErs  : INTEGER  -- How many errors I/O error counter had when the program started
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  PounceString IN SHADOW :STRING[16] -- used for the comment in the perch or multi pounce
+
+CellRegsDone IN SHADOW FROM GMCellRG: BOOLEAN -- if the workcell registers has ran completly
+
+  wld1_app      IN SHADOW FROM GMCFGSPT: INTEGER                  --One weld controller application
+
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+
+-----------------------------------------------------------------------------
+ROUTINE SetCellRefP
+-- PURPOSE:  this routine will set the Reference Positions
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+Ref_Cmnt : STRING[16] -- used to set Refpos comment to
+i_str :STRING[4]
+i_str2:STRING[4]
+cur_tol: REAL
+
+BEGIN
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+IF UNINIT(PounceString) THEN
+  PounceString = 'Pounce Pos#'
+ENDIF
+
+ WriteLog('  Start of Cell Reference Position Routine',FALSE)
+
+IF Reset_Cell = TRUE THEN
+
+  Set_B_sVar('$REFPOS1[1].$ENABLED',TRUE)
+  Set_I_sVar('$REFPOS1[1].$DOUT_INDX',refhome_do)
+  Set_S_sVar('$REFPOS1[1].$COMMENT','Home Position')
+  Set_B_sVar('$REFPOS1[1].$HOMEPOS',TRUE)
+
+ FOR i = 2 TO 10 DO
+   I_str= int2str(i)  -- convert to string
+   Ref_cmnt = PounceString + I_Str -- Make comment based on stanard comments and add text
+   Set_B_sVar('$REFPOS1['+ I_Str +'].$ENABLED',TRUE)
+   Set_I_sVar('$REFPOS1['+ I_Str +'].$DOUT_INDX',(refhome_do +(i-1))) -- use home as start point
+   Set_S_sVar('$REFPOS1['+ I_Str +'].$COMMENT',Ref_cmnt)
+   Set_B_sVar('$REFPOS1['+ I_Str +'].$HOMEPOS',FALSE)
+ ENDFOR --
+
+ FOR i = 1 TO 10 DO --set all 10 refernce positions
+   I_str= int2str(i)
+   FOR a = 1 TO 9 DO --all 9 axis
+     I_str2 = int2str(a)  
+     GET_VAR(entry, '*SYSTEM*', '$REFPOS1['+ I_Str +'].$PERCHTOL['+ I_str2 + ']', cur_tol, gm_status)
+     IF (gm_status <> 0) THEN
+       POST_ERR(38000, 'Failed to read $REFPOS1['+ I_Str +'].$PERCHTOL['+ I_str2 + ']', 0, 0)
+     ELSE
+       IF (cur_tol = 0.000) THEN --change from 0.000 to 1.000
+         IF (a < 7) THEN --only do it for axis 1 to 6, variable setting behaves differently when there isn't an axis used
+           Set_R_sVar('$REFPOS1['+ I_Str +'].$PERCHTOL['+ I_str2 + ']', 0.017) --set tolerance to 1.000
+		 							       --0.017 is the closes I can get to 1.000 via system variable in the refpos menu
+         ENDIF
+       ENDIF
+     ENDIF
+   ENDFOR
+ ENDFOR
+
+ELSE -- Not Resetting Cell so No Comments are being Changed
+  POST_ERR(38000, 'No Reference Setup Changed', 0, 0) --
+ENDIF
+
+WriteLog('  Cell Reference Position Setup Completed',FALSE)
+
+END SetCellRefP
+-----------------------------------------------------------------------------
+ROUTINE Set_CellPReg
+-- PURPOSE:  this routine will set the Position registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+
+WriteLog('  Start of Cell Position Register Routine',FALSE)
+
+IF Reset_Cell = TRUE THEN
+  IF (press_shop = FALSE) THEN --load for all other shops and ArcTool
+    Comment_Reg(2,1, 'Home')
+    Comment_Reg(2,2, 'Home2')
+    Comment_Reg(2,3, 'Home3')
+    Comment_Reg(2,4, 'Home4')
+    Comment_Reg(2,5, 'Home5')
+    Comment_Reg(2,6, 'Home6')
+    Comment_Reg(2,7, 'Home7')
+    Comment_Reg(2,8, 'Home8')
+    Comment_Reg(2,9, 'Home9')
+    Comment_Reg(2,10,'Home10')
+    Comment_Reg(2,11, '2D Offset')
+    Comment_Reg(2,12, 'Null Offset')
+    Comment_Reg(2,13, '3DL-1 Fix Pos')
+    Comment_Reg(2,14, '3DL-2 Fix Pos')
+    Comment_Reg(2,15, 'Average Offset')
+    Comment_Reg(2,16, 'iRVis RESERVED')
+    Comment_Reg(2,17, 'iRVis RESERVED')
+    Comment_Reg(2,18, 'iRVis RESERVED')
+    Comment_Reg(2,19, 'iRVis RESERVED')
+    Comment_Reg(2,20, 'Start of Search')
+    Comment_Reg(2,21, 'Current Postion')
+    Comment_Reg(2,22, 'End of Search')
+    Comment_Reg(2,23, '3D Offset')
+    Comment_Reg(2,24, 'Last Part Found')
+    Comment_Reg(2,25, 'Clr to Adjust')
+    Comment_Reg(2,26, 'Rack Exit')
+    Comment_Reg(2,30, 'TD/DVG Ready Gn1')
+    Comment_Reg(2,31, 'TD AimOffset Gn1')
+    Comment_Reg(2,32, 'TD Fire Pt. Gn1')
+    Comment_Reg(2,33, 'DVG Fire Pt. Gn1')
+    Comment_Reg(2,34, 'TD Pounce Gn1')
+    Comment_Reg(2,35, 'CC Pounce Gn1')
+    Comment_Reg(2,36, 'CC PosRbt Gn1')
+    Comment_Reg(2,37, 'CCPosZrotateG1')
+    Comment_Reg(2,38, 'CCPosZoffsetG1')
+    Comment_Reg(2,39, 'CC PosGun1')
+    Comment_Reg(2,40, 'TD/DVG Ready Gn2')
+    Comment_Reg(2,41, 'TD AimOffset Gn2')
+    Comment_Reg(2,42, 'TD Fire Pt. Gn2')
+    Comment_Reg(2,43, 'DVG Fire Pt. Gn2')
+    Comment_Reg(2,44, 'TD Pounce Gn2')
+    Comment_Reg(2,45, 'CC Pounce Gn2')
+    Comment_Reg(2,46, 'CC PosRbt Gn2')
+    Comment_Reg(2,47, 'CCPosZrotateG2')
+    Comment_Reg(2,48, 'CCPosZoffsetG2')
+    Comment_Reg(2,49, 'CC PosGun2')
+    Comment_Reg(2,50, 'TD/DVG Ready Gn3')
+    Comment_Reg(2,51, 'TD AimOffset Gn3')
+    Comment_Reg(2,52, 'TD Fire Pt. Gn3')
+    Comment_Reg(2,53, 'DVG Fire Pt. Gn3')
+    Comment_Reg(2,54, 'TD Pounce Gn3')
+    Comment_Reg(2,55, 'CC Pounce Gn3')
+    Comment_Reg(2,56, 'CC PosRbt Gn3')
+    Comment_Reg(2,57, 'CCPosZrotateG3')
+    Comment_Reg(2,58, 'CCPosZoffsetG3')
+    Comment_Reg(2,59, 'CC PosGun3')
+    Comment_Reg(2,60, 'TD/DVG Ready Gn4')
+    Comment_Reg(2,61, 'TD AimOffset Gn4')
+    Comment_Reg(2,62, 'TD Fire Pt. Gn4')
+    Comment_Reg(2,63, 'DVG Fire Pt. Gn4')
+    Comment_Reg(2,64, 'TD Pounce Gn4')
+    Comment_Reg(2,65, 'CC Pounce Gn4')
+    Comment_Reg(2,66, 'CC PosRbt Gn4')
+    Comment_Reg(2,67, 'CCPosZrotateG4')
+    Comment_Reg(2,68, 'CCPosZoffsetG4')
+    Comment_Reg(2,69, 'CC PosGun4')
+    Comment_Reg(2,70, 'Static Fnd Pos')
+    Comment_Reg(2,71, 'Static Lpos')
+    Comment_Reg(2,72, 'Static MovOffset')
+    Comment_Reg(2,73, 'Cal Pos Offset')
+    Comment_Reg(2,74, 'Vis Data Ref')
+    Comment_Reg(2,80, 'OpenGuns Group2')
+    Comment_Reg(2,81, 'OpenGuns Group3')
+    Comment_Reg(2,82, 'Gun X OpenLmt')
+    Comment_Reg(2,88, 'TipDress Pos')
+    Comment_Reg(2,89, 'Rack1Start')
+    Comment_Reg(2,90, 'Rack1End')
+    Comment_Reg(2,91, 'Rack1LastFound')
+    Comment_Reg(2,92, 'Rack1ClrtoAdj')
+    Comment_Reg(2,93, 'Rack1Exit')
+    Comment_Reg(2,94, 'Rack2Start')
+    Comment_Reg(2,95, 'Rack2End')
+    Comment_Reg(2,96, 'Rack2LastFound')
+    Comment_Reg(2,97, 'Rack2ClrtoAdj')
+    Comment_Reg(2,98, 'Rack2Exit')
+    Comment_Reg(2,99, 'Frame Shift')
+  ENDIF  --load for all other shops and ArcTool
+ELSE -- Not Resetting Cell so No Comments are being Changed
+  POST_ERR(38000, 'No Preg Comments Changed', 0, 0) --
+ENDIF
+
+WriteLog('  Cell Position Register Setup Completed',FALSE)
+
+END Set_CellPReg
+-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE Set_Cell_Reg
+-- PURPOSE:  this routine will set the Data Registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+------------------------------------------------------------------------------
+VAR
+  l_status     : INTEGER
+BEGIN
+ IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+
+WriteLog('  Start of Cell Reference Position Routine',FALSE)
+
+IF Reset_Cell = TRUE THEN
+  IF (press_shop = FALSE) THEN --load for all other shops and ArcTool
+    Comment_Reg(1,1,'Spot Count G1')-- (PRESS NUMBER OF CYCLES)
+    SET_INT_REG(1,0,l_status)
+    Comment_Reg(1,2,'Spot Count G2')
+    SET_INT_REG(2,0,l_status)
+    Comment_Reg(1,3,'')
+    Comment_Reg(1,5,'TW ratio fix G1') --(PRESS (Reserved))
+    Comment_Reg(1,6,'TW ratio fix G2')
+    Comment_Reg(1,7,'TW ratio fix G3')
+    Comment_Reg(1,8,'TW ratio fix G4')
+    Comment_Reg(1,9,'')
+    Comment_Reg(1,10,'SERVO GUN WORK')
+    Comment_Reg(1,11,'SERVO GUN WORK')
+    Comment_Reg(1,12,'SERVO GUN WORK')
+    Comment_Reg(1,13,'SERVO GUN WORK')
+    Comment_Reg(1,14,'CG Sensitivity')
+    Comment_Reg(1,15,'SERVO WEAR UPDT')
+    Comment_Reg(1,16,'NUM SERVO GUNS')
+    Comment_Reg(1,17,'SG OPTION LOADED')
+    Comment_Reg(1,18,'Temp Tipdress')
+    Comment_Reg(1,19,'PedSafety Pin(s)')
+    Comment_Reg(1,20,'SERVO GUN WORK')
+    Comment_Reg(1,21,'SERVO GUN WORK')
+    Comment_Reg(1,22,'SERVO GUN WORK')
+    Comment_Reg(1,23,'SERVO GUN WORK')
+    Comment_Reg(1,24,'Robot in Auto')
+    Comment_Reg(1,25,'TD Dump Timer')
+    Comment_Reg(1,26,'TD Configured')
+    Comment_Reg(1,27,'Num of TC Slides')
+    Comment_Reg(1,28,'SERVO GUN WORK')
+    Comment_Reg(1,29,'SERVO GUN WORK')
+    Comment_Reg(1,30,'RETRY COUNTER')
+    Comment_Reg(1,31,  'index cnt xyzwpr')
+    SET_INT_REG(31,  0,gm_status)
+    Comment_Reg(1,32,  'xyzwpr UTvalPR2')
+    SET_INT_REG(32,  0,gm_status)
+    Comment_Reg(1,33,  'xyzwpr UTvalPR3')
+    SET_INT_REG(33,  0,gm_status)
+    Comment_Reg(1,34,  'xyzwpr UTvalPR4')
+    SET_INT_REG(34,  0,gm_status)
+    Comment_Reg(1,35,  'NEW OFFSET value')
+    SET_INT_REG(35,  0,gm_status)
+    Comment_Reg(1,36,  'DensePack TypG1')
+    Comment_Reg(1,37,  'DensePack TypG2')
+    Comment_Reg(1,38,  'Node Present')
+    Comment_Reg(1,39,  'TD Type')
+    Comment_Reg(1,40,'Prompt  Y/N')
+    Comment_Reg(1,41,'Cutters Replaced')
+    Comment_Reg(1,42,'Counter 1')
+    Comment_Reg(1,43,'Counter 2')
+    Comment_Reg(1,47,'Num of Buffs')
+    Comment_Reg(1,48,'Num of Redres')
+    Comment_Reg(1,49,'Num or Predres')
+    Comment_Reg(1,50,  'Ch1 Vacuum ON')
+    SET_INT_REG(50,  0,gm_status)
+    Comment_Reg(1,51,  'Ch2 Vacuum ON')
+    SET_INT_REG(51,  0,gm_status)
+    Comment_Reg(1,52,  'TDDeburrDrsCntr')
+    SET_INT_REG(52,  0,gm_status)
+    Comment_Reg(1,53,  'TDRedressCntr')
+    SET_INT_REG(53,  0,gm_status)
+    Comment_Reg(1,54,  'TD1 CntSinceCC')
+    SET_INT_REG(54,  0,gm_status)
+    Comment_Reg(1,55,  'TD2 CntSinceCC')
+    SET_INT_REG(55,  0,gm_status)
+    Comment_Reg(1,56,  'TD3 CntSinceCC')
+    SET_INT_REG(56,  0,gm_status)
+    Comment_Reg(1,57,  'TD4 CntSinceCC')
+    SET_INT_REG(57,  0,gm_status)
+    Comment_Reg(1,59,  'TD PREDRESS CNTR')
+    SET_INT_REG(59,  0,gm_status)
+    Comment_Reg(1,60,  'PREDRESS G2 OPT')
+    SET_INT_REG(60,  0,gm_status)
+    Comment_Reg(1,61,  'TD PRESSURE G2')
+    SET_INT_REG(61,  3,gm_status)
+    Comment_Reg(1,62,  'TD EQ PRSR G2')
+    SET_INT_REG(62,  0,gm_status)
+    Comment_Reg(1,63,  'TD G2 CURRNT INC')
+    SET_INT_REG(63,  3,gm_status)
+    Comment_Reg(1,64,  'G2 TIPDESS TIME')
+    SET_REAL_REG(64,   .4,gm_status)
+    Comment_Reg(1,65,  'G2 OFFSET CURRNT')
+    SET_INT_REG(65,  0,gm_status)
+    Comment_Reg(1,66,  'TD2 FREE CURRNT')
+    SET_INT_REG(66,  0,gm_status)
+    Comment_Reg(1,67,  'TD2 LOAD CURRNT')
+    SET_INT_REG(67,  0,gm_status)
+    Comment_Reg(1,68,  'TD2 COMPLETE FLG')
+    SET_INT_REG(68,  0,gm_status)
+    Comment_Reg(1,69,  'TD2 CURRNT COUNT')
+    SET_INT_REG(69,  0,gm_status)
+    Comment_Reg(1,70,  'TD2 CURRNT SAMPL')
+    SET_INT_REG(70,  0,gm_status)
+    Comment_Reg(1,71,  'TD G2 DRESS OK')
+    SET_INT_REG(71,  0,gm_status)
+    Comment_Reg(1,72,  'TD2 CUTTER CNT')
+    SET_INT_REG(72,  0,gm_status)
+    Comment_Reg(1,73,  'TD2 CUTTER LIMIT')
+    SET_INT_REG(73,  10000,gm_status)
+    Comment_Reg(1,74,  'TD2 RETRY')
+    SET_INT_REG(74,  0,gm_status)
+    Comment_Reg(1,75,  'TD2 SKIP')
+    SET_INT_REG(75,  0,gm_status)
+    Comment_Reg(1,76,  'PREDRESS G1 OPT')
+    SET_INT_REG(76,  0,gm_status)
+    Comment_Reg(1,77,   'TD PRESSURE G1')
+    SET_INT_REG(77,   3,gm_status)
+    Comment_Reg(1,78,   'TD EQ PRSR G1')
+    Comment_Reg(1,79,   'TD G1 CURRNT INC')
+    SET_INT_REG(79,   3,gm_status)
+    Comment_Reg(1,80,   'G1 TIPDESS TIME')
+    SET_REAL_REG(80,  .4,gm_status)
+    Comment_Reg(1,81,   'G1 OFFSET CURRNT')
+    SET_INT_REG(81,   0,gm_status)
+    Comment_Reg(1,82,  'TD1 FREE CURRNT')
+    SET_INT_REG(82,  0,gm_status)
+    Comment_Reg(1,83,  'TD1 LOAD CURRNT')
+    SET_INT_REG(83,  0,gm_status)
+    Comment_Reg(1,84,  'TD1 COMPLETE FLG')
+    SET_INT_REG(84,  0,gm_status)
+    Comment_Reg(1,85,  'TD1 CURRNT COUNT')
+    SET_INT_REG(85,  0,gm_status)
+    Comment_Reg(1,86,  'TD1 CURRNT SAMPL')
+    SET_INT_REG(86,  0,gm_status)
+    Comment_Reg(1,87,  'TD G1 DRESS OK')
+    SET_INT_REG(87,  0,gm_status)
+    Comment_Reg(1,88,  'TD1 CUTTER CNT')
+    SET_INT_REG(88,  0,gm_status)
+    Comment_Reg(1,89,  'TD1 CUTTER LIMIT')
+    SET_INT_REG(89,  10000,gm_status)
+    Comment_Reg(1,90,  'TD1 RETRY')
+    SET_INT_REG(90,  0,gm_status)
+    Comment_Reg(1,91,  'TD1 SKIP')
+    SET_INT_REG(91,  0,gm_status)
+    Comment_Reg(1,92,  'TD1 HIGH CURRNT')
+    SET_INT_REG(92,  80,gm_status)
+    Comment_Reg(1,93,  'TD2 HIGH CURRNT')
+    SET_INT_REG(93,  80,gm_status)
+    Comment_Reg(1,94,  'TD3 HIGH CURRNT')
+    SET_INT_REG(94,  80,gm_status)
+    Comment_Reg(1,95,  'TD4 HIGH CURRNT')
+    SET_INT_REG(95,  80,gm_status)
+    Comment_Reg(1,96,  'TD1 LAST SCHED')
+    Comment_Reg(1,97,  'TD2 LAST SCHED')
+    Comment_Reg(1,98,  'TD3 LAST SCHED')
+    Comment_Reg(1,99,  'TD4 LAST SCHED')
+    Comment_Reg(1,100, 'Vac CH1 MH FLT')
+    Comment_Reg(1,103,  'RACK1 RETRYS')
+    Comment_Reg(1,104, 'RACK2 RETRYS')
+    Comment_Reg(1,101, 'Device StatusCnt')
+    Comment_Reg(1,110, 'Placeholder 1')
+    SET_INT_REG(110,  0,gm_status)
+    Comment_Reg(1,111, 'Placeholder 2')
+    SET_INT_REG(111,  0,gm_status)
+    Comment_Reg(1,112, 'DNET Node Status')
+    SET_INT_REG(112,  0,gm_status)
+    Comment_Reg(1,113, 'Current Head')
+    SET_INT_REG(113,  0,gm_status)
+    Comment_Reg(1,114, 'DCD Code Latch')
+    SET_INT_REG(114,  0,gm_status)
+    Comment_Reg(1,115, 'Head 1 In Cell')
+    SET_INT_REG(115,  0,gm_status)
+    Comment_Reg(1,116, 'Head 2 In Cell')
+    SET_INT_REG(116,  0,gm_status)
+    Comment_Reg(1,117, 'Head 3 In Cell')
+    SET_INT_REG(117,  0,gm_status)
+    Comment_Reg(1,118, 'Head 4 In Cell')
+    SET_INT_REG(118,  0,gm_status)
+    Comment_reg(1,119,'Area NumPRX')
+    Comment_Reg(1,120, 'RemoteStartCntr')
+    SET_INT_REG(120,  0,gm_status)
+    Comment_Reg(1,121,'Area Vol PR1')
+    Comment_Reg(1,122,'Area Vol PR2')
+    Comment_Reg(1,123,'Total Vol PR1')
+    Comment_Reg(1,124,'Total Vol PR2')
+    Comment_Reg(1,125, 'Vac CH2 MH FLT')
+    Comment_Reg(1,126, 'Disp Inspection')
+    Comment_Reg(1,127,  'G1#DeburrDress')
+    SET_INT_REG(127,  0,gm_status)
+    Comment_Reg(1,128,  'G1#Redresses')
+    SET_INT_REG(128,  1,gm_status)
+    Comment_Reg(1,129,  'G1#Predresses')
+    SET_INT_REG(129,  1,gm_status)
+    Comment_Reg(1,130,  'G2#DeburrDress')
+    SET_INT_REG(130,  0,gm_status)
+    Comment_Reg(1,131,  'G2#Redresses')
+    SET_INT_REG(131,  1,gm_status)
+    Comment_Reg(1,132,  'G2#Predresses')
+    SET_INT_REG(132,  1,gm_status)
+    Comment_Reg(1,133,  'G3#DeburrDress')
+    SET_INT_REG(133,  0,gm_status)
+    Comment_Reg(1,134,  'G3#Redresses')
+    SET_INT_REG(134,  1,gm_status)
+    Comment_Reg(1,135,  'G3#Predresses')
+    SET_INT_REG(135,  1,gm_status)
+    Comment_Reg(1,136,  'G4#DeburrDress')
+    SET_INT_REG(136,  0,gm_status)
+    Comment_Reg(1,137,  'G4#Redresses')
+    SET_INT_REG(137,  1,gm_status)
+    Comment_Reg(1,138,  'G4#Predresses')
+    SET_INT_REG(138,  1,gm_status)
+    Comment_Reg(1,140,'Stud Eq#1 Sch')
+    Comment_Reg(1,141,'Stud Eq#2 Sch')
+    Comment_Reg(1,143,'AreaREG Chk')
+    Comment_Reg(1,144,'AreaDIN Chk')
+    Comment_Reg(1,145, 'Skip')
+    Comment_Reg(1, 146, 'AREASTRT Wait1')
+    Comment_Reg(1, 147,  'AREASTRT Wait2')
+    Comment_Reg(1,148, 'WaitDNET Bd2Stat')
+    SET_INT_REG(148, 0,gm_status)
+    Comment_Reg(1,149, 'WaitDNET Bd1Stat')
+    SET_INT_REG(149, 6,gm_status)
+    Comment_Reg(1,150,'CapDCD$CUR_DECSN')
+    SET_INT_REG(150, 0,gm_status)
+    Comment_Reg(1,151,'$SHELLWRK$CURDCD')
+    Comment_Reg(1,152,'GO[ ]PATHSEGMENT')
+    Comment_Reg(1,153,'LAST PATH SEG')
+    Comment_Reg(1,154, 'Head Detect')
+    Comment_Reg(1,155, 'Head Selection')
+    Comment_Reg(1,156,'Current Home Pos')
+    Comment_Reg(1,157,'Chg Path Segment')
+    Comment_Reg(1,158,'Tool Connecting')
+    Comment_Reg(1,159,'ANTI-REPEAT')
+    Comment_Reg(1,160,'FFR PRCESS LBL')
+    Comment_Reg(1,161, 'TD Dump Checker')
+    Comment_Reg(1,162, 'TC PlaceHolder')
+    Comment_Reg(1,163,'Image Found')
+    Comment_Reg(1,164,'Tolerance Type')
+    Comment_Reg(1,165, 'PR to Test')
+    Comment_Reg(1,166, 'StatisticCounter')
+    Comment_Reg(1,167, 'Search Box amt')
+    Comment_Reg(1,169,  '')
+    SET_INT_REG(169,  0,gm_status)
+    Comment_Reg(1,170,  'TLCHNGokG1OPT')
+    SET_INT_REG(170,  0,gm_status)
+    Comment_Reg(1,171, 'TD PRESSURE G3')
+    SET_INT_REG(171, 3,gm_status)
+    Comment_Reg(1,172, 'TD EQ PRSR G3')
+    SET_INT_REG(172, 0,gm_status)
+    Comment_Reg(1,173, 'TD G3 CURRNT INC')
+    SET_INT_REG(173, 3,gm_status)
+    Comment_Reg(1,174, 'G3 TIPDESS TIME')
+    SET_REAL_REG(174,   .4,gm_status)
+    Comment_Reg(1,175, 'G3 OFFSET CURRNT')
+    SET_INT_REG(175, 0,gm_status)
+    Comment_Reg(1,176, 'TD3 FREE CURRNT')
+    SET_INT_REG(176, 0,gm_status)
+    Comment_Reg(1,177, 'TD3 LOAD CURRNT')
+    SET_INT_REG(177, 0,gm_status)
+    Comment_Reg(1,178, 'TD3 COMPLETE FLG')
+    SET_INT_REG(178, 0,gm_status)
+    Comment_Reg(1,179, 'TD3 CURRNT COUNT')
+    SET_INT_REG(179, 0,gm_status)
+    Comment_Reg(1,180, 'TD3 CURRNT SAMPL')
+    SET_INT_REG(180, 0,gm_status)
+    Comment_Reg(1,181, 'TD G3 DRESS OK')
+    SET_INT_REG(181, 0,gm_status)
+    Comment_Reg(1,182, 'TD3 CUTTER CNT')
+    SET_INT_REG(182, 0,gm_status)
+    Comment_Reg(1,183, 'TD3 CUTTER LIMIT')
+    SET_INT_REG(183, 10000,gm_status)
+    Comment_Reg(1,184, 'TD3 RETRY')
+    SET_INT_REG(184, 0,gm_status)
+    Comment_Reg(1,185, 'TD3 SKIP')
+    SET_INT_REG(185, 0,gm_status)
+    Comment_Reg(1,186, 'TD PRESSURE G4')
+    SET_INT_REG(186, 3,gm_status)
+    Comment_Reg(1,187, 'TD EQ PRSR G4')
+    SET_INT_REG(187, 0,gm_status)
+    Comment_Reg(1,188, 'TD G4 CURRNT INC')
+    SET_INT_REG(188, 3,gm_status)
+    Comment_Reg(1,189, 'G4 TIPDESS TIME')
+    SET_REAL_REG(189,   .4,gm_status)
+    Comment_Reg(1,190, 'G4 OFFSET CURRNT')
+    SET_INT_REG(190, 0,gm_status)
+    Comment_Reg(1,191, 'TD4 FREE CURRNT')
+    SET_INT_REG(191, 0,gm_status)
+    Comment_Reg(1,192, 'TD4 LOAD CURRNT')
+    SET_INT_REG(192, 0,gm_status)
+    Comment_Reg(1,193, 'TD4 COMPLETE FLG')
+    SET_INT_REG(193, 0,gm_status)
+    Comment_Reg(1,194, 'TD4 CURRNT COUNT')
+    Comment_Reg(1,195, 'TD4 CURRNT SAMPL')
+    SET_INT_REG(195, 0,gm_status)
+    Comment_Reg(1,196, 'TD G4 DRESS OK')
+    SET_INT_REG(196, 0,gm_status)
+    Comment_Reg(1,197, 'TD4 CUTTER CNT')
+    SET_INT_REG(197, 0,gm_status)
+    Comment_Reg(1,198, 'TD4 CUTTER LIMIT')
+    SET_INT_REG(198, 10000,gm_status)
+    Comment_Reg(1,199, 'TD4 RETRY')
+    SET_INT_REG(199, 0,gm_status)
+    Comment_Reg(1,200, 'TD4 SKIP')
+    SET_INT_REG(200, 0,gm_status)
+    Comment_Reg(1,201, 'G1GN Wear Snc CC')
+    SET_INT_REG(201, 0,gm_status)
+    Comment_Reg(1,202, 'G1RB Wear Snc CC')
+    SET_INT_REG(202, 0,gm_status)
+    Comment_Reg(1,203, 'G1GN TdCutAmount')
+    SET_INT_REG(203, 0,gm_status)
+    Comment_Reg(1,204, 'G1RB TdCutAmount')
+    SET_INT_REG(204, 0,gm_status)
+    Comment_Reg(1,205, 'G2GN Wear Snc CC')
+    SET_INT_REG(205, 0,gm_status)
+    Comment_Reg(1,206, 'G2RB Wear Snc CC')
+    SET_INT_REG(206, 0,gm_status)
+    Comment_Reg(1,207, 'G2GN TdCutAmount')
+    SET_INT_REG(207, 0,gm_status)
+    Comment_Reg(1,208, 'G2RB TdCutAmount')
+    SET_INT_REG(208, 0,gm_status)
+    Comment_Reg(1,209, 'G3GN Wear Snc CC')
+    SET_INT_REG(209, 0,gm_status)
+    Comment_Reg(1,210, 'G3RB Wear Snc CC')
+    SET_INT_REG(210, 0,gm_status)
+    Comment_Reg(1,211, 'G3GN TdCutAmount')
+    SET_INT_REG(211, 0,gm_status)
+    Comment_Reg(1,212, 'G3RB TdCutAmount')
+    SET_INT_REG(212, 0,gm_status)
+    Comment_Reg(1,213, 'G4GN Wear Snc CC')
+    SET_INT_REG(213, 0,gm_status)
+    Comment_Reg(1,214, 'G4RB Wear Snc CC')
+    SET_INT_REG(214, 0,gm_status)
+    Comment_Reg(1,215, 'G4GN TdCutAmount')
+    SET_INT_REG(215, 0,gm_status)
+    Comment_Reg(1,216, 'G4RB TdCutAmount')
+    SET_INT_REG(216, 0,gm_status)
+    Comment_Reg(1,217, 'CapWear Soft LMT')
+    SET_INT_REG(217, 1,gm_status)
+    Comment_Reg(1,218, 'CapWear Skip')
+    SET_INT_REG(218, 0,gm_status)
+    Comment_Reg(1,219, 'NwCapsWearUprLMT')
+    SET_INT_REG(219, 2,gm_status)
+    Comment_Reg(1,220, 'NwCapsWearLwrLMT')
+    SET_INT_REG(220, -2,gm_status)
+    Comment_Reg(1,222, 'TD DebugData1')
+    Comment_Reg(1,223, 'TD DebugData2')
+    Comment_Reg(1,224, 'TD DebugData3')
+    Comment_Reg(1,225, 'TD DebugData4')
+    Comment_Reg(1,226, 'DNETCFG 64/256')
+    SET_INT_REG(226, 0,gm_status)
+    Comment_Reg(1,227, 'G1GN Wr At Nest')
+    SET_INT_REG(227, 0,gm_status)
+    Comment_Reg(1,228, 'G1RB Wr At Nest')
+    SET_INT_REG(228, 0,gm_status)
+    Comment_Reg(1,229, 'G2GN Wr At Nest')
+    SET_INT_REG(229, 0,gm_status)
+    Comment_Reg(1,230, 'G2RB Wr At Nest')
+    SET_INT_REG(230, 0,gm_status)
+    Comment_Reg(1,231, 'G3GN Wr At Nest')
+    SET_INT_REG(231, 0,gm_status)
+    Comment_Reg(1,232, 'G3RB Wr At Nest')
+    SET_INT_REG(232, 0,gm_status)
+    Comment_Reg(1,233, 'G4GN Wr At Nest')
+    SET_INT_REG(233, 0,gm_status)
+    Comment_Reg(1,234, 'G4RB Wr At Nest')
+    SET_INT_REG(234, 0,gm_status)
+    Comment_Reg(1,235, 'SmallCapWrUprLmt')
+    SET_REAL_REG(235, 0.5,gm_status)
+    Comment_Reg(1,236, 'SmallCapWrLwrLmt')
+    SET_REAL_REG(236, -0.5,gm_status)
+    Comment_Reg(1,237, 'SkipCapWearMem')
+    Comment_Reg(1,238, 'LargeCapWrUprLmt')
+    SET_REAL_REG(238, 2.0,gm_status)
+    Comment_Reg(1,239, 'LargeCapWrLwrLmt')
+    SET_REAL_REG(239, -2.0,gm_status)
+    Comment_Reg(1,240, 'G1GNLstTdCycWr')
+    Comment_Reg(1,241, 'G1RBLstTdCycWr')
+    Comment_Reg(1,242, 'G1GNAvgTdCycWr')
+    Comment_Reg(1,243, 'G1RBAvgTdCycWr')
+    Comment_Reg(1,244, 'G1GNWrAtTD')
+    Comment_Reg(1,245, 'G1RBWrAtTD')
+    Comment_Reg(1,246, 'G2GNLstTdCycWr')
+    Comment_Reg(1,247, 'G2RBLstTdCycWr')
+    Comment_Reg(1,248, 'G2GNAvgTdCycWr')
+    Comment_Reg(1,249, 'G2RBAvgTdCycWr')
+    Comment_Reg(1,250, 'G2GNWrAtTD')
+    Comment_Reg(1,251, 'G2RBWrAtTD')
+    Comment_Reg(1,252, 'SERVO GUN WORK')
+    Comment_Reg(1,253, 'SERVO GUN WORK')
+    Comment_Reg(1,254, 'Faulted SPR ID')
+    Comment_Reg(1,256, 'G3GNLstTdCycWr')
+    Comment_Reg(1,257, 'G3RBLstTdCycWr')
+    Comment_Reg(1,258, 'G3GNAvgTdCycWr')
+    Comment_Reg(1,259, 'G3RBAvgTdCycWr')
+    Comment_Reg(1,260, 'G3GNWrAtTD')
+    Comment_Reg(1,261, 'G3RBWrAtTD')
+    Comment_Reg(1,262, 'G4GNLstTdCycWr')
+    Comment_Reg(1,263, 'G4RBLstTdCycWr')
+    Comment_Reg(1,264, 'G4GNAvgTdCycWr')
+    Comment_Reg(1,265, 'G4RBAvgTdCycWr')
+    Comment_Reg(1,266, 'G4GNWrAtTD')
+    Comment_Reg(1,267, 'G4RBWrAtTD')
+    Comment_Reg(1,268, '+tol')
+    SET_REAL_REG(268, 0.2,gm_status)
+    Comment_Reg(1,269, '-tol')
+    SET_REAL_REG(269, -0.2,gm_status)
+    Comment_Reg(1,270, 'G1GN')
+    Comment_Reg(1,271, 'G1RB')
+    Comment_Reg(1,272, 'G1GN diff')
+    Comment_Reg(1,273, 'G1GB diff')
+    Comment_Reg(1,274, 'G1Prompt')
+    Comment_Reg(1,275, 'G2GN')
+    Comment_Reg(1,276, 'G2GB')
+    Comment_Reg(1,277, 'G2GN diff')
+    Comment_Reg(1,278, 'G2GB diff')
+    Comment_Reg(1,279, 'G2Prompt')
+    Comment_Reg(1,280, 'G3GN')
+    Comment_Reg(1,281, 'G3GB')
+    Comment_Reg(1,282, 'G3GN diff')
+    Comment_Reg(1,283, 'G3GB diff')
+    Comment_Reg(1,284, 'G3Prompt')
+    Comment_Reg(1,285, 'G4GN')
+    Comment_Reg(1,286, 'G4GB')
+    Comment_Reg(1,287, 'G4GN diff')
+    Comment_Reg(1,288, 'G4GB diff')
+    Comment_Reg(1,289, 'G4Prompt')
+    Comment_Reg(1,290, 'Counter')
+    Comment_Reg(1,291, 'Equip type')
+    Comment_Reg(1,294, 'Cap DCD2 Code')
+    Comment_Reg(1,295, 'Cap DCD3 Code')
+    Comment_Reg(1,296, 'Search Fault ID')
+    Comment_Reg(1,297, 'Rack Number')
+    SET_INT_REG(297, 0, gm_status)
+    Comment_Reg(1,298, 'Last Part Count1')
+    Comment_Reg(1,299, 'Last Part Count2')
+    Comment_Reg(1,300,'Retry Counter')
+    SET_INT_REG(300,  0, l_status)
+    Comment_Reg(1,301,  'X Limit')
+    SET_INT_REG(301,  0,gm_status)
+    Comment_Reg(1,302,  'Y Limit')
+    SET_INT_REG(302,  0,gm_status)
+    Comment_Reg(1,303,  'Z Limit')
+    SET_INT_REG(303,  0,gm_status)
+    Comment_Reg(1,304,  'WPR Limit')
+    SET_INT_REG(304,  0,gm_status)
+    Comment_Reg(1,305,  'Test Value')
+    SET_INT_REG(305,  0,gm_status)
+    Comment_Reg(1,306,  'Offset Pass')
+    SET_INT_REG(306,  0,gm_status)
+    Comment_Reg(1,307,  'Element Out')
+    SET_INT_REG(307,  0,gm_status)
+    Comment_Reg(1,308,  'OP Menu')
+    SET_INT_REG(308,  0,gm_status)
+    Comment_Reg(1,309,  'PR to Test')
+    SET_INT_REG(309,  0,gm_status)
+    Comment_Reg(1,310,  '3DL Process')
+    SET_INT_REG(310,  0,gm_status)
+    Comment_Reg(1,311,  'Bad Offset Limit')
+    SET_INT_REG(311,  0,gm_status)
+    Comment_Reg(1,312,  'Tier Count')
+    SET_INT_REG(312,  0,gm_status)
+    Comment_Reg(1,313,  'Part Count1')
+    SET_INT_REG(313,  0,gm_status)
+    Comment_Reg(1,314,  'Part Count2')
+    SET_INT_REG(314,  0,gm_status)
+    Comment_Reg(1,315,  'Part Count3')
+    SET_INT_REG(315,  0,gm_status)
+    Comment_Reg(1,316,  'Part Count4')
+    SET_INT_REG(316,  0,gm_status)
+    Comment_Reg(1,317,  'Part Count5')
+    SET_INT_REG(317,  0,gm_status)
+    Comment_Reg(1,318,  'Part Count6')
+    SET_INT_REG(318,  0,gm_status)
+    Comment_Reg(1,319,  'Vision Complete')
+    SET_INT_REG(319,  0,gm_status)
+    Comment_Reg(1,320,  'Racking Complete')
+    SET_INT_REG(320,  0,gm_status)
+    Comment_Reg(1,321,  'Check Rack Stat')
+    SET_INT_REG(321,  0,gm_status)
+    Comment_Reg(1,322,  'OffsetWithinSpc')
+    SET_INT_REG(322,  0,gm_status)
+    Comment_Reg(1,323,  'Bkgrnd Execute')
+    SET_INT_REG(323,  0,gm_status)
+    Comment_Reg(1,324,  'Bkgrnd Abort')
+    SET_INT_REG(324,  0,gm_status)
+    Comment_Reg(1,325,  'Retry Counter 2')
+    SET_INT_REG(325,  0,gm_status)
+    Comment_Reg(1,326,  'Set Reference')
+    SET_INT_REG(326,  0,gm_status)
+    Comment_Reg(1,327, 'Skip Slots')
+    SET_INT_REG(327,  0,gm_status)
+    Comment_Reg(1,328, 'Total Ran')
+    SET_INT_REG(328,  0,gm_status)
+    Comment_Reg(1,329, 'Total Faults')
+    SET_INT_REG(329,  0,gm_status)
+    Comment_Reg(1,330,  'iR Reserved')
+    SET_INT_REG(330,  0,gm_status)
+    Comment_Reg(1,331,  'iR Reserved')
+    SET_INT_REG(331,  0,gm_status)
+    Comment_Reg(1,332, 'iR Reserved')
+    Comment_Reg(1,333,   'G1GN MaxCapWear')
+    Comment_Reg(1,334,   'G1RB MaxCapWear')
+    IF (arc_optn = FALSE) THEN --SpotTool+
+      IF (wld1_app = wld1app_snut) THEN --servo nut weld  
+        Set_Reg_Val(333, 3)
+        Set_Reg_Val(334, 3)
+      ELSE  
+        SET_INT_REG(333,  6,gm_status)
+        SET_INT_REG(334,  6,gm_status)
+      ENDIF --servo nut weld?
+    ELSE --ArcTool
+      SET_INT_REG(333,  6,gm_status)
+      SET_INT_REG(334,  6,gm_status)
+    ENDIF
+    Comment_Reg(1,335,   'G1GN AdjCapWear')
+    Comment_Reg(1,336,   'G1RB AdjCapWear')
+    Comment_Reg(1,337,   'G2GN MaxCapWear')
+    SET_INT_REG(337,  6,gm_status)
+    Comment_Reg(1,338,   'G2RB MaxCapWear')
+    SET_INT_REG(338,  6,gm_status)
+    Comment_Reg(1,339,   'G2GN AdjCapWear')
+    Comment_Reg(1,340,   'G2RB AdjCapWear')
+    Comment_Reg(1,341,   'G3GN MaxCapWear')
+    SET_INT_REG(341,  6,gm_status)
+    Comment_Reg(1,342,   'G3RB_MaxCapWear')
+    SET_INT_REG(342,  6,gm_status)
+    Comment_Reg(1,343,   'G3GN AdjCapWear')
+    Comment_Reg(1,344,   'G3RB AdjCapWear')
+    Comment_Reg(1,345,   'G4GN MaxCapWear')
+    SET_INT_REG(345,  6,gm_status)
+    Comment_Reg(1,346,   'G4RB_MaxCapWear')
+    SET_INT_REG(346,  6,gm_status)
+    Comment_Reg(1,347,   'G4GN AdjCapWear')
+    Comment_Reg(1,348,   'G4RB AdjCapWear')
+
+    Comment_Reg(1,350,'Start RespTime')
+    SET_INT_REG(350,0,gm_status)
+    Comment_Reg(1,351,'PRCP Macro Call')
+    SET_INT_REG(351,0,gm_status)
+    Comment_Reg(1,352,'PRCP Comm Fault')
+    SET_INT_REG(352,0,gm_status)
+    Comment_Reg(1,353,'PRCP Cmd Error')
+    SET_INT_REG(353,0,gm_status)
+    Comment_Reg(1,354,'PRCP Exe Cancel')
+    SET_INT_REG(354,0,gm_status)
+    Comment_Reg(1,355,'PRCP Reply')
+    SET_INT_REG(355,0,gm_status)
+    Comment_Reg(1,356,'PRCP Reply Ext')
+    SET_INT_REG(356,0,gm_status)
+    Comment_Reg(1,357,'PRCP Status')
+    SET_INT_REG(357,0,gm_status)
+    Comment_Reg(1,358,'PRCP Retry Cnt')
+    SET_INT_REG(358,0,gm_status)
+    Comment_Reg(1,359,'Retry Toggle')
+    SET_INT_REG(359,0,gm_status)
+    Comment_Reg(1,360,'Skip Toggle')
+    SET_INT_REG(360,0,gm_status)
+    Comment_Reg(1,361,'Set Robot Pose')
+    SET_INT_REG(361,0,gm_status)
+    Comment_Reg(1,362,'Unidirectional')
+    SET_INT_REG(362,0,gm_status)
+    Comment_Reg(1,363,'Part ID Data')
+    SET_INT_REG(363,0,gm_status)
+    Comment_Reg(1,364,'Part ID Format')
+    SET_INT_REG(364,0,gm_status)
+    Comment_Reg(1,365,'Part ID Number')
+    SET_INT_REG(365,0,gm_status)
+    Comment_Reg(1,366,'Prcs ID Data')
+    SET_INT_REG(366,0,gm_status)
+    Comment_Reg(1,367,'Prcs ID Format')
+    SET_INT_REG(367,0,gm_status)
+    Comment_Reg(1,368,'Prcs ID Number')
+    SET_INT_REG(368,0,gm_status)
+    Comment_Reg(1,369,'Part Type ID')
+    SET_INT_REG(369,0,gm_status)
+    Comment_Reg(1,370,'Set Routine')
+    SET_INT_REG(370,0,gm_status)
+    Comment_Reg(1,371,'Routine ID')
+    SET_INT_REG(371,0,gm_status)
+    Comment_Reg(1,372,'Position ID')
+    SET_INT_REG(372,0,gm_status)
+    Comment_Reg(1,373,'Timeout')
+    SET_INT_REG(373,5000,gm_status)
+    Comment_Reg(1,374,'Velocity')
+    SET_INT_REG(374,0,gm_status)
+    Comment_Reg(1,375,'Fixture ID')
+    SET_INT_REG(375,0,gm_status)
+    Comment_Reg(1,376,'Reference Frame')
+    SET_INT_REG(376,0,gm_status)
+    Comment_Reg(1,377,'Offset Frame')
+    SET_INT_REG(377,0,gm_status)
+    Comment_Reg(1,378,'Frame Qualifier')
+    SET_INT_REG(378,0,gm_status)
+    Comment_Reg(1,379,'PR to Store FRM')
+    SET_INT_REG(379,99,gm_status)
+    Comment_Reg(1,380,'Mode ID')
+    SET_INT_REG(380,0,gm_status)
+    Comment_Reg(1,381,'Snsr Find Prm')
+    SET_INT_REG(381,0,gm_status)
+    Comment_Reg(1,382,'Snsr No Active')
+    SET_INT_REG(382,0,gm_status)
+    Comment_Reg(1,383,'Snsr No Cnfgrd')
+    SET_INT_REG(383,0,gm_status)
+    Comment_Reg(1,384,'QryComp Status')
+    SET_INT_REG(384,99,gm_status)
+    Comment_Reg(1,385,'Alarm Word 1')
+    SET_INT_REG(385,0,gm_status)
+    Comment_Reg(1,386,'Alarm Word 2')
+    SET_INT_REG(386,0,gm_status)
+    Comment_Reg(1,400,  'Brake Test CNT')
+    SET_INT_REG(400,  0,gm_status)
+    Comment_Reg(1,401,  'REFILL DWELL')
+    SET_INT_REG(401,  30000,gm_status)
+    Comment_Reg(1,402,'Continue Last')
+    Comment_Reg(1,403,'Continue Next')
+
+    Comment_Reg(1,405,   'AreaVolume1')
+    Comment_Reg(1,406,   'AreaVolume2')
+    Comment_Reg(1,407,   'AreaVolume3')
+    Comment_Reg(1,408,   'AreaVolume4')
+    Comment_Reg(1,409,   'AreaVolume5')
+    Comment_Reg(1,410,   'AreaVolume6')
+    Comment_Reg(1,411,   'AreaVolume7')
+    Comment_Reg(1,412,   'AreaVolume8')
+    Comment_Reg(1,413,   'AreaVolume9')
+    Comment_Reg(1,414,   'AreaVolume10')
+    Comment_Reg(1,415,   'AreaVolume11')
+    Comment_Reg(1,416,   'AreaVolume12')
+    Comment_Reg(1,417,   'AreaVolume13')
+    Comment_Reg(1,418,   'AreaVolume14')
+    Comment_Reg(1,419,   'AreaVolume15')
+    Comment_Reg(1,420,   'AreaVolume16')
+    Comment_Reg(1,421,   'AreaVolume17')
+    Comment_Reg(1,422,   'AreaVolume18')
+    Comment_Reg(1,423,   'AreaVolume19')
+    Comment_Reg(1,424,   'AreaVolume20')
+    Comment_Reg(1,425,   'AreaVolume21')
+    Comment_Reg(1,426,   'AreaVolume22')
+    Comment_Reg(1,427,   'AreaVolume23')
+    Comment_Reg(1,428,   'AreaVolume24')
+    Comment_Reg(1,429,   'AreaVolume25')
+    Comment_Reg(1,430,   'AreaVolume26')
+    Comment_Reg(1,431,   'AreaVolume27')
+    Comment_Reg(1,432,   'AreaVolume28')
+    Comment_Reg(1,433,   'AreaVolume29')
+    Comment_Reg(1,434,   'AreaVolume30')
+    Comment_Reg(1,435,   'AreaVolume31')
+    Comment_Reg(1,436,   'AreaVolume32')
+
+    Comment_Reg(1,437,   'SPR ID Work')
+    SET_INT_REG(437,  0,gm_status)
+    Comment_Reg(1,438,   'MaxNum SPR')
+    SET_INT_REG(438,  40,gm_status)
+    Comment_Reg(1,439,   'SPR ID count')
+    Comment_Reg(1,440,   'SPRIDWorkCount')
+    Comment_Reg(1,441,   'SPR Auto Retry')
+    Comment_Reg(1,442,'SPRSTRNGRegRst')
+    SET_INT_REG(442,0,gm_status)
+    Comment_Reg(1,443,'FDSRetryCounter')
+--    SET_INT_REG(443,0,gm_status)        -- set values in app register setup (eg gmfdsrg.kl)
+    Comment_Reg(1,445,'AutoSkipCntr')
+--    SET_INT_REG(445,0,gm_status)
+    Comment_Reg(1,446,'SPRMaxNumSkips')
+--    SET_INT_REG(446,2,gm_status)
+    Comment_Reg(1,447,'ScrewSchedule')
+--    SET_INT_REG(447,0,gm_status)
+    Comment_Reg(1,450,  'PWTipLimit')
+    SET_INT_REG(450,  5000,gm_status)
+    Comment_Reg(1,451,  'PWAppTipLimit')
+    SET_INT_REG(451,  200,gm_status)
+    Comment_Reg(1,452,  'PW Active')
+    SET_INT_REG(452,  0,gm_status)
+    Comment_Reg(1,455,   'DW Active')
+    Comment_Reg(1,459,  'DVGEnabled')
+    SET_INT_REG(459,  0,gm_status)
+    Comment_Reg(1,460,  'CAPSEAT RTRY CNT')
+    Comment_Reg(1,461,  'CAPPULL RTRY CNT')
+    
+    Comment_Reg(1,500,'T2 Prompt Box')
+  ENDIF --load for all other shops and ArcTool
+ELSE --
+  POST_ERR(38000, 'Data Register Registers Not Updated', 0, 0) --
+ENDIF
+
+  --V8.33P09 SMS 2-14-2020
+  Comment_Reg(1,399,'Brake Jx Fail')
+  SET_INT_REG(399,0,gm_status)
+  Comment_Reg(1,465,  'G1G2 Mode       ')
+  SET_INT_REG(465,0,gm_status)
+  Comment_Reg(1,466,  'G1G2Delta1      ')
+  SET_INT_REG(466,0,gm_status)  
+  Comment_Reg(1,467,  'G1G2Delta2      ')
+  SET_INT_REG(467,0,gm_status)  
+  Comment_Reg(1,468,  'G1G2Delta3      ')
+  SET_INT_REG(468,0,gm_status)
+  Comment_Reg(1,469,  'G1G2SegSetReduce')
+  SET_INT_REG(469,  0,gm_status)
+
+FOR l_stat = 470 to 479 DO
+   Comment_Reg(1,l_stat,  'RESERVED ADV MH')
+ENDFOR
+
+   Comment_Reg(1,480,  'GMDCSLOG Status')-- RK added 11-7-18
+   SET_INT_REG(480,  0,gm_status)
+
+   WriteLog('  Cell Register Setup Completed',FALSE)
+
+END Set_Cell_Reg
+
+-----------------------------------------------------------------------------
+ROUTINE SetCell_SReg
+-- PURPOSE:  this routine will set the String Registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+------------------------------------------------------------------------------
+BEGIN
+
+WriteLog('  Start of Cell String Register Routine',FALSE)
+
+FOR l_stat = 50 to 54 DO
+  Comment_Reg(3,l_stat,'RSVD-HMI IPs')-- (String Register for $FSAC)
+ENDFOR
+
+WriteLog('  Start of Cell String Register Completed',FALSE)
+
+END SetCell_SReg
+-----------------------------------------------------------------------------
+ROUTINE set_reg
+-- PURPOSE:  this routine will execute all register routines
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+------------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(arc_optn) THEN --ArcTool
+  arc_loaded
+ENDIF
+
+IF (arc_optn = FALSE) THEN --SpotTool
+  IF (mfg_area <> mfg_area_ps) THEN  --check if press shop
+    press_shop = FALSE
+  ELSE --press shop
+    press_shop = TRUE
+  ENDIF
+ELSE  --ArcTool
+  press_shop = FALSE  --no shops in Arc, therefore FALSE
+ENDIF
+
+WRITE TPERROR(CHR(cc_clear_win),'Start of GMCELLRG Setup')
+DELAY 600
+
+WRITE TPERROR(CHR(cc_clear_win),'Start of Cell Position Register Routine')
+
+IF UNINIT(ErrsInCell.ErrorsRgstrs) THEN
+  ErrsInCell.ErrorsRgstrs = 0
+ENDIF
+IF UNINIT(CellRegsDone) THEN
+  CellRegsDone = FALSE
+ENDIF
+
+num_errors = 0  -- reset number of execution errors to 0
+
+ StrtinErs = ErrsInCell.ErrorsRgstrs -- grab curent eror count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog('Starting the Cell Register Program', FALSE)
+
+  IF (CellRegsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('Cell Registers Already Setup', FALSE)
+    IF ExecSetupAgn('Cell Registers') THEN -- ask user if they want to setup again
+      CellRegsDone = FALSE
+    ELSE
+      WriteLog('Cell Registers already Complete', FALSE)
+      WriteLog('GMCELLRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+
+Set_CellPReg -- setup cell position registers
+
+SetCellRefP  -- Setup Cell reference positions
+
+Set_Cell_Reg -- setup cell data registers
+
+SetCell_SReg -- setup cell data string registers
+
+
+  ErrsInCell.ErrorsRgstrs =  ErrsInCell.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInCell.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('MH Register Program GMCELLRG had ' + int2str((ErrsInCell.ErrorsRgstrs- StrtinErs))+' errors', TRUE)
+ ELSE
+   WriteLog('GMCELLRG Setup Succesfully', FALSE)
+   CellRegsDone = TRUE
+ ENDIF
+
+ WriteLog('', FALSE)
+
+END set_reg
+------------------------------------------------------------------------------
+BEGIN
+
+   set_reg
+
+END GMCELLRG
+

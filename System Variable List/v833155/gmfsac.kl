@@ -1,0 +1,309 @@
+--   -----------------------------------------------------------------------
+--
+--   MODULE:         GMFSAC.KL
+--   TITLE:          GMFSAC PROGRAM
+--
+--
+--   WRITTEN BY:     Steve Schoenberg
+--   REVISION DATE:  3/9/2020
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2020
+--         DESCRIPTION: Program  program files. These routines will be
+--                      called from GMATCSTM, no prompts are in the Program file.
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE         BY          COMMENTS
+--         --------   -----------  ----------  ------------------------------------------
+--         V1.0       2020/03/09   schoensm    Created during V8.33P09
+--         V1.1       2020/05/08   schoensm    Removed 15 character limit, and remove leading zeroes on each octet.
+--
+--------------------------------------------------------------------------
+PROGRAM GMFSAC
+
+%COMMENT = 'GM FSAC V1.1'
+
+%NOLOCKGROUP
+--%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT tmidef
+%ENVIRONMENT hostdef
+%ENVIRONMENT ftpdef
+%ENVIRONMENT regope
+
+CONST
+Version = '2020-05-08'
+
+VAR
+  eip_octi1,
+  eip_octi2,
+  eip_octi3,
+  eip_octi4,
+  eip_length,
+  indx,	
+  indx2,  
+  ctr,
+  ctr2,  
+  status,
+  dot_one,
+  dot_two,
+  dot_three,
+  oct_one,
+  oct_two,
+  oct_three,
+  oct_four,
+  l_psve,
+  fsac_enb   : INTEGER
+  eip_octs1,
+  eip_octs2,
+  eip_octs3,
+  eip_octs4,
+  eip_return  : STRING[16]
+  hmi_ip      : ARRAY[20] of STRING[MAX_FILE_NAM]
+  hmi_scratch : ARRAY[5] of STRING[MAX_FILE_NAM]
+  hmi_octi    : ARRAY[20] of INTEGER
+  dsply_alrm  : BOOLEAN
+
+-----------------------------------------------------------------------------
+ROUTINE int2str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------------------------
+VAR
+  l_string: STRING[6]
+
+BEGIN
+  l_string = ''
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+
+END int2str
+-----------------------------------------------------------------------------
+ROUTINE set_fsac
+-- PURPOSE: If $FSAC enabled, interrogate SR[50-54] and add to FSAC list is valid.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  GMATCSTM.PC
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+--V8.33P09 SMS 3-4-2020
+--init local vars
+dot_one   = 0
+dot_two   = 0
+dot_three = 0
+eip_octs1 = ''
+eip_octs2 = ''
+eip_octs3 = ''
+eip_octs4 = ''
+eip_octi1 = 0
+eip_octi2 = 0
+eip_octi3 = 0
+eip_octi4 = 0
+oct_one   = 0
+oct_two   = 0
+oct_three = 0
+oct_four  = 0
+
+FOR ctr = 1 to 20 DO
+  hmi_octi[ctr] = 0
+ENDFOR
+
+FOR ctr = 1 to 20 DO
+  hmi_ip[ctr] = ''
+ENDFOR
+
+FOR ctr = 1 to 5 DO
+  hmi_scratch[ctr] = ''
+ENDFOR
+
+ctr = 0
+GET_VAR(l_psve, '*system*', '$FSAC_ENABLE', fsac_enb, status)          				
+--Check to see if $FSAC is enabled, if not jump out. SUB_STR(source, start, length)
+IF (fsac_enb = 1) THEN										
+  GET_VAR(l_psve, '*system*', '$HOSTENT[17].$H_ADDR', eip_return, status)		
+  IF NOT UNINIT(eip_return) THEN 								
+    eip_length = STR_LEN(eip_return)							
+    FOR indx = 1 TO eip_length DO							
+      IF SUB_STR(eip_return, indx, 1) = '.' THEN 	                          	
+	ctr = ctr + 1          									
+	IF ctr = 1 THEN									
+	  dot_one = indx									
+	  oct_one = (indx-1)								
+	  eip_octs1 = SUB_STR (eip_return, 1, oct_one) 						
+	  CNV_STR_INT(eip_octs1, eip_octi1)							
+	ENDIF 											
+	IF ctr = 2 THEN										
+	  dot_two = indx								
+	  oct_two = (dot_two-dot_one-1) 							
+	  eip_octs2 = SUB_STR(eip_return, (dot_one+1), oct_two)					
+	  CNV_STR_INT(eip_octs2, eip_octi2)							
+	ENDIF											
+	IF ctr = 3 THEN										
+	  dot_three = indx								
+	  oct_three = (dot_three-dot_two-1)							
+	  eip_octs3 = SUB_STR(eip_return, (dot_two+1), oct_three)           		        
+	  CNV_STR_INT(eip_octs3, eip_octi3)				                        
+	  --get Octet 4 while you are in here
+	  eip_octs4 = SUB_STR(eip_return, (dot_three+1), (eip_length-dot_three))                
+	  CNV_STR_INT(eip_octs4, eip_octi4)						
+	ENDIF													  	  
+      ENDIF										
+    ENDFOR											
+
+    ctr = 0    		   											
+    ctr2 = 50                                                              			
+    FOR indx2 = 1 TO 5 DO									
+      GET_STR_REG(ctr2, hmi_ip[indx2], status)							
+      ctr2 = ctr2 + 1                                                     				              
+      IF (STR_LEN(hmi_ip[indx2])>6) AND (STR_LEN(hmi_ip[indx2])<16) THEN
+      	eip_return = hmi_ip[indx2]							
+        eip_length = STR_LEN(eip_return)							
+        FOR indx = 1 TO eip_length DO								
+          IF SUB_STR(eip_return, indx, 1) = '.' THEN 	                        	        
+	    ctr = ctr + 1                      							
+	    IF (ctr = 1) OR (ctr = 5) OR (ctr = 9) OR (ctr = 13) OR (ctr = 17) THEN             
+	      dot_one = indx								
+	      oct_one = (indx-1)								
+	      eip_octs1 = SUB_STR (eip_return, 1, oct_one)  					
+	      CNV_STR_INT(eip_octs1, hmi_octi[ctr])						
+	    ENDIF 										
+	    IF (ctr = 2) OR (ctr = 6) OR (ctr = 10) OR (ctr = 14) OR (ctr = 18) THEN		
+	      dot_two = indx									
+	      oct_two = (dot_two-dot_one-1) 							
+	      eip_octs2 = SUB_STR(eip_return, (dot_one+1), oct_two)		        	
+              CNV_STR_INT(eip_octs2, hmi_octi[ctr])
+	    ENDIF										
+	    IF (ctr = 3) OR (ctr = 7) OR (ctr = 11) OR (ctr = 15) OR (ctr = 19) THEN		
+	      dot_three = indx								
+	      oct_three = (dot_three-dot_two-1)						
+	      eip_octs3 = SUB_STR(eip_return, (dot_two+1), oct_three)                           
+	      CNV_STR_INT(eip_octs3, hmi_octi[ctr])						
+	      --get Octet 4 while you are in here
+	      ctr = ctr + 1                            						
+	      eip_octs4 = SUB_STR(eip_return, (dot_three+1), (eip_length-dot_three))            
+	      CNV_STR_INT(eip_octs4, hmi_octi[ctr])						
+	    ENDIF												  	  
+          ENDIF											
+	ENDFOR											
+      ELSE
+        ctr = ctr + 4                                                                           
+        hmi_octi[ctr] = 0                                                  		        
+        IF dsply_alrm = TRUE THEN                                          		        
+	  POST_ERR(38000, 'String Reg '+ int2STR(indx2 + 49) +' Invalid IP Address', 0, 0) 
+        ENDIF
+      ENDIF										        
+    ENDFOR										        
+
+    ctr = 1
+    FOR indx = 1 to 5 DO					                                 
+      --CNV_INT_STR(hmi_octi[ctr], 3, 0, hmi_oct[ctr])                                            
+      IF (hmi_octi[ctr]<>0) AND (hmi_octi[ctr + 1]<>0) AND (hmi_octi[ctr + 2]<> 0) AND (hmi_octi[ctr + 3]<>0) THEN  
+    	hmi_scratch[indx] = int2str(hmi_octi[ctr]) + '.'+ int2str(hmi_octi[ctr+1]) + '.' + int2str(hmi_octi[ctr+2]) +'.' + int2str(hmi_octi[ctr+3])
+      ENDIF
+      ctr = ctr + 4                                                                             	
+    ENDFOR														
+
+    ctr = 1                                                               					
+    FOR indx = 1 to 5 DO									
+      IF hmi_ip[indx] <> '' THEN                                          			
+        IF (eip_octi1 = hmi_octi[ctr]) THEN							
+	  ctr = (ctr + 1)									
+	  IF (eip_octi2 = hmi_octi[ctr]) THEN							
+	    ctr = (ctr + 1)									
+	    IF (eip_octi3 = hmi_octi[ctr]) THEN							
+	      ctr = (ctr + 2)									
+	      USING $FSAC_LIST[indx + 15] DO						
+	      	$CLNT_NAME = 'HMI'								
+  	        $IP_ADDRESS = (hmi_scratch[indx])						
+  	        $ACCESS_LVL=1									
+  	        $APPS = 4									
+	      ENDUSING                                                    			
+	    ELSE
+              ctr = ctr + 2                                                			
+              IF dsply_alrm = TRUE THEN                                    			
+	        POST_ERR(38000, 'String Reg '+ int2STR(indx + 49) +' Octet 3 Mismatch', 0, 0)
+              ENDIF
+	    ENDIF										
+	  ELSE
+            ctr = ctr + 3                                                 			
+            IF dsply_alrm = TRUE THEN                                     			
+	      POST_ERR(38000, 'String Reg '+ int2STR(indx + 49) +' Octet 2 Mismatch', 0, 0)
+            ENDIF
+	  ENDIF											
+        ELSE
+          ctr = ctr + 4                                                   			
+          IF dsply_alrm = TRUE THEN                                       			
+	    POST_ERR(38000, 'String Reg '+ int2STR(indx + 49) +' Octet 1 Mismatch', 0, 0)
+          ENDIF
+        ENDIF											
+      ELSE
+        ctr = ctr + 4                                                  			        
+      ENDIF                                                                			
+    ENDFOR                                                                 			
+  ELSE
+    IF dsply_alrm = TRUE THEN                                              			
+      POST_ERR(38000, 'Robot has no IP address', 0, 0)
+    ENDIF                                                
+  ENDIF												
+ELSE
+  IF dsply_alrm = TRUE THEN                                                			
+    POST_ERR(38000, '$FSAC Not Enabled', 0, 0) 
+  ENDIF
+ENDIF												
+
+END set_fsac
+-----------------------------------------------------------------------------
+ROUTINE fsac_1
+-- Routine to run on power-up, all alarms will display
+-----------------------------------------------------------------------------
+BEGIN
+dsply_alrm = TRUE 
+															
+set_fsac																	
+
+END fsac_1
+-----------------------------------------------------------------------------
+ROUTINE fsac_2
+-- Routine to run on robot init, all alarms will be masked
+-----------------------------------------------------------------------------
+BEGIN
+dsply_alrm = FALSE 
+															
+set_fsac 																
+
+END fsac_2
+-----------------------------------------------------------------------------
+BEGIN
+--run with alarms enabled using shift+forward
+fsac_1
+
+END GMFSAC
+
+
+
+
+
+

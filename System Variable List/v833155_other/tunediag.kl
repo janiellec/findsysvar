@@ -1,0 +1,563 @@
+-------------------------------------------------------------------------------
+--
+--    13-AUG-2010 Servo Gun Tuning Diag Results v750.
+--    08-DEC-2011 Modified for failed tuning cases, SOT + AutoTune Success is required.
+--    10-15-13 jja R30iB Development
+--    2016/09/26 marchaka Updated program to look at the correct axis since servo tip
+--                        dressers were added
+-------------------------------------------------------------------------------
+PROGRAM tunediag
+-------------------------------------------------------------------------------
+
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT = 'v833TuneDiagv4.0'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+
+-- Softpart built-ins
+%ENVIRONMENT SWGDEF
+%ENVIRONMENT SGDEF1
+%ENVIRONMENT proddef
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT strng
+%ENVIRONMENT REGOPE
+%ENVIRONMENT UIF
+%ENVIRONMENT TIM
+
+%INCLUDE klevkmsk
+%INCLUDE kltpctrl
+%INCLUDE kliotyps
+%include klevutil
+%INCLUDE klevccdf
+%INCLUDE gmcfgspt  --GM spot application variables
+
+CONST
+
+  LBF_TO_KGF  = 0.45359237   -- lbs to Kgf
+--N_TO_KGF    = 0.101971621  -- Newtons to Kgf --included in gmcnstnt
+--KN_TO_KGF   = 101.971621298 --Kilonewton to Kgf  V750P23  jja
+
+  %INCLUDE gmcnstnt --all GM constants for wizard
+
+VAR
+
+  thrs123_opt IN CMOS FROM TUNEDIAG : BOOLEAN
+  t2limit     IN CMOS FROM TUNEDIAG : INTEGER
+  l_t1	      IN CMOS FROM TUNEDIAG : INTEGER
+  l_t2	      IN CMOS FROM TUNEDIAG : INTEGER
+  minprsg1    IN CMOS FROM TUNEDIAG : REAL
+  l_minprsg1  IN CMOS FROM TUNEDIAG : INTEGER
+  minprsg2    IN CMOS FROM TUNEDIAG : REAL
+  l_minprsg2  IN CMOS FROM TUNEDIAG : INTEGER
+  minprsg3    IN CMOS FROM TUNEDIAG : REAL
+  l_minprsg3  IN CMOS FROM TUNEDIAG : INTEGER
+  minprsg4    IN CMOS FROM TUNEDIAG : REAL
+  l_minprsg4  IN CMOS FROM TUNEDIAG : INTEGER
+  l_time      IN CMOS FROM TUNEDIAG : INTEGER
+  tunedate    IN CMOS FROM TUNEDIAG : ARRAY[10,2] OF STRING[40]
+  tuneokg1    IN CMOS FROM TUNEDIAG : BOOLEAN
+  tuneokg2    IN CMOS FROM TUNEDIAG : BOOLEAN
+  tuneokg3    IN CMOS FROM TUNEDIAG : BOOLEAN
+  tuneokg4    IN CMOS FROM TUNEDIAG : BOOLEAN
+  quest_val   IN CMOS FROM TUNEDIAG : INTEGER
+  l_psve, l_status                                 : INTEGER
+  l_sot 				           : INTEGER
+  l_gun_num   IN CMOS FROM TUNEDIAG : STRING[2]
+  l_tunestat  : INTEGER
+  std_thrsh_r   IN CMOS FROM TUNEDIAG : REAL  --jja  R30iB
+  param183_r    IN CMOS FROM TUNEDIAG : REAL  --jja  R30iB 
+  std_thrsh_i   IN CMOS FROM TUNEDIAG : INTEGER  --jja  R30iB
+  std_thrsh2    : INTEGER
+  param183_i    IN CMOS FROM TUNEDIAG : INTEGER  --jja  R30iB 
+  param186_i    IN CMOS FROM TUNEDIAG : INTEGER
+  hrdaxis_e1g1  : INTEGER
+  hrdaxis_e1g2  : INTEGER
+  hrdaxis_e2g1  : INTEGER
+  --From other programs
+  eq_num       IN CMOS FROM AT_KL00 : INTEGER --  current equipment#
+  gun_num      IN CMOS FROM AT_KL00 : INTEGER --  gun# of current (attached) gun
+
+  got_rtu      IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Extended axis option loaded
+
+
+ROUTINE rtu_optn FROM gmwizspt  --check if J518 Exteneded Axis is loaded
+------------------------------------------------------------------
+ROUTINE int_to_strg( p_int:INTEGER ): STRING
+VAR 
+  l_text: STRING[14] 
+BEGIN
+
+  l_text = ''
+
+  CNV_INT_STR( p_int, STR_LEN(l_text), 0, l_text )
+  -- remove leading blank
+  l_text = SUB_STR( l_text, 2, STR_LEN(l_text) )
+  RETURN( l_text )
+
+END int_to_strg
+
+-----------------------------------------------------------------------------------
+ROUTINE date_cnt						                   
+--  This routine will record the last 10 tune dates          
+-----------------------------------------------------------------------------------
+
+BEGIN
+   
+   -- Count reset in SWWIZARD when wizard is INIT.
+   quest_val = ((quest_val) + 1)
+
+END date_cnt
+-----------------------------------------------------------------------------------
+
+BEGIN --tunediag
+
+-- Clear the TP USER screen
+WRITE TPSTATUS (CHR(cc_clear_win))
+WRITE TPDISPLAY (CHR(cc_clear_win))
+WRITE TPFUNC (CHR(cc_clear_win))
+WRITE TPPROMPT (CHR(cc_clear_win))
+
+IF UNINIT(got_rtu) THEN
+  rtu_optn
+ENDIF
+
+IF UNINIT (t2limit) THEN
+  t2limit = 1400
+ENDIF
+
+IF UNINIT (l_t1) THEN
+  l_t1 = 1400  --jja  R30iB was 1400
+ENDIF
+
+IF UNINIT (l_t2) THEN
+  l_t2 = 1400  --jja  R30iB was 1400
+ENDIF
+
+IF UNINIT (quest_val) THEN
+  quest_val = 0
+ENDIF
+
+IF quest_val = 10 THEN
+  quest_val = 0
+ENDIF
+   date_cnt
+-- Get time 
+GET_TIME(l_time)
+-- Convert time to DD-MMM-YYY-HH:MM format
+CNV_TIME_STR(l_time,tunedate[quest_val,1])
+   l_gun_num = int_to_strg(gun_num)
+   tunedate[quest_val,2] = l_gun_num
+
+IF UNINIT(tuneokg1) THEN
+  tuneokg1 = FALSE
+ENDIF
+
+IF UNINIT(tuneokg2) THEN
+  tuneokg2 = FALSE
+ENDIF
+
+IF UNINIT(tuneokg3) THEN
+  tuneokg3 = FALSE
+ENDIF
+
+IF UNINIT(tuneokg4) THEN
+  tuneokg4 = FALSE
+ENDIF
+
+--Need to get hardware start axis variables complete for all tuning configs, these variables
+--  are used as a starting point for all configurations
+IF (got_rtu = FALSE) THEN -- No RTU
+  IF (spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_yes) THEN --no RTU with servo dresser on gun 1
+    hrdaxis_e1g1 = 8
+  ELSE  --no RTU without servo dresser on gun 1
+    hrdaxis_e1g1 = 7
+  ENDIF --servo tip dresser
+ELSE -- RTU
+  IF (spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_yes) THEN --RTU with servo dresser on gun 1
+    hrdaxis_e1g1 = 9
+  ELSE  --RTU without servo dresser on gun 1
+    hrdaxis_e1g1 = 8
+  ENDIF --servo tip dresser            
+ENDIF  -- No RTU
+
+-------------------------------------------------------------------------------
+-- Equipment 1 Gun 1
+IF (eq_num = 1) AND (gun_num = 1) THEN
+
+-- KGF  V750P23 jja
+IF $sgsyscfg.$prs_units = 0 THEN
+  minprsg1 = ($SGGUN1.$SETUP.$CAL_PRESS1)
+  l_minprsg1 = ROUND(minprsg1)
+ENDIF
+-- Minimum Calibration force LBF
+IF $sgsyscfg.$prs_units = 1 THEN
+  minprsg1 = ($SGGUN1.$SETUP.$CAL_PRESS1) / (LBF_TO_KGF)
+  l_minprsg1 = ROUND(minprsg1)
+ENDIF
+-- NWT 
+IF $sgsyscfg.$prs_units = 2 THEN
+  minprsg1 = ($SGGUN1.$SETUP.$CAL_PRESS1) / (N_TO_KGF)
+  l_minprsg1 = ROUND(minprsg1)
+ENDIF
+  
+  std_thrsh_r  = ($sggun1.$cd.$std_thrsh) / (1.3)  --jja  R30iB
+  std_thrsh_i  = ROUND(std_thrsh_r)
+
+  param183_r   = ($sbr[hrdaxis_e1g1].$param[183]) / (1.3)  --jja  R30iB   
+  param183_i  = ROUND(param183_r)
+  param186_i   = $sbr[hrdaxis_e1g1].$param[186]
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+      WRITE ('Servo Gun Tuning Results EQ:1,GUN:1',CR,CR)
+      WRITE ('Overtorque SOT ', std_thrsh_i ,' (ct)',CR)  --jja  R30iB
+      WRITE ('TH1,TH2,', param183_i ,',', param186_i,' (ct)',CR)  --jja  R30iB was TH2 $sbr[7].$param[189]
+--jja  R30iB      WRITE ('TH3', $sbr[7].$param[186] ,' (ct)',CR)
+
+      IF $sgsyscfg.$prs_units = 2 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg1,' (nwt)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 1 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg1,' (lbf)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 0 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg1,' (kgf)',CR)
+      ENDIF
+
+      WRITE ('Execution Date ',tunedate[quest_val,1],CR)
+	  -- Store T1 and T2
+	  l_t1 = param183_i  --jja  R30iB $sbr[7].$param[183]
+	  l_t2 = param186_i --jja  R30iB was TH2 $sbr[7].$param[189]
+	  -- Correct if negative 
+	  IF l_t1 < 0 THEN
+	    l_t1 = (l_t1 * (-1))
+	  ENDIF
+	  IF l_t2 < 0 THEN
+	    l_t2 = (l_t2 * (-1))
+	  ENDIF
+
+--$AUTTUN_STAT = 0 => INCOMP 
+--$AUTTUN_STAT = 1 => IN PROCESS 
+--$AUTTUN_STAT = 2 => COMPLETE 
+--$AUTTUN_STAT = 3 => FAULTED 
+
+          IF $SGGUN1.$SETUP.$AUTTUN_STAT = 2 THEN
+            tuneokg1 = TRUE
+          ELSE
+            tuneokg1 = FALSE
+          ENDIF
+
+	  IF ( ( l_t1 < t2limit ) OR ( l_t2 < t2limit ) ) AND (tuneokg1 = TRUE) THEN
+            WRITE ('EQ:1, GUN:1 Process Results OK')
+	  ELSE
+	    IF (tuneokg1 = TRUE) THEN 
+	      WRITE ('WARN:EQ:1,GUN:1 Process Result ALERT',cr)
+	      WRITE ('Peak weld forces out of tolerance +-10%')
+            ENDIF
+	    IF (tuneokg1 = FALSE) THEN 
+	      WRITE ('AUTOTUNING FAILED!',cr)
+            ENDIF
+	  ENDIF
+ENDIF
+
+-------------------------------------------------------------------------------
+-- Equipment 1 Gun 2
+IF (eq_num = 1) AND (gun_num = 2) THEN
+
+-- KGF  V750P23 jja
+IF $sgsyscfg.$prs_units = 0 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+-- Minimum Calibration force LBF
+IF $sgsyscfg.$prs_units = 1 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  minprsg2 = minprsg2 / (LBF_TO_KGF)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+-- NWT 
+IF $sgsyscfg.$prs_units = 2 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  minprsg2 = minprsg2 / (N_TO_KGF)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+
+--get hardware axis for gun 2
+IF (spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_yes) THEN --no RTU with servo dresser on gun 2
+  hrdaxis_e1g2 = hrdaxis_e1g1 + 2
+ELSE  --without servo dresser on gun 2
+  hrdaxis_e1g2 = hrdaxis_e1g1 + 1
+ENDIF --servo tip dresser
+    
+  GET_VAR(l_psve,'*SYSTEM*','$sggun2.$cd.$std_thrsh',std_thrsh2,l_status)
+  std_thrsh_r  = (std_thrsh2) / (1.3)  
+  std_thrsh_i  = ROUND(std_thrsh_r)
+
+  param183_r   = ($sbr[hrdaxis_e1g2].$param[183]) / (1.3)  
+  param183_i  = ROUND(param183_r)
+  param186_i   = $sbr[hrdaxis_e1g2].$param[186]
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+      WRITE ('Servo Gun Tuning Results EQ:1,GUN:2',CR,CR)      
+      WRITE ('Overtorque SOT ', std_thrsh_i,' (ct)',CR)
+      WRITE ('TH1,TH2,', param183_i ,',', param186_i,' (ct)',CR)  
+
+      IF $sgsyscfg.$prs_units = 2 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (nwt)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 1 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (lbf)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 0 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (kgf)',CR)
+      ENDIF
+
+      WRITE ('Execution Date ',tunedate[quest_val,1],CR)
+	  -- Store T1 and T2
+	  l_t1 = param183_i  
+	  l_t2 = param186_i 
+	  -- Correct if negative 
+	  IF l_t1 < 0 THEN
+	    l_t1 = (l_t1 * (-1))
+	  ENDIF
+	  IF l_t2 < 0 THEN
+	    l_t2 = (l_t2 * (-1))
+	  ENDIF
+          
+          GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$AUTTUN_STAT',l_tunestat,l_status)
+          IF l_tunestat = 2 THEN
+            tuneokg2 = TRUE
+          ELSE
+            tuneokg2 = FALSE
+          ENDIF
+
+	  IF ( ( l_t1 < t2limit ) OR ( l_t2 < t2limit ) ) AND (tuneokg2 = TRUE) THEN
+            WRITE ('EQ:1, GUN:2 Process Results OK')
+	  ELSE
+	    WRITE ('WARN:EQ:1,GUN:2 Process Result ALERT',cr)
+	    WRITE ('Peak weld forces out of tolerance +-10%')
+	  ENDIF
+ENDIF
+
+-------------------------------------------------------------------------------
+-- Equipment 2 Gun 1
+IF (eq_num = 2) AND (gun_num = 2) AND($spotnumeq = 2) AND ($spoteqsetup[2].$num_guns = 1) THEN
+
+-- KGF  V750P23 jja
+IF $sgsyscfg.$prs_units = 0 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+-- Minimum Calibration force LBF
+IF $sgsyscfg.$prs_units = 1 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  minprsg2 = minprsg2 / (LBF_TO_KGF)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+-- NWT 
+IF $sgsyscfg.$prs_units = 2 THEN
+  GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$CAL_PRESS1',minprsg2,l_status)
+  minprsg2 = minprsg2 / (N_TO_KGF)
+  l_minprsg2 = ROUND(minprsg2)
+ENDIF
+
+--get hardware axis for gun 2
+IF (spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_yes) THEN --no RTU with servo dresser on gun 2
+  hrdaxis_e2g1 = hrdaxis_e1g1 + 2
+ELSE  --without servo dresser on gun 2
+  hrdaxis_e2g1 = hrdaxis_e1g1 + 1
+ENDIF --servo tip dresser
+  
+  GET_VAR(l_psve,'*SYSTEM*','$sggun2.$cd.$std_thrsh',std_thrsh2,l_status)
+  std_thrsh_r  = (std_thrsh2) / (1.3)  
+  std_thrsh_i  = ROUND(std_thrsh_r)
+
+  param183_r   = ($sbr[hrdaxis_e2g1].$param[183]) / (1.3)    
+  param183_i  = ROUND(param183_r)
+  param186_i   = $sbr[hrdaxis_e2g1].$param[186]
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+      WRITE ('Servo Gun Tuning Results EQ:2,GUN:1',CR,CR)      
+      WRITE ('Overtorque SOT ', std_thrsh_i,' (ct)',CR)
+      WRITE ('TH1,TH2,', param183_i ,',', param186_i,' (ct)',CR)  
+
+      IF $sgsyscfg.$prs_units = 2 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (nwt)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 1 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (lbf)',CR)
+      ENDIF
+      IF $sgsyscfg.$prs_units = 0 THEN --V750P23 jja
+        WRITE ('Minimum Calibration Force',l_minprsg2,' (kgf)',CR)
+      ENDIF
+
+      WRITE ('Execution Date ',tunedate[quest_val,1],CR)
+	  -- Store T1 and T2
+	  l_t1 = param183_i  
+	  l_t2 = param186_i 
+	  -- Correct if negative 
+	  IF l_t1 < 0 THEN
+	    l_t1 = (l_t1 * (-1))
+	  ENDIF
+	  IF l_t2 < 0 THEN
+	    l_t2 = (l_t2 * (-1))
+	  ENDIF
+
+          GET_VAR(l_psve,'*SYSTEM*','$SGGUN2.$SETUP.$AUTTUN_STAT',l_tunestat,l_status)
+          IF l_tunestat = 2 THEN
+            tuneokg2 = TRUE
+          ELSE
+            tuneokg2 = FALSE
+          ENDIF
+
+	  IF ( ( l_t1 < t2limit ) OR ( l_t2 < t2limit ) ) AND (tuneokg2 = TRUE) THEN
+            WRITE ('EQ:2, GUN:1 Process Results OK')
+	  ELSE
+	    WRITE ('WARN:EQ:2,GUN:1 Process Result ALERT',cr)
+	    WRITE ('Peak weld forces out of tolerance +-10%')
+	  ENDIF
+ENDIF
+
+-------------------------------------------------------------------------------
+--**********************************************************************************************
+--TWO GUNS MAXIMUM ON GLOBAL 4, CODE IS COMMENTED OUT FOR NOW
+--IF IT IS USED, WILL NEED TO UPDATE PER HOW LOGIC IS DONE FOR THE OTHER CONFIGURATIONS
+--**********************************************************************************************
+
+-- Equipment 2 Gun 1 (Which is GUN 3 in the system)
+
+--IF (eq_num = 2) AND (gun_num = 3) AND($spotnumeq = 2) AND ($spoteqsetup[2].$num_guns = 1) THEN
+
+-- KGF  V750P23 jja
+--IF $sgsyscfg.$prs_units = 0 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN3.$SETUP.$CAL_PRESS1',minprsg3,l_status)
+  --l_minprsg3 = ROUND(minprsg3)
+--ENDIF
+-- Minimum Calibration force LBF
+--IF $sgsyscfg.$prs_units = 1 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN3.$SETUP.$CAL_PRESS1',minprsg3,l_status)
+  --minprsg3 = minprsg3 / (LBF_TO_KGF)
+  --l_minprsg3 = ROUND(minprsg3)
+--ENDIF
+-- NWT 
+--IF $sgsyscfg.$prs_units = 2 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN3.$SETUP.$CAL_PRESS1',minprsg3,l_status)
+  --minprsg3 = minprsg3 / (N_TO_KGF)
+  --l_minprsg3 = ROUND(minprsg3)
+--ENDIF
+
+  --FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+      --WRITE ('Servo Gun Tuning Results EQ:2,GUN:3',CR,CR)
+      --GET_VAR(l_psve,'*SYSTEM*','$sggun3.$cd.$std_thrsh',l_sot,l_status)
+      --WRITE ('Overtorque SOT ', l_sot ,' (ct)',CR)
+      --WRITE ('TH1,TH2,', $sbr[9].$param[183] ,',', $sbr[9].$param[189] ,' (ct)',CR)
+      --WRITE ('TH3', $sbr[9].$param[186] ,' (ct)',CR)
+
+      --IF $sgsyscfg.$prs_units = 2 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg3,' (nwt)',CR)
+      --ENDIF
+      --IF $sgsyscfg.$prs_units = 1 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg3,' (lbf)',CR)
+      --ENDIF
+      --IF $sgsyscfg.$prs_units = 0 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg3,' (kgf)',CR)
+      --ENDIF
+
+      --WRITE ('Execution Date ',tunedate[quest_val,1],CR)
+	  -- Store T1 and T2
+	  --l_t1 = $sbr[9].$param[183]
+	  --l_t2 = $sbr[9].$param[189]
+	  -- Correct if negative 
+	  --IF l_t1 < 0 THEN
+	    --l_t1 = (l_t1 * (-1))
+	  --ENDIF
+	  --IF l_t2 < 0 THEN
+	    --l_t2 = (l_t2 * (-1))
+	  --ENDIF
+
+	  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN3.$SETUP.$AUTTUN_STAT',l_tunestat,l_status)
+          --IF l_tunestat = 2 THEN
+            --tuneokg3 = TRUE
+          --ELSE
+            --tuneokg3 = FALSE
+          --ENDIF
+
+	  --IF ( ( l_t1 < t2limit ) OR ( l_t2 < t2limit ) ) AND (tuneokg3 = TRUE) THEN
+            --WRITE ('EQ:2, GUN:3 Process Results OK')
+	  --ELSE
+	    --WRITE ('WARN:EQ:2,GUN:3 Process Result ALERT',cr)
+	    --WRITE ('Peak weld forces out of tolerance +-10%')
+	  --ENDIF
+--ENDIF
+
+-------------------------------------------------------------------------------
+-- Equipment 2 Gun 2
+--IF (eq_num = 2) AND (gun_num = 4) AND($spotnumeq = 2) AND ($spoteqsetup[2].$num_guns = 2) THEN
+
+-- KGF  V750P23 jja
+--IF $sgsyscfg.$prs_units = 0 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN4.$SETUP.$CAL_PRESS1',minprsg4,l_status)
+  --l_minprsg4 = ROUND(minprsg4)
+--ENDIF
+-- Minimum Calibration force LBF
+--IF $sgsyscfg.$prs_units = 1 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN4.$SETUP.$CAL_PRESS1',minprsg4,l_status)
+  --minprsg4 = minprsg4 / (LBF_TO_KGF)
+  --l_minprsg4 = ROUND(minprsg4)
+--ENDIF
+-- NWT 
+--IF $sgsyscfg.$prs_units = 2 THEN
+  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN4.$SETUP.$CAL_PRESS1',minprsg4,l_status)
+  --minprsg4 = minprsg4 / (N_TO_KGF)
+  --l_minprsg4 = ROUND(minprsg4)
+--ENDIF
+
+  --FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+      --WRITE ('Servo Gun Tuning Results EQ:2,GUN:4',CR,CR)
+      --GET_VAR(l_psve,'*SYSTEM*','$sggun4.$cd.$std_thrsh',l_sot,l_status)
+      --WRITE ('Overtorque SOT ', l_sot ,' (ct)',CR)
+      --WRITE ('TH1,TH2,', $sbr[10].$param[183] ,',', $sbr[10].$param[189] ,' (ct)',CR)
+      --WRITE ('TH3', $sbr[10].$param[186] ,' (ct)',CR)
+
+      --IF $sgsyscfg.$prs_units = 2 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg4,' (nwt)',CR)
+      --ENDIF
+      --IF $sgsyscfg.$prs_units = 1 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg4,' (lbf)',CR)
+      --ENDIF
+      --IF $sgsyscfg.$prs_units = 0 THEN --V750P23 jja
+        --WRITE ('Minimum Calibration Force',l_minprsg4,' (kgf)',CR)
+      --ENDIF
+
+      --WRITE ('Execution Date ',tunedate[quest_val,1],CR)
+	  -- Store T1 and T2
+	  --l_t1 = $sbr[10].$param[183]
+	  --l_t2 = $sbr[10].$param[189]
+	  -- Correct if negative 
+	  --IF l_t1 < 0 THEN
+	    --l_t1 = (l_t1 * (-1))
+	  --ENDIF
+	  --IF l_t2 < 0 THEN
+	    --l_t2 = (l_t2 * (-1))
+	  --ENDIF
+
+	  --GET_VAR(l_psve,'*SYSTEM*','$SGGUN4.$SETUP.$AUTTUN_STAT',l_tunestat,l_status)
+          --IF l_tunestat = 2 THEN
+            --tuneokg4 = TRUE
+          --ELSE
+            --tuneokg4 = FALSE
+          --ENDIF
+
+	  --IF ( ( l_t1 < t2limit ) OR ( l_t2 < t2limit ) ) AND (tuneokg4 = TRUE) THEN
+            --WRITE ('EQ:2, GUN:4 Process Results OK')
+	  --ELSE
+	    --WRITE ('WARN:EQ:2,GUN:4 Process Result ALERT',cr)
+	    --WRITE ('Peak weld forces out of tolerance +-10%')
+	  --ENDIF
+--ENDIF
+-------------------------------------------------------------------------------
+
+END tunediag
+
+

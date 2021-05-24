@@ -1,0 +1,1421 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPOTIO2.KL
+--   TITLE:          GMSPOTIO2 PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Spot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4.1        2017/01/11 marchaka         Prevent di_xfok for spot equipment 2 from 
+--                                                getting reset when there isn't a second spot equipment.
+--                                                Equipment 2 gun 1 sets DI 1706 for tranformer okay.
+--         4.1        2017/02/05 marchaka	  Modify prompts for wizard rerun
+--         4.2        2018/09/17 marchaka         Modified logic to not setup tip dress blowers if the servo cap changer/dresser is being used
+--         4.2        2018/10/26 marchaka         Modify blowoff setup for servo tip dress applications.                                               
+--                                               
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPOTIO2
+
+%COMMENT = 'GM SPOT I/O 2 V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- body shop variables
+%INCLUDE gmcfgspt  -- spot application variables
+%INCLUDE gm_var    -- GM variables
+%INCLUDE gmevrs4io -- GM variables
+
+CONST
+
+Version = '2018-10-26'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SpotIO2Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+  SpotSetup IN SHADOW : ARRAY[max_spot_eq] OF BOOLEAN -- indicates if the Spot has been setup before
+
+  gm_status:  INTEGER
+  td_slot,
+  pg1_slot,
+  pg2_slot,
+  cgi_slot,
+  cgpgi_slot,
+  cg_slot,
+  td2_slot,
+  td3_slot,
+  td4_slot,
+  cg2_slot,
+  cgi2_slot,
+  pgi2_slot    IN CMOS: INTEGER --used for ENET slot
+
+  srvo_td_opt  IN SHADOW FROM GMCUSTO: BOOLEAN --servo tip dress option loaded
+  num_tipdrs   IN SHADOW FROM GMCUSTO: INTEGER  
+  srvo_dress   IN SHADOW FROM GMCUSTO: INTEGER
+
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variable
+
+ROUTINE srvo_optn FROM gmwizspt --check if servo gun option loaded
+ROUTINE ArmrStrt_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE TURK_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE srvotd_optn FROM gmwizspt 
+-----------------------------------------------------------------------------
+ROUTINE initSpot2IO
+-- PURPOSE: to initialize Programs associated with I/O setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+-- Check Common spot variables used in the program to be setup
+IF UNINIT(spotcommtype) THEN --set hook for multiple communications
+  spotcommtype = Ethernet -- set it to 89
+ENDIF
+IF UNINIT(numwldctrl) THEN
+  numwldctrl = 0
+ENDIF
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+
+-- Check variable associated with weld controller #1
+IF UNINIT(SpotSetup[1]) THEN
+  SpotSetup[1] = FALSE
+ENDIF
+IF UNINIT(bshop_proc1) THEN
+  bshop_proc1 = 0
+ENDIF
+
+-- Check variable associated with weld controller #1
+IF UNINIT(SpotSetup[2]) THEN
+  SpotSetup[2] = FALSE
+ENDIF
+IF UNINIT(bshop_proc2) THEN
+  bshop_proc2 = 0
+ENDIF
+
+
+IF UNINIT(td_slot) THEN
+  td_slot = 20
+ENDIF
+IF UNINIT(pg1_slot) THEN
+  pg1_slot = 21
+ENDIF
+IF UNINIT(pg2_slot) THEN
+  pg2_slot = 22
+ENDIF
+IF UNINIT(cgi_slot) THEN
+  cgi_slot = 45
+ENDIF
+IF UNINIT(cgpgi_slot) THEN
+  cgpgi_slot = 46
+ENDIF
+IF UNINIT(cg_slot) THEN
+  cg_slot = 47
+ENDIF
+IF UNINIT(td2_slot) THEN
+  td2_slot = 38
+ENDIF
+IF UNINIT(td3_slot) THEN
+  td3_slot = 39
+ENDIF
+IF UNINIT(td4_slot) THEN
+  td4_slot = 40
+ENDIF
+IF UNINIT(cg2_slot) THEN
+  cg2_slot = 49
+ENDIF
+IF UNINIT(cgi2_slot) THEN
+  cgi2_slot = 51
+ENDIF
+IF UNINIT(pgi2_slot) THEN
+  pgi2_slot = 52
+ENDIF
+
+IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+ENDIF
+
+IF UNINIT(do_comp_io) THEN
+  do_comp_io = FALSE
+ENDIF
+
+IF UNINIT(srvo_td_opt) THEN
+  srvotd_optn  --servo tip dress option loaded
+ENDIF
+
+IF UNINIT(num_tipdrs) THEN  --number of tip dressers (set by srvo_tc.pc)
+  num_tipdrs = 0  
+ENDIF
+
+IF UNINIT(srvo_dress) THEN --servo dresser used (set by srvo_tc.pc)
+  srvo_dress = wizans_no
+ENDIF
+
+END initSpot2IO
+-----------------------------------------------------------------------------
+ROUTINE seteqio1
+-- PURPOSE: set spot equipment IO for equipment 1
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF ((g_servog_opt = TRUE) AND (spotapp_eq[1].spotgun[1].sp_srvogn = wizans_yes)) THEN --application is a servo gun
+
+    IF (spotapp_eq[1].spotgun[1].sp_xfot = wizans_yes) THEN --transformer overtemp used
+
+      di_xfok1 = 1705 --Transformer Overtemp Gun 1
+      di_xfok2 = 1706 --Transformer Overtemp Gun 2
+
+      SET_PORT_ASG(IO_DIN,1705,spotcommtype,cgpgi_slot,IO_DIN, 1,-8, gm_status)
+      SET_PORT_ASG(IO_DOUT,1705,spotcommtype,cgpgi_slot,IO_DOUT, 1,-8, gm_status)
+
+      IF (spotcommtype = Ethernet) THEN
+        TURK_IO_EIP(cgpgi_slot, 'XFMR OT') 
+      ENDIF
+
+      SET_PORT_CMT(IO_DIN,1705,'diG1TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1706,'diG2TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1707,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1709,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1710,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1712,'(Reserved)',gm_status) 
+      SET_PORT_CMT(IO_DOUT,1705,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1706,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1707,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1709,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1710,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1712,'(Reserved)',gm_status)
+
+      Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',di_xfok1)
+
+    ELSE --equip 1 gun 1 does not have transformer overtemp
+      Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',0)
+    ENDIF -- equip 1 gun 1 has transformer overtemp 
+                     
+  ELSE --no servo gun, air gun
+ 
+    IF ((spotapp_eq[1].spotgun[1].ag_vlv = ag_eurovlv) OR (spotapp_eq[1].spotgun[1].ag_denspk = wizans_yes)) THEN --dense pack integrated
+
+      --configuration works for carried and pedestal       
+      di_xfok1 = 1668 --Transformer Overtemp Gun 1
+      di_buopd1 = 1667 -- Backup Open Detect
+      di_bucld1 = 1666 --Gun Open Detect
+      do_cl_gun1 = 1665  --Close Gun 1
+      do_cl_bu1 = 1667 --Close Gun 1 Backup
+      do_op_bu1 = 1668 --OPen Gun 1 Backup
+      go_binmpv1 = 12
+      go_bineql1 = 18
+
+      do_OPgn_t[1,1] = 2
+      do_OPgn_i[1,1] = 1666 
+
+      SET_PORT_ASG(IO_DIN,  1665,spotcommtype,cgi_slot,IO_DIN, 1,-8, gm_status)  
+      SET_PORT_ASG(IO_DIN,  1673,spotcommtype,cgpgi_slot,IO_DIN, 1,-8, gm_status)
+      SET_PORT_CMT(IO_DIN,1665,'diG1Opened',gm_status)
+      SET_PORT_CMT(IO_DIN,1666,'diG1RetClosed',gm_status)
+      SET_PORT_CMT(IO_DIN,1667,'diG1RetOpened',gm_status)        
+      SET_PORT_CMT(IO_DIN,1668,'diG1TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1673,'diG1PowerOK',gm_status)
+      SET_PORT_CMT(IO_DIN,1674,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1675,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1676,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1677,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1678,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1679,'diG1PresAchieved',gm_status)
+      SET_PORT_CMT(IO_DIN,1680,'(Reserved)',gm_status)
+
+      SET_PORT_ASG(IO_DOUT, 1665,spotcommtype,cgi_slot,IO_DOUT,1, -8, gm_status) 
+      SET_PORT_ASG(IO_DOUT, 1673,spotcommtype,cgpgi_slot,IO_DOUT,1, -8, gm_status) 
+      SET_PORT_CMT(IO_DOUT,1665,'doCloseG1',gm_status)           
+      SET_PORT_CMT(IO_DOUT,1666,'doOpenG1',gm_status)            
+      SET_PORT_CMT(IO_DOUT,1667,'doCloseG1Ret',gm_status)        
+      SET_PORT_CMT(IO_DOUT,1668,'doOpenG1Ret',gm_status)         
+      SET_PORT_CMT(IO_DOUT,1669,'doG1EqualizerFlp',gm_status)
+      SET_PORT_CMT(IO_DOUT,1670,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1671,'doExhaustG1',gm_status)
+      SET_PORT_CMT(IO_DOUT,1672,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1673,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1674,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1675,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1676,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1677,'doG1WldPressure1', gm_status)   
+      SET_PORT_CMT(IO_DOUT,1678,'doG1WldPressure2', gm_status)   
+      SET_PORT_CMT(IO_DOUT,1679,'doG1WldPressure4', gm_status)   
+      SET_PORT_CMT(IO_DOUT,1680,'doG1WldPressure8', gm_status)   
+      SET_PORT_ASG(IO_GPOUT, 12,spotcommtype,cgpgi_slot,IO_DOUT,5, -4, gm_status)
+      SET_PORT_CMT(IO_GPOUT,12,'MultiPressCG1Eq1', gm_status)
+    
+      IF (spotcommtype = Ethernet) THEN
+        TURK_IO_EIP(cgi_slot,'GUN 1')
+      ENDIF
+      IF (spotcommtype = Ethernet) THEN
+        TURK_IO_EIP(cgpgi_slot,'GUN 1 PRS')
+      ENDIF  
+
+      Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]',do_cl_gun1)    -- Close Gun1
+      Set_I_sVar('$spoteqio[1].$go_binmpv_i[1]',go_binmpv1)
+
+      IF (spotapp_eq[1].spotgun[1].sp_xfot = wizans_yes) THEN --transformer overtemp used  
+        Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',di_xfok1) 
+      ELSE --no transformer overtemp used
+        Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',0)
+      ENDIF --transformer overtemp used
+
+      IF (spotapp_eq[1].spotgun[1].ag_gun_rtrc = wizans_yes) THEN  -- Backup Open Detect  
+        Set_I_sVar('$spoteqio[1].$di_buopd_i[1]', di_buopd1)  -- Backup open Detect
+      ENDIF  --Euro Valve or Backup Open Detect
+       
+      IF (spotapp_eq[1].spotgun[1].ag_gun_opn = wizans_yes) THEN  -- Gun Open Detect  
+        Set_I_sVar('$spoteqio[1].$di_bucld_t[1]', 1)
+        Set_I_sVar('$spoteqio[1].$di_bucld_i[1]', di_bucld1)
+      ENDIF -- Euro Valve or Gun Open Detect
+
+      IF (spotapp_eq[1].spotgun[1].ag_retstrk = wizans_yes) THEN -- Retract Stroke  
+        Set_I_sVar('$spoteqio[1].$do_cl_bu_i[1]',do_cl_bu1)      -- Close Gun1 Backup
+        Set_I_sVar('$spoteqio[1].$do_op_bu_i[1]',do_op_bu1)      -- Open Gun1 Backup
+      ENDIF -- Retract Stroke
+
+      IF (spotapp_eq[1].spotgun[1].ag_vlv = ag_eurovlv) THEN -- Euro Valve  
+        do_OPexh_i[1,1] = 1671          
+      ELSE --not Euro Valve
+        SET_PORT_MOD(IO_DOUT, 1665, 2, gm_status)
+        do_comp_io = TRUE --initiates gun_compIO routine from swshell3
+      ENDIF --Euro Valve
+
+      IF (spotapp_eq[1].spotgun[1].ag_eql_prss = wizans_yes) THEN --equalization pressure
+        SET_PORT_CMT(IO_DOUT,1709,'doG1WldPressure1', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1710,'doG1WldPressure2', gm_status)    
+        SET_PORT_CMT(IO_DOUT,1711,'doG1WldPressure4', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1712,'doG1WldPressure8', gm_status)
+        SET_PORT_ASG(IO_GPOUT, 18,spotcommtype,cg_slot,IO_DOUT,5, -4,gm_status)-- Equalization Pressure GO
+        SET_PORT_CMT(IO_GPOUT,18,'Eq1PressureCG1',  gm_status)        
+        Set_I_sVar('$spoteqio[1].$go_bineql_i[1]',go_bineql1)  --Equalization Presseure 
+      ENDIF --equalization pressure
+
+      IF (spotapp_eq[1].spotgun[1].ag_vlv = ag_NA_vlv) THEN -- North American Valves
+        do_OPexh_i[1,1] = 0
+        do_OPgn_i[1,1] = 0
+      ENDIF --North American Valves
+      
+    ENDIF --euro valves or has dense pack
+
+    IF ((spotapp_eq[1].spotgun[1].ag_vlv <> ag_eurovlv) AND (spotapp_eq[1].spotgun[1].ag_denspk = wizans_no)) THEN --not dense pack integrated 
+
+      --gun 1 is an air gun and is carried  
+      IF ((wld1_app = wld1app_cg) OR (wld1_app = wld1app_cgmh) OR (wld2_app = wld2app_cgpg)) THEN  
+
+        di_xfok1 = 1684 --Transformer Overtemp Gun 1
+        di_buopd1 = 1699 -- Backup Open Detect
+        do_cl_gun1 = 1697  --Close Gun 1
+        do_cl_bu1 = 1699 --Close Gun 1 Backup
+        do_op_bu1 = 1700 --Open Gun 1 Backup
+        go_binmpv1 = 12
+        go_bineql1 = 18
+
+        di_airprs_i[1,1] = 1703        
+        do_OPgn_t[1,1] = 2      
+        do_OPgn_i[1,1] = 1698
+        do_OPexh_i[1,1] = 0
+
+        SET_PORT_ASG(IO_DIN, 1681,spotcommtype,pg1_slot,IO_DIN, 1, -8, gm_status)
+        SET_PORT_ASG(IO_DIN, 1697,spotcommtype,cg_slot, IO_DIN, 1, -8, gm_status)
+
+        SET_PORT_CMT(IO_DIN,1681,'diG1PowerOK',gm_status) 
+        SET_PORT_CMT(IO_DIN,1682,'diG1RetClosed',gm_status)
+        SET_PORT_CMT(IO_DIN,1683,'diG1RetOpened',gm_status)
+        SET_PORT_CMT(IO_DIN,1684,'diG1TransOT',gm_status)
+        SET_PORT_CMT(IO_DIN,1687,'diG1PresAchieved',gm_status)
+        SET_PORT_CMT(IO_DIN,1697,'diG1PowerOK',gm_status)
+        SET_PORT_CMT(IO_DIN,1698,'diG1RetClosed',gm_status)
+        SET_PORT_CMT(IO_DIN,1699,'diG1RetOpened',gm_status)
+        SET_PORT_CMT(IO_DIN,1700,'diG1TransOT',gm_status)
+        SET_PORT_CMT(IO_DIN,1701,'(Reserved)',gm_status)
+        SET_PORT_CMT(IO_DIN,1702,'(Reserved)',gm_status)
+        SET_PORT_CMT(IO_DIN,1703,'diG1PresAchieved',gm_status)
+
+        SET_PORT_ASG(IO_DOUT,1697,spotcommtype,cg_slot,IO_DOUT,1,-16, gm_status) 
+
+        SET_PORT_CMT(IO_DOUT,1697,'doCloseG1',gm_status)
+        SET_PORT_CMT(IO_DOUT,1698,'doOpenG1',gm_status)
+        SET_PORT_CMT(IO_DOUT,1699,'doCloseG1Ret',gm_status)        
+        SET_PORT_CMT(IO_DOUT,1700,'doOpenG1Ret',gm_status)
+        SET_PORT_CMT(IO_DOUT,1701,'doG1EqPressure1', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1702,'doG1EqPressure2', gm_status)    
+        SET_PORT_CMT(IO_DOUT,1703,'doG1EqPressure4', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1704,'doG1EqPressure8', gm_status) 
+        SET_PORT_CMT(IO_DOUT,1705,'(Reserved)', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1706,'(Reserved)', gm_status)    
+        SET_PORT_CMT(IO_DOUT,1707,'(Reserved)', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1708,'(Reserved)', gm_status)
+        SET_PORT_CMT(IO_DOUT,1709,'doG1WldPressure1', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1710,'doG1WldPressure2', gm_status)    
+        SET_PORT_CMT(IO_DOUT,1711,'doG1WldPressure4', gm_status)     
+        SET_PORT_CMT(IO_DOUT,1712,'doG1WldPressure8', gm_status)    
+        SET_PORT_ASG(IO_GPOUT, 12,spotcommtype,cg_slot,IO_DOUT,13,-4, gm_status)  
+        SET_PORT_CMT(IO_GPOUT,12,'MultiPressPd1Eq1', gm_status) 
+
+        IF (spotcommtype = Ethernet) THEN
+          TURK_IO_EIP(pg1_slot,'GUN 1 IN')
+          TURK_IN_EIP(cg_slot,'GUN 1')
+        ENDIF
+
+        Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]',do_cl_gun1)    -- Close Gun1
+        Set_I_sVar('$spoteqio[1].$go_binmpv_i[1]',go_binmpv1) 
+
+        IF (spotapp_eq[1].spotgun[1].sp_xfot = wizans_yes) THEN --transformer overtemp used
+          Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',di_xfok1) 
+        ELSE --no transformer overtemp used
+          Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',0)
+        ENDIF --transformer overtemp used  
+
+        IF (spotapp_eq[1].spotgun[1].ag_gun_rtrc = wizans_yes) THEN  -- Backup Open Detect 
+          Set_I_sVar('$spoteqio[1].$di_buopd_i[1]', di_buopd1)  -- Backup open Detect
+        ENDIF  --Euro Valve or Backup Open Detect
+
+        IF ((spotapp_eq[1].spotgun[1].ag_vlv = ag_eurovlv) OR (spotapp_eq[1].spotgun[1].ag_retstrk = wizans_yes)) THEN --Euro Valve or Retract Stroke
+          Set_I_sVar('$spoteqio[1].$do_cl_bu_i[1]',do_cl_bu1)
+          Set_I_sVar('$spoteqio[1].$do_op_bu_i[1]', do_op_bu1)
+        ENDIF -- Euro Valve or Retract Stroke
+
+        IF (spotapp_eq[1].spotgun[1].ag_vlv = ag_eurovlv) THEN -- Euro Valve
+          SET_PORT_MOD(IO_DOUT,1697,2,gm_status)
+          do_comp_io = TRUE          
+        ENDIF
+
+        IF (spotapp_eq[1].spotgun[1].ag_eql_prss = wizans_yes) THEN --equalization pressure
+          di_aireqp_i[1,1]  = 1704     -- Equalization Pressure Achieved
+          SET_PORT_ASG(IO_GPOUT, 18,spotcommtype,cg_slot,IO_DOUT,5, -4,gm_status)-- Equalization Pressure GO  
+          Set_I_sVar('$spoteqio[1].$go_bineql_i[1]',go_bineql1)  --Equalization Presseure  
+        ENDIF --equalization pressure
+
+      ENDIF --gun 1 is an air gun and carried
+
+      IF ((wld1_app = wld1app_pg) OR (wld1_app = wld1app_spdg) OR (wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_spdg) OR (wld2_app = wld2app_dpsg)) THEN --application is pedestal
+
+         di_xfok1 = 1684
+         di_buopd1 = 1683
+         do_cl_gun1 = 1681
+         do_cl_bu1 = 1683
+         do_op_bu1 = 1684
+         go_binmpv1 = 12
+
+         do_OPgn_t[1,1] = 2      
+         do_OPgn_i[1,1] = 1682 
+         
+         SET_PORT_ASG(IO_DIN, 1681,spotcommtype,pg1_slot,IO_DIN, 1, -8, gm_status)
+         SET_PORT_CMT(IO_DIN,1681,'diG1PowerOK',gm_status) 
+         SET_PORT_CMT(IO_DIN,1682,'diG1RetClosed',gm_status)
+         SET_PORT_CMT(IO_DIN,1683,'diG1RetOpened',gm_status)
+         SET_PORT_CMT(IO_DIN,1684,'diG1TransOT',gm_status)
+         SET_PORT_CMT(IO_DIN,1687,'diG1PresAchieved',gm_status)
+
+         SET_PORT_ASG(IO_DOUT,1681,spotcommtype,pg1_slot,IO_DOUT,1, -16, gm_status)
+         SET_PORT_CMT(IO_DOUT,1681,'doCloseG1',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1682,'doOpenG1',gm_status)
+         SET_PORT_CMT(IO_DOUT,1683,'doCloseG1Ret',gm_status)          
+         SET_PORT_CMT(IO_DOUT,1684,'doOpenG1Ret',gm_status)
+         SET_PORT_CMT(IO_DOUT,1685,'doExhaustG1',gm_status)
+         SET_PORT_CMT(IO_DOUT,1693,'doG1WldPressure1', gm_status)     
+         SET_PORT_CMT(IO_DOUT,1694,'doG1WldPressure2', gm_status)     
+         SET_PORT_CMT(IO_DOUT,1695,'doG1WldPressure4', gm_status)     
+         SET_PORT_CMT(IO_DOUT,1696,'doG1WldPressure8', gm_status)
+         SET_PORT_ASG(IO_GPOUT, 12,spotcommtype,pg1_slot,IO_DOUT,13,-4, gm_status)   
+         SET_PORT_CMT(IO_GPOUT,12,'MultiPressPd1Eq1', gm_status)
+
+         IF (spotcommtype = Ethernet) THEN
+           TURK_IN_EIP(pg1_slot,'GUN 1')
+         ENDIF
+
+         Set_I_sVar('$spoteqio[1].$do_cl_gun_i[1]',do_cl_gun1)    -- Close Gun1
+         Set_I_sVar('$spoteqio[1].$go_binmpv_i[1]',go_binmpv1)
+
+         IF (spotapp_eq[1].spotgun[1].sp_td = wizans_yes) THEN --equipment 1, gun 1 has a tip dresser
+           SET_PORT_CMT(IO_DIN,1685,'diG1TDDumpAdv',gm_status)         
+           SET_PORT_CMT(IO_DIN,1686,'diG1TDDumpRet',gm_status)
+           SET_PORT_CMT(IO_DIN,1688,'diG1TDDumpPin',gm_status)
+
+           SET_PORT_CMT(IO_DOUT,1689,'doAdvTDDumpG1',gm_status)         
+           SET_PORT_CMT(IO_DOUT,1690,'doRetTDDumpG1',gm_status)
+           SET_PORT_CMT(IO_DOUT,1691,'doEnableTDDump1',gm_status)
+         ENDIF --gun 1 has a tip dresser
+
+         IF (spotapp_eq[1].spotgun[2].sp_xfot = wizans_yes) THEN --transformer overtemp used
+           Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',di_xfok1)
+         ELSE --no transformer overtemp
+           Set_I_sVar('$spoteqio[1].$di_xfok_i[1]',0)
+         ENDIF --transformer overtemp
+
+         IF (spotapp_eq[1].spotgun[1].ag_gun_rtrc = wizans_yes) THEN  -- Backup Open Detect
+           Set_I_sVar('$spoteqio[1].$di_buopd_i[1]', di_buopd1)  -- Backup open Detect
+         ENDIF  -- Backup Open Detect
+
+         IF (spotapp_eq[1].spotgun[1].ag_vlv = ag_eurovlv) THEN -- Euro Valve
+           do_OPexh_i[1,1] = 1685
+         ENDIF -- Euro Valve
+
+         IF (spotapp_eq[1].spotgun[1].ag_retstrk = wizans_yes) THEN -- Retract Stroke
+          Set_I_sVar('$spoteqio[1].$do_cl_bu_i[1]',do_cl_bu1)      -- Close Gun1 Backup
+          Set_I_sVar('$spoteqio[1].$do_op_bu_i[1]',do_op_bu1)      -- Open Gun1 Backup
+        ENDIF -- Retract Strok
+
+      ENDIF --gun 1 is a pedestal
+
+      IF (spotapp_eq[1].spotgun[1].ag_vlv = ag_NA_vlv) THEN -- North American Valves
+        do_OPexh_i[1,1] = 0
+        do_OPgn_i[1,1] = 0
+      ENDIF --North American Valves
+
+    ENDIF --no dense pack and is north american
+
+  ENDIF --servo gun option on robot
+
+  IF ((g_servog_opt = TRUE) AND (spotapp_eq[1].spotgun[2].sp_srvogn = wizans_yes))  THEN --application is a servo gun
+
+    IF (spotapp_eq[1].spotgun[2].sp_xfot = wizans_yes) THEN --transformer overtemp used
+
+      di_xfok1 = 1705 --Transformer Overtemp Gun 1
+      di_xfok2 = 1706 --Transformer Overtemp Gun 2
+
+      SET_PORT_ASG(IO_DIN,1705,spotcommtype,cgpgi_slot,IO_DIN, 1,-8, gm_status)
+      SET_PORT_ASG(IO_DOUT,1705,spotcommtype,cgpgi_slot,IO_DOUT, 1,-8,gm_status)
+
+      IF (spotcommtype = Ethernet) THEN
+        TURK_IO_EIP(cgpgi_slot, 'XFMR OT')
+      ENDIF
+
+      SET_PORT_CMT(IO_DIN,1705,'diG1TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1706,'diG2TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1707,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1709,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1710,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1712,'(Reserved)',gm_status) 
+      SET_PORT_CMT(IO_DOUT,1705,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1706,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1707,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1709,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1710,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1712,'(Reserved)',gm_status)   
+
+      Set_I_sVar('$spoteqio[1].$di_xfok_i[2]',di_xfok2)    
+
+    ELSE  --equip 1 gun 2 does not have transformer overtemp
+      Set_I_sVar('$spoteqio[1].$di_xfok_i[2]',0)
+    ENDIF --equip 1 gun 2 has transformer overtemp
+                      
+  ELSE --no servo gun, air gun on equipment 1 gun 2
+
+    IF (wld2_app = wld2app_spdg) THEN --gun 2 is a pedestal 
+      di_xfok2 = 1732
+      di_buopd2 = 1731
+      do_cl_bu2 = 1731 
+      do_op_bu2 = 1732 
+      go_binmpv2 = 13
+
+      do_OPgn_t[1,2] = 2      
+      do_OPgn_i[1,2] = 1730
+ 
+      SET_PORT_ASG(IO_DIN, 1729,spotcommtype,pg2_slot,IO_DIN, 1, -8, gm_status)   
+      SET_PORT_CMT(IO_DIN,1729,'diG2PowerOK',gm_status)
+      SET_PORT_CMT(IO_DIN,1730,'diG2RetClosed',gm_status)               
+      SET_PORT_CMT(IO_DIN,1731,'diG2RetOpened',gm_status)
+      SET_PORT_CMT(IO_DIN,1732,'diG2TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1735,'diG2PresAchieved',gm_status)
+
+      SET_PORT_ASG(IO_DOUT, 1729,spotcommtype,pg2_slot,IO_DOUT,1, -16, gm_status)
+      SET_PORT_CMT(IO_DOUT,1729,'doCloseG2',gm_status)           
+      SET_PORT_CMT(IO_DOUT,1730,'doOpenG2',gm_status)
+      SET_PORT_CMT(IO_DOUT,1731,'doCloseG2Ret',gm_status)          
+      SET_PORT_CMT(IO_DOUT,1732,'doOpenG2Ret',gm_status)
+      SET_PORT_CMT(IO_DOUT,1733,'doExhaustG2',gm_status)                 
+      SET_PORT_CMT(IO_DOUT,1734, '(Reserved)',gm_status)   
+      SET_PORT_CMT(IO_DOUT,1735, '(Reserved)',gm_status)   
+      SET_PORT_CMT(IO_DOUT,1736, '(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1741,'doG2WldPressure1', gm_status)     -- Weld Pressure Bit 1
+      SET_PORT_CMT(IO_DOUT,1742,'doG2WldPressure2', gm_status)     -- Weld Pressure Bit 2
+      SET_PORT_CMT(IO_DOUT,1743,'doG2WldPressure3', gm_status)     -- Weld Pressure Bit 3
+      SET_PORT_CMT(IO_DOUT,1744,'doG2WldPressure4', gm_status)     -- Weld Pressure Bit 4
+      SET_PORT_ASG(IO_GPOUT, 13,spotcommtype,pg2_slot,IO_DOUT,13,-4, gm_status)
+      SET_PORT_CMT(IO_GPOUT,13,'MultiPressPd1Eq2', gm_status) 
+
+      IF (spotcommtype = Ethernet) THEN
+        TURK_IN_EIP(pg2_slot, 'GUN 2')
+      ENDIF
+
+      Set_I_sVar('$spoteqio[1].$go_binmpv_i[2]', go_binmpv2)
+             
+      IF (spotapp_eq[1].spotgun[2].sp_xfot = wizans_yes) THEN --transformer overtemp used
+        Set_I_sVar('$spoteqio[1].$di_xfok_i[2]',di_xfok2)
+      ELSE-- no tranformer overtemp
+        Set_I_sVar('$spoteqio[1].$di_xfok_i[2]',0)
+      ENDIF --transofrmer overtemp used
+
+      IF (spotapp_eq[1].spotgun[2].ag_gun_rtrc = wizans_yes) THEN  -- Backup Open Detect
+        Set_I_sVar('$spoteqio[1].$di_buopd_i[2]', di_buopd2)  -- Backup open Detect
+      ENDIF  --Euro Valve or Backup Open Detect
+
+      IF (spotapp_eq[1].spotgun[2].sp_td  = wizans_yes) THEN --gun 2 has tip dress 
+        SET_PORT_CMT(IO_DIN,1733,'diG2TDDumpAdv',gm_status)
+        SET_PORT_CMT(IO_DIN,1734,'diG2TDDumpRet',gm_status)
+        SET_PORT_CMT(IO_DIN,1736,'diG2TDDumpPin',gm_status) 
+        SET_PORT_CMT(IO_DOUT,1737,'doAdvTDDumpG2',gm_status)
+        SET_PORT_CMT(IO_DOUT,1738,'doRetTDDumpG2',gm_status)
+        SET_PORT_CMT(IO_DOUT,1739,'doEnableTDDump2',gm_status)
+      ENDIF --tip dresss
+  
+      IF (spotapp_eq[1].spotgun[2].ag_vlv = ag_eurovlv) THEN -- Euro Valve
+        do_OPexh_i[1,2] = 1733 
+      ENDIF -- Euro Valve
+
+      IF (spotapp_eq[1].spotgun[2].ag_retstrk = wizans_yes) THEN -- Retract Stroke
+        Set_I_sVar('$spoteqio[1].$do_cl_bu_i[2]',do_cl_bu2)      -- Close Gun1 Backup
+        Set_I_sVar('$spoteqio[1].$do_op_bu_i[2]',do_op_bu2)      -- Open Gun1 Backup
+      ENDIF -- Retract Stroke
+
+      IF (spotapp_eq[1].spotgun[2].ag_vlv = ag_NA_vlv) THEN -- North American Valves
+        do_OPexh_i[1,2] = 0
+        do_OPgn_i[1,2] = 0
+      ENDIF
+
+    ENDIF --equip 2 gun 2 is a pedestal
+   
+ ENDIF --equip 1 gun 2 is a servo gun
+ 
+END seteqio1
+-----------------------------------------------------------------------------
+ROUTINE seteqio2
+-- PURPOSE: set I/O for equipment 2
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF ((g_servog_opt = TRUE) AND (spotapp_eq[2].spotgun[1].sp_srvogn = wizans_yes)) THEN --application is a servo gun
+    
+    IF (spotapp_eq[2].spotgun[1].sp_xfot = wizans_yes) THEN --transformer overtemp used
+
+      di_xfok1 = 1705 --Transformer Overtemp Gun 1
+      di_xfok2 = 1706 --Transformer Overtemp Gun 2
+
+      SET_PORT_ASG(IO_DIN,1705,spotcommtype,cgpgi_slot,IO_DIN, 1,-8, gm_status)
+      SET_PORT_ASG(IO_DOUT,1705,spotcommtype,cgpgi_slot,IO_DOUT, 1,-8,gm_status)
+  
+      IF (spotcommtype = Ethernet) THEN 
+        TURK_IO_EIP(cgpgi_slot, 'XFMR OT')
+      ENDIF
+
+      SET_PORT_CMT(IO_DIN,1705,'diG1TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1706,'diG2TransOT',gm_status)
+      SET_PORT_CMT(IO_DIN,1707,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1709,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1710,'(Reserved)',gm_status)  
+      SET_PORT_CMT(IO_DIN,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DIN,1712,'(Reserved)',gm_status) 
+      SET_PORT_CMT(IO_DOUT,1705,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1706,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1707,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1708,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1709,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1710,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1711,'(Reserved)',gm_status)
+      SET_PORT_CMT(IO_DOUT,1712,'(Reserved)',gm_status)
+
+      Set_I_sVar('$spoteqio[2].$di_xfok_i[1]',di_xfok2) 
+    ELSE --no transformer overtemp used
+      Set_I_sVar('$spoteqio[2].$di_xfok_i[1]',0)
+    ENDIF --transformer overtemp used
+      
+  ELSE --application doesn't have a servo gun
+
+    IF ((wld1_app = wld1app_spdg) OR (wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_dpsg) OR (wld2_app = wld2app_cgpg)) THEN --gun 2 is a pedestal 
+        di_xfok2 = 1732
+        di_buopd2 = 1731
+        do_cl_bu2 = 1731 
+        do_op_bu2 = 1732 
+        go_binmpv2 = 13
+
+        do_OPgn_t[2,1] = 2      
+        do_OPgn_i[2,1] = 1730
+ 
+        SET_PORT_ASG(IO_DIN, 1729,spotcommtype,pg2_slot,IO_DIN, 1, -8, gm_status)          
+        SET_PORT_CMT(IO_DIN,1731,'diG2RetOpened',gm_status)
+        SET_PORT_CMT(IO_DIN,1732,'diG2TransOT',gm_status)
+        SET_PORT_CMT(IO_DIN,1735,'diG2PresAchieved',gm_status)
+
+        SET_PORT_ASG(IO_DOUT, 1729,spotcommtype,pg2_slot,IO_DOUT,1, -16, gm_status)
+        SET_PORT_CMT(IO_DOUT,1729,'doCloseG2',gm_status)           
+        SET_PORT_CMT(IO_DOUT,1730,'doOpenG2',gm_status)
+        SET_PORT_CMT(IO_DOUT,1731,'doCloseG2Ret',gm_status)          
+        SET_PORT_CMT(IO_DOUT,1732,'doOpenG2Ret',gm_status)
+        SET_PORT_CMT(IO_DOUT,1733,'doExhaustG2',gm_status)                 
+        SET_PORT_CMT(IO_DOUT,1734, '(Reserved)',gm_status)   
+        SET_PORT_CMT(IO_DOUT,1735, '(Reserved)',gm_status)   
+        SET_PORT_CMT(IO_DOUT,1736, '(Reserved)',gm_status)
+        SET_PORT_CMT(IO_DOUT,1741,'doG2WldPressure1', gm_status)     -- Weld Pressure Bit 1
+        SET_PORT_CMT(IO_DOUT,1742,'doG2WldPressure2', gm_status)     -- Weld Pressure Bit 2
+        SET_PORT_CMT(IO_DOUT,1743,'doG2WldPressure3', gm_status)     -- Weld Pressure Bit 3
+        SET_PORT_CMT(IO_DOUT,1744,'doG2WldPressure4', gm_status)     -- Weld Pressure Bit 4
+        SET_PORT_ASG(IO_GPOUT, 13,spotcommtype,pg2_slot,IO_DOUT,13,-4, gm_status)
+        SET_PORT_CMT(IO_GPOUT,13,'MultiPressPd1Eq2', gm_status) 
+
+        IF (spotcommtype = Ethernet) THEN
+          TURK_IN_EIP(pg2_slot,'GUN 2')
+        ENDIF
+
+        Set_I_sVar('$spoteqio[2].$go_binmpv_i[1]', go_binmpv2)
+             
+        IF (spotapp_eq[2].spotgun[1].sp_xfot = wizans_yes) THEN --transformer overtemp used
+          Set_I_sVar('$spoteqio[2].$di_xfok_i[1]',di_xfok2)
+        ELSE-- no tranformer overtemp
+          IF (bshop_proc2 <> dispappl) THEN  --it is okay to reset this for all other configs
+                                             --cannot do it for dispense because there is not a 2nd spot equipment
+            Set_I_sVar('$spoteqio[2].$di_xfok_i[1]',0)
+          ENDIF
+        ENDIF --transofrmer overtemp used
+
+        IF (spotapp_eq[2].spotgun[1].ag_gun_rtrc = wizans_yes) THEN  -- Backup Open Detect
+          Set_I_sVar('$spoteqio[2].$di_buopd_i[1]', di_buopd2)  -- Backup open Detect
+        ENDIF  --Euro Valve or Backup Open Detect
+
+        IF (spotapp_eq[2].spotgun[1].sp_td  = wizans_yes) THEN --gun 2 has tip dress
+          SET_PORT_CMT(IO_DIN,1733,'diG2TDDumpAdv',gm_status)
+          SET_PORT_CMT(IO_DIN,1734,'diG2TDDumpRet',gm_status)
+          SET_PORT_CMT(IO_DIN,1736,'diG2TDDumpPin',gm_status)
+          SET_PORT_CMT(IO_DOUT,1737,'doAdvTDDumpG2',gm_status)
+          SET_PORT_CMT(IO_DOUT,1738,'doRetTDDumpG2',gm_status)
+          SET_PORT_CMT(IO_DOUT,1739,'doEnableTDDump2',gm_status) 
+        ENDIF --tip dress
+  
+        IF (spotapp_eq[2].spotgun[1].ag_vlv = ag_eurovlv) THEN -- Euro Valve
+          do_OPexh_i[2,1] = 1733 
+        ENDIF -- Euro Valve
+
+        IF (spotapp_eq[2].spotgun[1].ag_retstrk = wizans_yes) THEN -- Retract Stroke
+          Set_I_sVar('$spoteqio[2].$do_cl_bu_i[1]',do_cl_bu2)      -- Close Gun1 Backup
+          Set_I_sVar('$spoteqio[2].$do_op_bu_i[1]',do_op_bu2)      -- Open Gun1 Backup
+        ENDIF -- Retract Stroke
+
+      ENDIF --equip 2 gun 2 is a pedestal
+
+      IF (spotapp_eq[2].spotgun[1].ag_vlv = ag_NA_vlv) THEN -- North American Valves
+        do_OPexh_i[2,1] = 0
+        do_OPgn_i[2,1] = 0
+      ENDIF --North American Valves
+
+  ENDIF --no servo gun on robot
+                    
+END seteqio2
+-----------------------------------------------------------------------------
+ROUTINE tipdress_io
+-- PURPOSE: set tip dresser I/O for servo guns, air gun tip dresser
+-- setup is in the equipment I/O setup
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+srvo_td: BOOLEAN
+
+BEGIN
+
+  srvo_td = FALSE --reset
+
+  IF UNINIT(srvo_td_opt) THEN
+    srvotd_optn  --servo tip dress option loaded
+  ENDIF
+  IF UNINIT(num_tipdrs) THEN
+    num_tipdrs = 0 --number of tipdressers from srvo_tc.pc
+  ENDIF
+  IF UNINIT(srvo_dress) THEN
+    srvo_dress = wizans_no --servo dress from srvo_tc.pc
+  ENDIF
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option loaded
+
+   IF (srvo_td_opt = TRUE) THEN -- servo tip dress software option is loaded
+
+      sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+      sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+      sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+      FOR sp_eqnum = 1 TO sp_ttl_eq DO
+        FOR sp_gnnum = 1 TO sp_eqgn_num DO    
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_srvo_td = wizans_yes) THEN --servo tipdress
+            srvo_td = TRUE
+          ENDIF --servo tip dress
+         ENDFOR
+         IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+           sp_eqgn_num = sp_ttl_gn
+         ENDIF
+       ENDFOR
+
+       IF ((srvo_td = TRUE) OR ((srvo_dress = wizans_yes) AND (num_tipdrs > 0))) THEN --servo dresser 
+         IF (cap_chnger = wizans_no) THEN --only non-cap chhange applications use this setup
+           IF ((wld1_app = wld1app_cg) OR (wld1_app = wld1app_cgmh) OR (wld2_app = wld2app_cgpg)) THEN  --carried gun
+             do_cgsblow1   = 1473      --P: Carried gun, servo dresser blower output tip dresser 1
+             do_cgsblow2   = 1474      --P: Carried gun, servo dresser blower output tip dresser 2
+             do_cgsblow3   = 1475      --P: Carried gun, servo dresser blower output tip dresser 3
+             do_cgsblow4   = 1476      --P: Carried gun, servo dresser blower output tip dresser 4
+
+             SET_PORT_ASG(IO_DOUT, 1473,spotcommtype,td_slot,IO_DOUT,17, -8, gm_status)
+
+             SET_PORT_CMT(IO_DOUT,1473,'doTdBlowoffG1', gm_status)
+             SET_PORT_CMT(IO_DOUT,1474,'doTdBlowoffG2', gm_status) 
+             SET_PORT_CMT(IO_DOUT,1475,'doTdBlowoffG3', gm_status) 
+             SET_PORT_CMT(IO_DOUT,1476,'doTdBlowoffG4', gm_status)  
+             SET_PORT_CMT(IO_DOUT,1477,'(Reserved)', gm_status) 
+             SET_PORT_CMT(IO_DOUT,1478,'(Reserved)', gm_status)    
+             SET_PORT_CMT(IO_DOUT,1479,'(Reserved)', gm_status)
+             SET_PORT_CMT(IO_DOUT,1480,'(Reserved)', gm_status)
+
+             IF (wld2_app = wld2app_cgpg) THEN
+               IF (spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_yes) THEN
+                 SET_PORT_CMT(IO_DOUT,1473,'doTdBlowoffG1', gm_status)
+               ELSE
+                 SET_PORT_CMT(IO_DOUT,1473,'(Reserved)', gm_status)
+               ENDIF
+
+               IF (spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_yes) THEN 
+                 --just need to do comment, mapping of I/O will happen in section where the pedestal dump I/O is mapped
+                 SET_PORT_CMT(IO_DOUT,1417,'doTdBlowoffG2',gm_status)
+               ENDIF
+
+               SET_PORT_CMT(IO_DOUT,1474,'(Reserved)', gm_status)
+               SET_PORT_CMT(IO_DOUT,1475,'(Reserved)', gm_status) 
+               SET_PORT_CMT(IO_DOUT,1476,'(Reserved)', gm_status)  
+               SET_PORT_CMT(IO_DOUT,1477,'(Reserved)', gm_status) 
+               SET_PORT_CMT(IO_DOUT,1478,'(Reserved)', gm_status)    
+               SET_PORT_CMT(IO_DOUT,1479,'(Reserved)', gm_status)
+               SET_PORT_CMT(IO_DOUT,1480,'(Reserved)', gm_status)
+             ENDIF
+
+             IF (spotcommtype = Ethernet) THEN
+               TURK_IO_EIP(td_slot, 'TIPDRS')
+             ENDIF --communication is Ethernet
+
+           ELSE --pedestal gun
+
+             IF (spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_yes) THEN  --pedestal gun has a servo tip dresser
+               --just need to do comment, mapping of I/O will happen in section where the pedestal dump I/O is mapped
+               SET_PORT_CMT(IO_DOUT,1409,'doTdBlowoffG1',gm_status)
+             ENDIF
+
+             IF ((spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_yes) OR (spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_yes)) THEN --second ped gun is a servo tip dresser
+               --just need to do comment, mapping of I/O will happen in section where the pedestal dump I/O is mapped
+               SET_PORT_CMT(IO_DOUT,1417,'doTdBlowoffG2',gm_status)
+             ENDIF
+
+           ENDIF --carried gun 
+        ENDIF --cap changer is not used
+      ENDIF --servo tip dresser is used 
+    ENDIF --servo tip dress software option is loaded
+
+    IF (spotapp_eq[1].spotgun[1].sp_srvogn = wizans_yes) THEN --application is a servo gun
+      IF ((spotapp_eq[1].spotgun[1].sp_td  = wizans_yes) OR (num_tipdrs > 0)) THEN --gun 1 has tip dress
+        IF (((spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[1].sp_srvo_td = 0)) OR ((srvo_dress = wizans_no) AND (num_tipdrs > 0)))  THEN --gun 1 is not a servo dresser
+          
+          SET_PORT_ASG(IO_DIN,  1473,spotcommtype,td_slot,IO_DIN, 65,-48, gm_status)
+          SET_PORT_ASG(IO_DOUT, 1473,spotcommtype,td_slot,IO_DOUT,1, -8, gm_status)
+          SET_PORT_ASG(IO_GPIN,  18,spotcommtype,td_slot,IO_DIN, 97,-16, gm_status)
+
+          SET_PORT_CMT(IO_DIN,1473,'diTD1Tripped',  gm_status)
+          SET_PORT_CMT(IO_DIN,1474,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1475,'diTD1RunningFWD',  gm_status)
+          SET_PORT_CMT(IO_DIN,1476,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1477,'diTD1Ready',  gm_status)
+          SET_PORT_CMT(IO_DIN,1478,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1479,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1480,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1481,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1482,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1483,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1484,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1485,'diTD1KeyPadOn',  gm_status)
+          SET_PORT_CMT(IO_DIN,1486,'diTD1DiscOn',  gm_status)
+          SET_PORT_CMT(IO_DIN,1487,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1488,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1489,'diTD1ShortCrt',  gm_status)
+          SET_PORT_CMT(IO_DIN,1490,'diTD1Overload',  gm_status)
+          SET_PORT_CMT(IO_DIN,1491,'diTD1PhaseLost',  gm_status)
+          SET_PORT_CMT(IO_DIN,1492,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1493,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1494,'diTD1CntPwrLoss',  gm_status)
+          SET_PORT_CMT(IO_DIN,1495,'diTD1Fault',  gm_status)
+          SET_PORT_CMT(IO_DIN,1496,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1497,'diTD1PhaseImb',  gm_status)
+          SET_PORT_CMT(IO_DIN,1498,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1499,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1500,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1501,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1502,'diTD1HWFault',  gm_status)
+          SET_PORT_CMT(IO_DIN,1503,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1504,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1505,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1506,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1507,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1508,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1509,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1510,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1511,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1512,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1513,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1514,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1515,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1516,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1517,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1518,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1519,'diTD1Current',  gm_status)
+          SET_PORT_CMT(IO_DIN,1520,'diTD1Current',  gm_status)
+
+          SET_PORT_CMT(IO_GPIN,18, 'giTD1Current', gm_status)
+
+          SET_PORT_CMT(IO_DOUT,1473,'doTD1MotorOn', gm_status)
+          SET_PORT_CMT(IO_DOUT,1474,'(Reserved)', gm_status) 
+          SET_PORT_CMT(IO_DOUT,1475,'doTD1FaultReset', gm_status) 
+          SET_PORT_CMT(IO_DOUT,1476,'(Reserved)', gm_status)  
+          SET_PORT_CMT(IO_DOUT,1477,'(Reserved)', gm_status) 
+          SET_PORT_CMT(IO_DOUT,1478,'(Reserved)', gm_status)    
+          SET_PORT_CMT(IO_DOUT,1479,'doTD1BlowOffOn', gm_status)
+          SET_PORT_CMT(IO_DOUT,1480,'(Reserved)', gm_status)
+
+          IF (spotcommtype = Ethernet) THEN
+            ArmrStrt_EIP(td_slot, 'TIPDRS1')
+          ENDIF --communication is Ethernet
+        ENDIF --gun 1 is not a servo dresser
+
+        IF ((wld1_app = wld1app_pg) OR (wld1_app = wld1app_spdg) OR (wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_spdg) OR (wld2_app = wld2app_dpsg)) THEN --application is pedestal        
+          SET_PORT_ASG(IO_DIN, 1409,spotcommtype,pg1_slot,IO_DIN, 17, -8, gm_status) 
+          SET_PORT_ASG(IO_DOUT,1409,spotcommtype,pg1_slot,IO_DOUT,17, -8, gm_status) 
+          -- TD inputs
+          SET_PORT_CMT(IO_DIN,1409,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DIN,1410,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DIN,1411,'diG1TDDumpAdv',gm_status)         
+          SET_PORT_CMT(IO_DIN,1412,'diG1TDDumpRet',gm_status)
+          SET_PORT_CMT(IO_DIN,1413,'diG1TDDumpPin',gm_status)
+          SET_PORT_CMT(IO_DIN,1414,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DIN,1415,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DIN,1416,'(Reserved)',gm_status) 
+          -- TD Outputs
+          IF ((spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[1].sp_srvo_td = 0)) THEN --no servo tip dresser, set comment
+            SET_PORT_CMT(IO_DOUT,1409,'(Reserved)',gm_status) 
+          ENDIF
+          SET_PORT_CMT(IO_DOUT,1410,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DOUT,1411,'doAdvTDDumpG1',gm_status)         
+          SET_PORT_CMT(IO_DOUT,1412,'doRetTDDumpG1',gm_status) 
+          SET_PORT_CMT(IO_DOUT,1413,'doEnableTDDump1',gm_status)
+          SET_PORT_CMT(IO_DOUT,1414,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DOUT,1415,'(Reserved)',gm_status) 
+          SET_PORT_CMT(IO_DOUT,1416,'(Reserved)',gm_status) 
+
+          IF (spotcommtype = Ethernet) THEN
+            TURK_IO_EIP(pg1_slot, 'TDDUMP1')
+          ENDIF --communication is Ethernet                 
+        ENDIF --gun 1 is a pedestal
+      ENDIF --gun 1 has a tip dresser
+    ENDIF --equip 1 gun 1 is a servo gun 
+
+    IF ((spotapp_eq[1].spotgun[2].sp_srvogn = wizans_yes) OR (num_tipdrs > 1)) THEN --application is a servo gun   
+      IF ((spotapp_eq[1].spotgun[2].sp_td = wizans_yes) OR ((srvo_dress = wizans_no) AND (num_tipdrs > 1))) THEN --tipdress
+        IF ((spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[2].sp_srvo_td = 0)) THEN --gun 2 is not a servo dresser
+          SET_PORT_ASG(IO_DIN,  1521,spotcommtype,td2_slot,IO_DIN, 65,-48,gm_status)       -- TIP DRESSER DENSE DIN'S
+          SET_PORT_ASG(IO_DOUT, 1521,spotcommtype,td2_slot,IO_DOUT,1,-8, gm_status)       -- TIP DRESSER DENSE DO'S
+          SET_PORT_ASG(IO_GPIN,  19,spotcommtype,td2_slot,IO_DIN, 97,-16, gm_status)     -- TD Current GI
+
+          SET_PORT_CMT(IO_DIN,1521,'diTD2Tripped',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1522,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1523,'diTD2RunningFWD',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1524,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1525,'diTD2Ready',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1526,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1527,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1528,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1529,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1530,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1531,'(Reserved)',  gm_status)  
+          SET_PORT_CMT(IO_DIN,1532,'(Reserved)',  gm_status)           
+          SET_PORT_CMT(IO_DIN,1533,'diTD2KeyPadOn',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1534,'diTD2DiscOn',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1535,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1536,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1537,'diTD2ShortCrt',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1538,'diTD2Overload',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1539,'diTD2PhaseLost',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1540,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1541,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1542,'diTD2CntPwrLoss',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1543,'diTD2Fault',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1544,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1545,'diTD2PhaseImb',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1546,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1547,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1548,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1549,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1550,'diTD2HWFault',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1551,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1552,'(Reserved)',  gm_status)    
+          SET_PORT_CMT(IO_DIN,1553,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1554,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1555,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1556,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1557,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1558,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1559,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1560,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1561,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1562,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1563,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1564,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1565,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1566,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1567,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1568,'diTD2Current',  gm_status) 
+
+          SET_PORT_CMT(IO_GPIN, 19, 'giTD2Current',   gm_status)
+         
+          SET_PORT_CMT(IO_DOUT,1521,'doTD2MotorOn', gm_status)       
+          SET_PORT_CMT(IO_DOUT,1522,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1523,'doTD2FaultReset', gm_status)    
+          SET_PORT_CMT(IO_DOUT,1524,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1525,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1526,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1527,'doTD2BlowOffOn', gm_status)     
+          SET_PORT_CMT(IO_DOUT,1528,'(Reserved)',  gm_status)
+
+          IF (spotcommtype = Ethernet) THEN
+            ArmrStrt_EIP(td2_slot, 'TIPDRS2')
+          ENDIF --communication is Ethernet
+       ENDIF --gun 2 is not a servo dresser
+  
+       IF ((wld1_app = wld1app_spdg) OR (wld2_app = wld2app_spdg)) THEN --gun 2 is a pedestal         
+         SET_PORT_ASG(IO_DIN, 1417,spotcommtype,pg2_slot,IO_DIN, 17, -8, gm_status) 
+         SET_PORT_ASG(IO_DOUT,1417,spotcommtype,pg2_slot,IO_DOUT,17, -8, gm_status) 
+         -- TD inputs
+         SET_PORT_CMT(IO_DIN,1417,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1418,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1419,'diG2TDDumpAdv',gm_status)         
+         SET_PORT_CMT(IO_DIN,1420,'diG2TDDumpRet',gm_status)
+         SET_PORT_CMT(IO_DIN,1421,'diG2TDDumpPin',gm_status)
+         SET_PORT_CMT(IO_DIN,1422,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1423,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1424,'(Reserved)',gm_status) 
+         -- TD Outputs
+         IF ((spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[2].sp_srvo_td = 0)) THEN --not a servo dresser, set comment   
+           SET_PORT_CMT(IO_DOUT,1417,'(Reserved)',gm_status) 
+         ENDIF
+         SET_PORT_CMT(IO_DOUT,1418,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1419,'doAdvTDDumpG2',gm_status)         
+         SET_PORT_CMT(IO_DOUT,1420,'doRetTDDumpG2',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1421,'doEnableTDDump2',gm_status)
+         SET_PORT_CMT(IO_DOUT,1422,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1423,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1424,'(Reserved)',gm_status)
+
+         IF (spotcommtype = Ethernet) THEN
+           TURK_IO_EIP(pg2_slot, 'TDDUMP2')
+         ENDIF --communication is Ethernet        
+       ENDIF --gun 2 is a pedestal
+     ENDIF --gun 2 has tip dress
+   ENDIF --equip 1 gun 2 is a servo gun
+
+    IF (spotapp_eq[2].spotgun[1].sp_srvogn = wizans_yes) THEN --application is a servo gun   
+      IF (spotapp_eq[2].spotgun[1].sp_td = wizans_yes) THEN --tipdress
+        IF ((spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[2].spotgun[1].sp_srvo_td = 0)) THEN --gun 2 is not a servo dresser
+          SET_PORT_ASG(IO_DIN,  1521,spotcommtype,td2_slot,IO_DIN, 65,-48,gm_status)       -- TIP DRESSER DENSE DIN'S
+          SET_PORT_ASG(IO_DOUT, 1521,spotcommtype,td2_slot,IO_DOUT,1,-8, gm_status)       -- TIP DRESSER DENSE DO'S
+          SET_PORT_ASG(IO_GPIN,  19,spotcommtype,td2_slot,IO_DIN, 97,-16, gm_status)     -- TD Current GI
+
+          SET_PORT_CMT(IO_DIN,1521,'diTD2Tripped',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1522,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1523,'diTD2RunningFWD',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1524,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1525,'diTD2Ready',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1526,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1527,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1528,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1529,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1530,'(Reserved)',  gm_status)
+          SET_PORT_CMT(IO_DIN,1531,'(Reserved)',  gm_status)  
+          SET_PORT_CMT(IO_DIN,1532,'(Reserved)',  gm_status)           
+          SET_PORT_CMT(IO_DIN,1533,'diTD2KeyPadOn',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1534,'diTD2DiscOn',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1535,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1536,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1537,'diTD2ShortCrt',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1538,'diTD2Overload',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1539,'diTD2PhaseLost',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1540,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1541,'(Reserved)',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1542,'diTD2CntPwrLoss',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1543,'diTD2Fault',  gm_status)      
+          SET_PORT_CMT(IO_DIN,1544,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1545,'diTD2PhaseImb',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1546,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1547,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1548,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1549,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1550,'diTD2HWFault',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1551,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1552,'(Reserved)',  gm_status)    
+          SET_PORT_CMT(IO_DIN,1553,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1554,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1555,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1556,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1557,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1558,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1559,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1560,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1561,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1562,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1563,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1564,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1565,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1566,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1567,'diTD2Current',  gm_status) 
+          SET_PORT_CMT(IO_DIN,1568,'diTD2Current',  gm_status) 
+
+          SET_PORT_CMT(IO_GPIN, 19, 'giTD2Current',   gm_status)
+         
+          SET_PORT_CMT(IO_DOUT,1521,'doTD2MotorOn', gm_status)       
+          SET_PORT_CMT(IO_DOUT,1522,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1523,'doTD2FaultReset', gm_status)    
+          SET_PORT_CMT(IO_DOUT,1524,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1525,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1526,'(Reserved)',  gm_status) 
+          SET_PORT_CMT(IO_DOUT,1527,'doTD2BlowOffOn', gm_status)     
+          SET_PORT_CMT(IO_DOUT,1528,'(Reserved)',  gm_status)
+
+          IF (spotcommtype = Ethernet) THEN
+            ArmrStrt_EIP(td2_slot, 'TIPDRS2')
+          ENDIF --communication is Ethernet
+       ENDIF --gun 2 is not a servo dresser
+         
+       IF ((wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_dpsg) OR (wld2_app = wld2app_cgpg)) THEN --gun 2 is a pedestal 
+         SET_PORT_ASG(IO_DIN, 1417,spotcommtype,pg2_slot,IO_DIN, 17, -8, gm_status) 
+         SET_PORT_ASG(IO_DOUT,1417,spotcommtype,pg2_slot,IO_DOUT,17, -8, gm_status) 
+         -- TD inputs
+         SET_PORT_CMT(IO_DIN,1417,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1418,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1419,'diG2TDDumpAdv',gm_status)         
+         SET_PORT_CMT(IO_DIN,1420,'diG2TDDumpRet',gm_status)
+         SET_PORT_CMT(IO_DIN,1421,'diG2TDDumpPin',gm_status)
+         SET_PORT_CMT(IO_DIN,1422,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1423,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DIN,1424,'(Reserved)',gm_status) 
+         -- TD Outputs
+         IF (wld1_app = wld1app_spdg) THEN --one equipment 2 guns
+           IF ((spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[2].sp_srvo_td = 0)) THEN --gun two is not a servo tip dresser, set comment
+             SET_PORT_CMT(IO_DOUT,1417,'(Reserved)',gm_status) 
+           ENDIF
+         ENDIF 
+         IF ((wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_dpsg) OR (wld2_app = wld2app_cgpg)) THEN --two equipments
+           IF ((spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[2].spotgun[1].sp_srvo_td = 0)) THEN  --not a servo tip dresser, set comment
+             SET_PORT_CMT(IO_DOUT,1417,'(Reserved)',gm_status) 
+           ENDIF
+         ENDIF --two equipments 
+           
+         SET_PORT_CMT(IO_DOUT,1418,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1419,'doAdvTDDumpG2',gm_status)         
+         SET_PORT_CMT(IO_DOUT,1420,'doRetTDDumpG2',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1421,'doEnableTDDump2',gm_status)
+         SET_PORT_CMT(IO_DOUT,1422,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1423,'(Reserved)',gm_status) 
+         SET_PORT_CMT(IO_DOUT,1424,'(Reserved)',gm_status)
+
+         IF (spotcommtype = Ethernet) THEN
+           TURK_IO_EIP(pg2_slot, 'TDDUMP2')
+         ENDIF --communication is Ethernet         
+       ENDIF --gun 2 is a pedestal
+     ENDIF --gun 2 has tip dress
+   ENDIF --equip 2 gun 1 is a servo gun
+
+  IF ((srvo_dress = wizans_no) AND (num_tipdrs > 2))  THEN --setup third electric dresser
+
+    SET_PORT_ASG(IO_DIN,  1569,spotcommtype,td3_slot,IO_DIN, 65,-48,gm_status)       -- TIP DRESSER DENSE DIN'S
+    SET_PORT_ASG(IO_DOUT, 1569,spotcommtype,td3_slot,IO_DOUT,1,-8, gm_status)       -- TIP DRESSER DENSE DO'S
+    SET_PORT_ASG(IO_GPIN,  20,spotcommtype,td3_slot,IO_DIN, 97,-16, gm_status)     -- TD Current GI
+
+    SET_PORT_CMT(IO_DIN,1569,'diTD3Tripped',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1570,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1571,'diTD3RunningFWD',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1572,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1573,'diTD3Ready',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1574,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1575,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1576,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1577,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1578,'(Reserved)',  gm_status)
+    SET_PORT_CMT(IO_DIN,1579,'(Reserved)',  gm_status)  
+    SET_PORT_CMT(IO_DIN,1580,'(Reserved)',  gm_status)           
+    SET_PORT_CMT(IO_DIN,1581,'diTD3KeyPadOn',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1582,'diTD3DiscOn',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1583,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1584,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1585,'diTD3ShortCrt',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1586,'diTD3Overload',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1587,'diTD3PhaseLost',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1588,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1589,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1590,'diTD3CntPwrLoss',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1591,'diTD3Fault',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1592,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1593,'diTD3PhaseImb',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1594,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1595,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1596,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1597,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1598,'diTD3HWFault',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1599,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1600,'(Reserved)',  gm_status)    
+    SET_PORT_CMT(IO_DIN,1601,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1602,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1603,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1604,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1605,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1606,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1607,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1608,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1609,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1610,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1611,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1612,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1613,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1614,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1615,'diTD3Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1616,'diTD3Current',  gm_status) 
+
+    SET_PORT_CMT(IO_GPIN, 20, 'giTD3Current',   gm_status)
+         
+    SET_PORT_CMT(IO_DOUT,1569,'doTD3MotorOn', gm_status)       
+    SET_PORT_CMT(IO_DOUT,1570,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1571,'doTD3FaultReset', gm_status)    
+    SET_PORT_CMT(IO_DOUT,1572,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1573,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1574,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1575,'doTD3BlowOffOn', gm_status)     
+    SET_PORT_CMT(IO_DOUT,1576,'(Reserved)',  gm_status)
+
+    IF (spotcommtype = Ethernet) THEN
+      ArmrStrt_EIP(td3_slot, 'TIPDRS3')
+    ENDIF --communication is Ethernet
+
+  ENDIF --setup third electric dresser
+
+  IF ((srvo_dress = wizans_no) AND (num_tipdrs > 3))  THEN --setup fourth electric dresser
+
+    SET_PORT_ASG(IO_DIN,  1617,spotcommtype,td4_slot,IO_DIN, 65,-48,gm_status)       -- TIP DRESSER DENSE DIN'S
+    SET_PORT_ASG(IO_DOUT, 1617,spotcommtype,td4_slot,IO_DOUT,1,-8, gm_status)       -- TIP DRESSER DENSE DO'S
+    SET_PORT_ASG(IO_GPIN,  21,spotcommtype,td4_slot,IO_DIN, 97,-16, gm_status)     -- TD Current GI
+
+    SET_PORT_CMT(IO_DIN,1617,'diTD4Tripped',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1618,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1619,'diTD4RunningFWD',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1620,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1621,'diTD4Ready',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1622,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1623,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1624,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1625,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1626,'(Reserved)',  gm_status)
+    SET_PORT_CMT(IO_DIN,1627,'(Reserved)',  gm_status)  
+    SET_PORT_CMT(IO_DIN,1628,'(Reserved)',  gm_status)           
+    SET_PORT_CMT(IO_DIN,1629,'diTD4KeyPadOn',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1630,'diTD4DiscOn',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1631,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1632,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1633,'diTD4ShortCrt',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1634,'diTD4Overload',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1635,'diTD4PhaseLost',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1636,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1637,'(Reserved)',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1638,'diTD4CntPwrLoss',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1639,'diTD4Fault',  gm_status)      
+    SET_PORT_CMT(IO_DIN,1640,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1641,'diTD4PhaseImb',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1642,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1643,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1644,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1645,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1646,'diTD4HWFault',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1647,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1648,'(Reserved)',  gm_status)    
+    SET_PORT_CMT(IO_DIN,1649,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1650,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1651,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1652,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1653,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1654,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1655,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1656,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1657,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1658,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1659,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1660,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1661,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1662,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1663,'diTD4Current',  gm_status) 
+    SET_PORT_CMT(IO_DIN,1664,'diTD4Current',  gm_status) 
+
+    SET_PORT_CMT(IO_GPIN, 21, 'giTD4Current',   gm_status)
+         
+    SET_PORT_CMT(IO_DOUT,1617,'doTD4MotorOn', gm_status)       
+    SET_PORT_CMT(IO_DOUT,1618,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1619,'doTD4FaultReset', gm_status)    
+    SET_PORT_CMT(IO_DOUT,1620,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1621,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1622,'(Reserved)',  gm_status) 
+    SET_PORT_CMT(IO_DOUT,1623,'doTD4BlowOffOn', gm_status)     
+    SET_PORT_CMT(IO_DOUT,1624,'(Reserved)',  gm_status)
+
+    IF (spotcommtype = Ethernet) THEN
+      ArmrStrt_EIP(td4_slot, 'TIPDRS4')
+    ENDIF --communication is Ethernet
+
+  ENDIF --setup fourth electric dresser
+   
+ENDIF 
+     
+END tipdress_io
+-----------------------------------------------------------------------------
+ROUTINE set_spotio2
+-- PURPOSE: setup spot application I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numwldctrl <> 0) THEN --application has spot
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+    ErrsInShop.ErrorsIOCom = 0
+  ENDIF
+  IF UNINIT(SpotIO2Setup) OR (Reset_Cell) THEN
+    SpotIO2Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Spot I/O Program GMSPOTIO2', FALSE)
+
+  IF (SpotIO2Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Spot I/O 2 Already Setup', FALSE)
+    IF ExecSetupAgn('Spot I/O 2') THEN -- ask user if they want to setup again
+      SpotIO2Setup = FALSE
+    ELSE
+      WriteLog('  Spot I/O 2 already Complete', FALSE)
+      WriteLog('  GMSPOTIO2 Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  initSpot2IO
+  seteqio1
+  seteqio2
+  tipdress_io
+
+  ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Spot I/O setup Program GMSPOTIO2 had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Spot I/O 2 setup Program completed', FALSE)
+    SpotIO2Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --number of weld controllers
+
+END set_spotio2
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMSPOTIO2

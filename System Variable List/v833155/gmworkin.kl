@@ -1,0 +1,97 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMWORKIN.KL
+--   TITLE:          GMWORKIN PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  3/26/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GM Global 4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: X PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMWORKIN
+
+%COMMENT = 'GMWORKIN Prog'
+%NOLOCKGROUP
+%INVISIBLE
+
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF
+%INCLUDE gmevrlng  -- Required for the constants for GM language constants
+
+VAR
+
+  DisplayDely  IN SHADOW FROM GMCFGCEL: INTEGER -- Used for how long to delay to allow a user to see DIsplay Messages
+  Curr_Str,SetupStr :STRING[32]
+  TravelStr:STRING[1]
+  i,
+  gm_status  : INTEGER -- Used for  builtin status returned
+
+   RunngSetup IN CMOS FROM GMWIZARD :BOOLEAN  -- used to know when the setup is running and this should end
+
+%INCLUDE klrdutil -- Needed for teh CLR_STND_SCR routine
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+
+BEGIN
+
+IF UNINIT(DisplayDely) THEN
+  DisplayDely = 1000
+ENDIF
+IF (DisplayDely<500) THEN
+ DisplayDely =1000
+ENDIF
+
+   CLR_STND_SCR(gm_status)
+    WRITE (CR)
+    WRITE (rbtcfg1_gm,CR)  -- Please wait while the robot is
+    WRITE (rbtcfg2_gm,CR)  -- configured...
+
+    SetupStr = 'Setting up '
+    TravelStr = '.'
+
+WHILE (RunngSetup) DO --
+ Curr_Str =  SetupStr -- this allows user outside this program to change Text during running
+ WRITE TPERROR(CHR(cc_clear_win),SetupStr)
+
+   FOR i = 1 TO 19 DO
+      DELAY (DisplayDely * 2)
+      Curr_Str = Curr_Str + TravelStr
+      WRITE TPERROR(CHR(cc_clear_win),Curr_Str)
+      IF RunngSetup = FALSE THEN
+        i = 19 -- make stop now
+      ENDIF
+   ENDFOR --
+
+ENDWHILE --
+
+ WRITE TPERROR(CHR(cc_clear_win))
+
+END GMWORKIN

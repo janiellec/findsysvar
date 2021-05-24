@@ -1,0 +1,1795 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMMHIO.KL
+--   TITLE:          GMMHIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Material Handling I/O setup files. These routines will be
+--                      called from the main wizard, no prompts are in the I/O file
+--                      only the settting
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4-5-16 REMOVE MHEVGRIP include because Files creates to much problems
+--                NEVER reference MHEVGRIP any where if avoidable!!
+--
+--         7-6-16                R Kosaski        Edited vacuum type when press is not error for VacType=0
+--         9-16-16               R Kosaski        Added I/O for second Analog ports
+--         9-22-16               R Kosaski        Changed second analog to GI 23&24 from 12&13
+--         2-11-17               R Kosaski        Added code to set teh tool and clamp check open and closed to true
+--------------------------------------------------------------------------
+PROGRAM GMMHGPIO
+
+%COMMENT = 'MH I/O V4.0'
+
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT SYSDEF  -- required for the $group[1]. variable
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE mhevgrip  -- Required for the Variables for the MHGRIP setup variables
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmevrlng  -- Required for the "gmlang1" routine and its variables
+
+CONST
+
+Version = '02-11-17 R.K.'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  IO_MH_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+  Tab_index,     -- used in the FOR loop for which index Tab to be setting
+  IO_Index : INTEGER -- used in the for loops for which output currently setting
+
+  l_i,i,ai,ot,l_j,        -- Used in FOR looping
+  Cur_qty_tool, -- Current Array size for Qty of Tools read from MHGRIPDT
+  Cur_qty_grip, -- Current Array size for Qty of gripper read from MHGRIPDT
+  Cur_qty_clmp, -- Current Array size for Qty of Clamp Sensors read from MHGRIPDT
+  Cur_qty_pprs, -- Current Array size for Qty of Part Present Sensors read from MHGRIPDT
+  Cur_qty_vmad, -- Current Array size for Qty of Vacuum Made Sensors read from MHGRIPDT
+  Cur_TabIOTyp, -- Current Tab I/O type to use
+  Cur_Tab_IONm, -- Current Tab type I/O point to use
+  entry,
+  gm_status    : INTEGER
+
+  Grp_Is_Setup IN SHADOW : BOOLEAN -- Keeps track if routine setup Mhgrip at least first time
+  Grp_Is_GRS4  IN SHADOW : BOOLEAN -- Identifies if MHGRIP is configured to GRS4 Spec
+
+  InBlockSetup IN SHADOW : ARRAY[Max_In_Blks] OF BOOLEAN -- indicates if the input block has been setup before
+  AnalgInSetup IN SHADOW : ARRAY[Max_In_Blks] OF BOOLEAN -- indicates if the Analog Inputs has been setup before
+  OutVlvSetup  IN SHADOW : ARRAY[Max_OutBlks] OF BOOLEAN -- indicates if the Valve Pack has been setup before
+
+  -- Set to the LAST Number of Valve Packs when the Wizard Requested and update
+  LastVlvePcks,
+  LastDigInBlk  IN SHADOW : INTEGER -- last number input blocks
+
+  new_qty_tool in CMOS from MHGRIPIO: INTEGER -- used when "update_qty" called to adjust # Tool array
+  new_qty_grip in CMOS from MHGRIPIO: INTEGER -- used when "update_qty" called to adjust # Grippers array
+  new_qty_clmp in CMOS from MHGRIPIO: INTEGER -- used when "update_qty" called to adjust Clamp array
+  new_qty_pprs in CMOS from MHGRIPIO: INTEGER -- used when "update_qty" called to adjust Part Pres array
+  new_qty_vmad in CMOS from MHGRIPIO: INTEGER -- used when "update_qty" called to adjust Vacuum array
+
+  prompt_wndw   FROM mhgrsetp : file -- currently not needed because we are update_qty(False) if prompt
+                                     -- Prompt operator is TRUE then need this Declareation and remove comments
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+%INCLUDE gmcfgmh   -- GM wizard variables for MH Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications
+
+ROUTINE update_qty(dsp_prompt : BOOLEAN) FROM mhgrsetp -- used for expanding Array lengths
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE Balf_BLCEN (P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETS2-- Baluff Analog input block setup
+ROUTINE TURK_BLCEN (P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETS2-- Turck Analog input block setup
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETSU-- Turck input/output block setup
+ROUTINE TURK_IN_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETSU-- Turck input block setup
+ROUTINE SMC_OUT_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETSU-- SMC out valve packs
+-----------------------------------------------------------
+-----------------------------------------------------------------------------
+ROUTINE set_echo_out(ReadStart,Read_Type,WriteStart,NumPoints:INTEGER)
+-- PURPOSE: to retrieve comments from DI table, then load it to the
+--          inputs that are to be echoed to the PLC for status. this is a
+--          future develpment for PLC, but robot is done
+--
+-- INPUT:   ReadStart --is the number to Read from
+--          Read_Type -- Is the post to use, KLIOTYPES used for this
+--          WriteStart -- is the Output number to set comment to
+--          NumPoints  -- is how comments are to be copied,used for the FOR loop
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: set routines based on number of modules configured for tooling
+--
+-----------------------------------------------------------------------------
+VAR
+
+Cmnt_String :STRING[32]
+entry,
+LoopCounter, -- used for loop counter to add to passed arguments
+i :INTEGER -- used for the for loop
+max_io_avail : INTEGER -- used to see how large I/O is
+
+BEGIN
+
+max_io_avail = 0
+loopCounter = 0 -- reset loop counter
+
+-- check passed are available
+ GET_VAR(entry, '*SYSTEM*' , '$MAX_DIG_PRT', max_io_avail, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$MAX_DIG_PRT FAILED', gm_status, 0) --
+    ELSE
+      IF (ReadStart + (NumPoints-1)) > max_io_avail THEN -- check read number is not too large
+        POST_ERR(38000, 'Comment GET start '+int2str(ReadStart) +' > I/O Avail', 0, 0) --
+        RETURN
+      ELSE -- CHeck if it is set number is too large
+        IF (WriteStart + (NumPoints-1)) > max_io_avail THEN -- check read number is not too large
+          POST_ERR(38000, 'Comment SET start '+int2str(WriteStart) +' > I/O Avail', 0, 0) --
+          RETURN
+        ENDIF
+      ENDIF
+    ENDIF
+
+-- Cycle through the Input to read and set to output comments
+    FOR i = ReadStart TO (ReadStart +(NumPoints -1)) DO --loop for
+      Cmnt_String = 'Unknown'
+      GET_PORT_CMT(Read_Type,i,Cmnt_String,gm_status)-- get comment
+        IF gm_status<> 0 THEN
+          IF gm_status = 13030 THEN -- is empty string returning PRIO-030 PRIO=13
+            SELECT (Read_type) OF --
+            CASE (IO_DIN):  --
+              Cmnt_String = 'DI ' +int2str(i) +' Uncommented'
+            CASE (IO_DOUT):  --
+              Cmnt_String = 'DO ' +int2str(i) +' Uncommented'
+            ELSE: -- Not code for this??
+              Cmnt_String = '?? ' +int2str(i) +' Uncommented'
+            ENDSELECT --
+          ELSE
+            POST_ERR(38000, 'Failed to get ' + int2str(i) +' comment', gm_status, 0) --
+            Cmnt_String = 'Unknown'
+          ENDIF
+        ELSE -- Read comment OK, write it to Destination
+          SET_PORT_CMT(IO_DOUT,(WriteStart + LoopCounter), Cmnt_string , gm_status)
+            IF gm_status <>0 THEN
+              POST_ERR(38000, 'Set Output '+int2str(i)+' Comment Failed', gm_status, 0) --
+            ENDIF
+        ENDIF
+       LoopCounter = LoopCounter + 1
+    ENDFOR --
+
+END set_echo_out
+-----------------------------------------------------------------------------
+ROUTINE readcomment(P_IO_Type,P_IO_Point:INTEGER):STRING
+-- PURPOSE: to retrieve comments from I/O table, then return it. this prevents
+--          having to edit the multiple places for the same comment
+--
+-- INPUT: IO_TYPE  -- is the I/O Type 1=Input 2= Ouptut
+--        IO_Point --is the digital number to Read from
+--
+-- OUTPUT: the string read from Comment failed
+--            -
+-- CALLED BY: set routines based on number of modules configured for tooling
+--
+-----------------------------------------------------------------------------
+VAR
+
+Cmnt_String :STRING[32]
+entry,
+max_io_avail : INTEGER -- used to see how large I/O is
+
+BEGIN
+
+max_io_avail = 0
+Cmnt_String = 'P_IO_Type '+int2str(P_IO_Type)+'IO_Point '+int2str(P_io_Point)  -- set this incase not succesful returns a value of something
+
+-- check passed is available
+ GET_VAR(entry, '*SYSTEM*' , '$MAX_DIG_PRT', max_io_avail, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$MAX_DIG_PRT FAILED', gm_status, 0) --
+    ELSE
+      IF (P_IO_Point > max_io_avail) THEN -- check read number is not too large
+        POST_ERR(38000, 'Comment GET #'+int2str(P_IO_Point) +' > I/O Avail', 0, 0) --
+        RETURN(Cmnt_String)
+      ENDIF
+    ENDIF
+
+-- Cycle through the Input to read and set to output comments
+Cmnt_String = 'P_IO_Type '+int2str(P_IO_Type)+'IO_Point '+int2str(P_io_Point)  -- set this incase not succesful returns a value of something
+  GET_PORT_CMT(P_IO_Type,P_IO_Point,Cmnt_String,gm_status)
+    IF gm_status<> 0 THEN
+      IF gm_status = 13030 THEN -- is empty string returning PRIO-030 PRIO=13
+        Cmnt_String = 'I/O ' +int2str(P_IO_Point) +' Uncommented'
+      ELSE
+        POST_ERR(38000, 'Failed to get ' + int2str(P_IO_Point) +' comment', gm_status, 0) --
+        Cmnt_String = 'Unknown'
+      ENDIF
+    ENDIF
+
+RETURN(Cmnt_String)
+
+END readcomment
+-----------------------------------------------------------------------------
+ROUTINE set_tab_data(P_Tab_Type:INTEGER;P_Tab_index:INTEGER):BOOLEAN
+-- PURPOSE:
+--
+--
+-- INPUT:   The Tab Array to get data from
+--          Where in the array to get teh data from
+-- OUTPUT:  If gettting was succesfull and NOT a zero
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  Cur_TabIOTyp = 0
+  Cur_Tab_IONm  = 0
+
+SELECT (P_Tab_Type) OF --
+  CASE (ClampTab):  -- Clamp Tab
+    GET_VAR(entry, 'MHGRIPDT' , 'clamp_tab['+int2str(Tab_Index)+'].sigopen_t', Cur_TabIOTyp, gm_status)
+    GET_VAR(entry, 'MHGRIPDT' , 'clamp_tab['+int2str(Tab_Index)+'].sigopen_i', Cur_Tab_IONm, gm_status)
+  CASE (PartPrsTab):  -- Part Present Tab
+    GET_VAR(entry, 'MHGRIPDT' , 'partp_tab['+int2str(Tab_Index)+'].sigopen_t', Cur_TabIOTyp, gm_status)
+    GET_VAR(entry, 'MHGRIPDT' , 'partp_tab['+int2str(Tab_Index)+'].sigopen_i', Cur_Tab_IONm, gm_status)
+  CASE (ValveTab):   -- VALVE_TAB
+    GET_VAR(entry, 'MHGRIPDT' , 'vmade_tab['+int2str(Tab_Index)+'].sigopen_t', Cur_TabIOTyp, gm_status)
+    GET_VAR(entry, 'MHGRIPDT' , 'vmade_tab['+int2str(Tab_Index)+'].sigopen_i', Cur_Tab_IONm, gm_status)
+
+ELSE: --
+    POST_ERR(38000, 'Unknown P_Tab_Type '+int2str(p_tab_type)+' in SET_TAB_DATA', 0, 0) --
+ENDSELECT --
+
+  IF (Cur_TabIOTyp = 0) OR (Cur_Tab_IONm  = 0) THEN
+    RETURN(FALSE) -- Have a problem
+  ENDIF
+
+  RETURN(TRUE)
+
+END set_tab_data
+-----------------------------------------------------------------------------
+ROUTINE Cmnt_MH_Tabs(P_Tab_Type,P_Start_Tab,P_IOStrt_Pnt,P_Num_Points:INTEGER)
+-- PURPOSE: This routine will comment the array of Tabs for the MHGRIP product
+--          to GM defaults. It will read the Current Input or Output comment feild from the
+--          I/O point, then make the Comment in the signal_i or sigXYZ_n Tab so the
+--          Comments match from the I/O table and the MHGRIP tabs
+--
+-- INPUT:    the Tab Number to start with
+--           The Start Point for the Tab in the MHGrip Array
+--           Start point on the I/O to Get
+--           The Number of sequencal points to do. Normally 10 for Valves,
+--           12 for Clamp Tab, 4 for Part Presents.
+
+--            -
+-- OUTPUT:    --            -
+--
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+Var
+Tab_STRING : string[32] -- Temp Holder
+
+BEGIN
+
+IO_Index = P_IOStrt_Pnt  -- Set I/O Index = Start Point to make for loop work start point
+
+FOR Tab_Index = P_Start_Tab TO (P_Start_Tab+(P_Num_Points-1)) DO
+
+  SELECT (P_Tab_Type) OF -- Select Which Tab to Set
+    CASE (ClampTab):  -- Clamp Inputs
+      IF (ARRAY_LEN(clamp_tab)>= Tab_Index) THEN -- Check to Make sure Array is large enough
+          clamp_tab[Tab_Index].sigopen_i  = IO_Index -- Set the Clamp Tab Integer for Input #
+          clamp_tab[Tab_Index].sigopen_n  = readcomment(clamp_tab[Tab_Index].sigopen_t,clamp_tab[Tab_Index].sigopen_i)
+
+        IO_Index = IO_Index + 1 -- Need to Increment because 1 tab but two I/O points per Tab
+       clamp_tab[Tab_Index].sigclose_i = IO_Index -- Set the Clamp Tab Integer for Input #
+       clamp_tab[Tab_Index].sigclose_n = readcomment(clamp_tab[Tab_Index].sigclose_t,clamp_tab[Tab_Index].sigclose_i)
+
+      ELSE -- Can set Array is NOT large enough
+        POST_ERR(38000, 'CLAMP_TAB Array='+int2Str(Array_Len(clamp_tab))+&
+                       ' CANNOT setup '+int2str(Tab_Index),0, 0) --
+      ENDIF
+
+    CASE (PartPrsTab):  -- Part Present Inputs
+      IF (ARRAY_LEN(partp_tab)>= Tab_Index) THEN -- Check to Make sure Array is large enough
+        partp_tab[Tab_Index].signal_i = IO_INDEX
+        partp_tab[Tab_Index].signal_n = readcomment(partp_tab[Tab_Index].signal_t,partp_tab[Tab_Index].signal_i)
+      ELSE -- Can set Array is NOT large enough
+        POST_ERR(38000, 'PARTP_TAB Array='+int2Str(Array_Len(partp_tab))+&
+                        ' CANNOT setup '+int2str(Tab_Index),0, 0) --
+      ENDIF
+
+    CASE (VacuumTab): -- Set the Vacuum Present Inputs Comment to the existing input comments
+     IF (ARRAY_LEN(vmade_tab)>= Tab_Index) THEN -- Check to Make sure Array is large enough
+       vmade_tab[Tab_Index].signal_i = IO_INDEX
+
+       vmade_tab[Tab_Index].signal_n ='DI' +int2str(vmade_tab[Tab_Index].signal_i)+' Vacuum Made'
+
+    --   vmade_tab[Tab_Index].signal_n = readcomment(vmade_tab[Tab_Index].signal_t,vmade_tab[Tab_Index].signal_i)
+        IO_Index = IO_Index + 1 -- Need to Increment Vacuum 1 tab uses every other Input
+
+      ELSE -- Can set Array is NOT large enough
+        POST_ERR(38000, 'VMADE_TAB Array='+int2Str(Array_Len(vmade_tab))+&
+                        ' CANNOT setup '+int2str(Tab_Index),0, 0) --
+      ENDIF
+
+    CASE (ValveTab) : -- Set the Valve Pack Comment to the existing Output comments
+      IF (ARRAY_LEN(Valve_Tab)>= Tab_Index) THEN -- Check to Make sure Array is large enough
+        valve_tab[Tab_Index].sigtoa_i = IO_Index -- Set the Valve Tab Integer used for the valve #
+        -- Now that Value has been set, go read comment from it, and Place in the Valve Tab Name
+        valve_tab[Tab_Index].sigtoa_n = readcomment(valve_tab[Tab_Index].sigtoa_t,valve_tab[Tab_Index].sigtoa_i)
+        IO_Index = IO_Index + 1 -- Need to Increment because 1 tab but two I/O points per Tab
+
+        valve_tab[Tab_Index].sigtob_i = IO_Index -- Set the Valve Tab Integer used for the valve #
+        valve_tab[Tab_Index].sigtob_n = readcomment(valve_tab[Tab_Index].sigtob_t,valve_tab[Tab_Index].sigtob_i) --'do802Valve01ToB'
+     ELSE -- Can set Array is NOT large enough
+       POST_ERR(38000, 'VALVE_TAB Array='+int2Str(Array_Len(Valve_Tab))+&
+                       ' CANNOT setup '+int2str(Tab_Index),0, 0) --
+     ENDIF
+
+    ELSE: --
+      POST_ERR(38000, 'P_TAB_TYPE '+int2Str(P_Tab_Type)+' UNKNOWN in Cmnt_MH_Tab,GMMHGPIO', 0, 0) --
+  ENDSELECT --
+   -- Index the I/O number so it uses the next I/O in list in for loop
+  IO_Index = IO_Index + 1
+ENDFOR --
+
+END Cmnt_MH_Tabs
+-----------------------------------------------------------------------------
+ROUTINE ValvePack_1
+-- PURPOSE: setup the output comments for the 1st valve pack.
+--          setup the echoing of the output to the PLC output
+--          Confiqure the Ethernet Block if confiqured for Enet
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+IF OutVlvSetup[1] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Valve Pack#1 Already Setup')
+    IF NOT ExecSetupAgn('Valve Pack#1') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+       -- Outputs Node 31 dense pack valve maniforld/robot outputs  801-816
+  SET_PORT_ASG(IO_DOUT,801,EOATCommType,31,IO_DOUT,1,-16,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 31 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DOUT,801, 'do801Valve01ToA' , gm_status)-- Valve 1 to A Position
+  SET_PORT_CMT(IO_DOUT,802, 'do802Valve01ToB' , gm_status)-- Valve 1 to B Position
+  SET_PORT_CMT(IO_DOUT,803, 'do803Valve02ToA' , gm_status)-- Valve 2 to A Position
+  SET_PORT_CMT(IO_DOUT,804, 'do804Valve02ToB' , gm_status)-- Valve 2 to B Position
+  SET_PORT_CMT(IO_DOUT,805, 'do805Valve03ToA' , gm_status)-- Valve 3 to A Position
+  SET_PORT_CMT(IO_DOUT,806, 'do806Valve03ToB' , gm_status)-- Valve 3 to B Position
+  SET_PORT_CMT(IO_DOUT,807, 'do807Valve04ToA' , gm_status)-- Valve 4 to A Position
+  SET_PORT_CMT(IO_DOUT,808, 'do808Valve04ToB' , gm_status)-- Valve 4 to B Position
+  SET_PORT_CMT(IO_DOUT,809, 'do809Valve05ToA' , gm_status)-- Valve 5 to A Position
+  SET_PORT_CMT(IO_DOUT,810, 'do810Valve05ToB' , gm_status)-- Valve 5 to B Position
+  SET_PORT_CMT(IO_DOUT,811, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,812, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,813, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,814, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,815, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,816, '(Reserved)' , gm_status)
+
+-- get output comments, place in output comment, for # loop
+   set_echo_out(801,IO_DOUT,529,16)
+
+-- Setup the IP Config for the first valve pack if ethernet communications
+IF EOATCommType = Ethernet THEN
+  SMC_OUT_EIP(31,'OutputVlv#1')
+ENDIF
+
+-- Comment the Valve data,starting at Tab#1,StartI/O Point#801,For 5 tabs (2 valves Per Tab)
+  Cmnt_MH_Tabs(ValveTab,1,801,5)
+
+OutVlvSetup[1] = TRUE -- setup valve pack has been setup for future evaluation
+
+LastVlvePcks = 1
+
+END ValvePack_1
+-----------------------------------------------------------------------------
+ROUTINE ValvePack_2
+-- PURPOSE: setup the output comments for the 2nd valve pack.
+--          setup the echoing of the output to the PLC output
+--          Confiqure the Ethernet Block if confiqured for Enet
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF OutVlvSetup[2] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Valve Pack#2 Already Setup')
+    IF NOT ExecSetupAgn('Valve Pack#2') THEN
+      RETURN
+    ENDIF
+ENDIF
+
+    SET_PORT_ASG(IO_DOUT,817,EOATCommType,32,IO_DOUT,1,-16,gm_status)
+      IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+        POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 32 Setup FAILED', gm_status, 0) --
+        RETURN
+      ENDIF
+
+    SET_PORT_CMT(IO_DOUT,817, 'do817Valve06ToA' , gm_status)     -- Valve 6 to A Position
+    SET_PORT_CMT(IO_DOUT,818, 'do818Valve06ToB' , gm_status)     -- Valve 6 to B Position
+    SET_PORT_CMT(IO_DOUT,819, 'do819Valve07ToA' , gm_status)     -- Valve 7 to A Position
+    SET_PORT_CMT(IO_DOUT,820, 'do820Valve07ToB' , gm_status)     -- Valve 7 to B Position
+    SET_PORT_CMT(IO_DOUT,821, 'do821Valve08ToA' , gm_status)     -- Valve 8 to A Position
+    SET_PORT_CMT(IO_DOUT,822, 'do822Valve08ToB' , gm_status)     -- Valve 8 to B Position
+    SET_PORT_CMT(IO_DOUT,823, 'do823Valve09ToA' , gm_status)     -- Valve 9 to A Position
+    SET_PORT_CMT(IO_DOUT,824, 'do824Valve09ToB' , gm_status)     -- Valve 9 to B Position
+    SET_PORT_CMT(IO_DOUT,825, 'do825Valve10ToA' , gm_status)    -- Valve 10 to A Position
+    SET_PORT_CMT(IO_DOUT,826, 'do826Valve10ToB' , gm_status)    -- Valve 10 to B Position
+    SET_PORT_CMT(IO_DOUT,827, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,828, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,829, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,830, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,831, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,832, '(Reserved)' , gm_status)
+
+-- Comment the Valve data,starting at Tab#6,StartI/O Point#817,For 5 tabs (2 valves Per Tab)
+  Cmnt_MH_Tabs(ValveTab,6,817,5)
+
+    -- Setup the IP Config for the first valve pack
+    IF EOATCommType = Ethernet THEN
+      SMC_OUT_EIP(32,'OutputVlv#2')
+    ENDIF
+
+-- get output comments, place in output comment, for # loop
+    set_echo_out(817,IO_DOUT,545,16)
+
+
+OutVlvSetup[2] = TRUE -- setup valve pack has been setup for future evaluation
+
+LastVlvePcks = 2
+
+END ValvePack_2
+-----------------------------------------------------------------------------
+ROUTINE ValvePack_3
+-- PURPOSE: setup the output comments for the 3rd valve pack.
+--          setup the echoing of the output to the PLC output
+--          Confiqure the Ethernet Block if confiqured for Enet
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF OutVlvSetup[3] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Valve Pack#3 Already Setup')
+    IF NOT ExecSetupAgn('Valve Pack#3') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+
+    SET_PORT_ASG(IO_DOUT,833,EOATCommType,33,IO_DOUT,1,-16,gm_status)
+      IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+        POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 33 Setup FAILED', gm_status, 0) --
+        RETURN
+      ENDIF
+
+    SET_PORT_CMT(IO_DOUT,833, 'do833Valve11ToA' , gm_status)     -- Valve 11 to A Position
+    SET_PORT_CMT(IO_DOUT,834, 'do834Valve11ToB' , gm_status)     -- Valve 11 to B Position
+    SET_PORT_CMT(IO_DOUT,835, 'do835Valve12ToA' , gm_status)     -- Valve 12 to A Position
+    SET_PORT_CMT(IO_DOUT,836, 'do836Valve12ToB' , gm_status)     -- Valve 12 to B Position
+    SET_PORT_CMT(IO_DOUT,837, 'do837Valve13ToA' , gm_status)     -- Valve 13 to A Position
+    SET_PORT_CMT(IO_DOUT,838, 'do838Valve13ToB' , gm_status)     -- Valve 13 to B Position
+    SET_PORT_CMT(IO_DOUT,839, 'do839Valve14ToA' , gm_status)     -- Valve 14 to A Position
+    SET_PORT_CMT(IO_DOUT,840, 'do840Valve14ToB' , gm_status)     -- Valve 14 to B Position
+    SET_PORT_CMT(IO_DOUT,841, 'do841Valve15ToA' , gm_status)    -- Valve 15 to A Position
+    SET_PORT_CMT(IO_DOUT,842, 'do842Valve15ToB' , gm_status)    -- Valve 15 to B Position
+    SET_PORT_CMT(IO_DOUT,843, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,844, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,845, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,846, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,847, '(Reserved)' , gm_status)
+    SET_PORT_CMT(IO_DOUT,848, '(Reserved)' , gm_status)
+
+   -- Comment the Valve data,starting at Tab#11,StartI/O Point#833,For 5 tabs (2 valves Per Tab)
+    Cmnt_MH_Tabs(ValveTab,11,833,5)
+
+-- Setup the IP Config for the first valve pack
+    IF EOATCommType = Ethernet THEN
+      SMC_OUT_EIP(33,'OutputVlv#3')
+    ENDIF
+
+    set_echo_out(833,IO_DOUT,561,16) -- get output comments, place in output comment, for # loop
+
+    OutVlvSetup[3] = TRUE -- setup valve pack has been setup for future evaluation
+
+  LastVlvePcks = 3 -- set last valve pack setup
+
+END ValvePack_3
+-----------------------------------------------------------------------------
+ROUTINE SetupMarker
+-- PURPOSE: to setup Marker # 1 and #2 for the analog tooling
+--                  Marker # 3 and #4 for the analog tooling
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+                   --Closed M1  Curnt,Min Close  Curnt, Max Close
+-- Set up Marker #1 to be M[1]=((R[1]>=R[5]) AND (R[1]<=R[6]))
+
+         Set_I_sVar('$MIX_MKR[1].$LINE_SIZE',30)
+         Set_I_sVar('$MIX_MKR[1].$LINE[1]',42)
+         Set_I_sVar('$MIX_MKR[1].$LINE[2]',2)
+         Set_I_sVar('$MIX_MKR[1].$LINE[3]',0)
+         Set_I_sVar('$MIX_MKR[1].$LINE[4]',1)--Marker
+         Set_I_sVar('$MIX_MKR[1].$LINE[5]',100)
+         Set_I_sVar('$MIX_MKR[1].$LINE[6]',115)
+         Set_I_sVar('$MIX_MKR[1].$LINE[7]',115)
+         Set_I_sVar('$MIX_MKR[1].$LINE[8]',3)
+         Set_I_sVar('$MIX_MKR[1].$LINE[9]',2)
+         Set_I_sVar('$MIX_MKR[1].$LINE[10]',0)
+         Set_I_sVar('$MIX_MKR[1].$LINE[11]',1)
+         Set_I_sVar('$MIX_MKR[1].$LINE[12]',112)
+         Set_I_sVar('$MIX_MKR[1].$LINE[13]',3)
+         Set_I_sVar('$MIX_MKR[1].$LINE[14]',2)
+         Set_I_sVar('$MIX_MKR[1].$LINE[15]',0)
+         Set_I_sVar('$MIX_MKR[1].$LINE[16]',5) --register
+         Set_I_sVar('$MIX_MKR[1].$LINE[17]',116)
+         Set_I_sVar('$MIX_MKR[1].$LINE[18]',113)
+         Set_I_sVar('$MIX_MKR[1].$LINE[19]',115)
+         Set_I_sVar('$MIX_MKR[1].$LINE[20]',3)
+         Set_I_sVar('$MIX_MKR[1].$LINE[21]',2)
+         Set_I_sVar('$MIX_MKR[1].$LINE[22]',0)
+         Set_I_sVar('$MIX_MKR[1].$LINE[23]',1)
+         Set_I_sVar('$MIX_MKR[1].$LINE[24]',110)
+         Set_I_sVar('$MIX_MKR[1].$LINE[25]',3)
+         Set_I_sVar('$MIX_MKR[1].$LINE[26]',2)
+         Set_I_sVar('$MIX_MKR[1].$LINE[27]',0)
+         Set_I_sVar('$MIX_MKR[1].$LINE[28]',6) --register
+         Set_I_sVar('$MIX_MKR[1].$LINE[29]',116)
+         Set_I_sVar('$MIX_MKR[1].$LINE[30]',116)
+
+                   --Opened M2  Curnt,Min Open   Curnt,Max Open
+-- Set up Marker #2 to be M[2]=((R[1]>=R[7]) AND (R[1]<=R[8]))
+
+         Set_I_sVar('$MIX_MKR[2].$LINE_SIZE',30)
+         Set_I_sVar('$MIX_MKR[2].$LINE[1]',42)
+         Set_I_sVar('$MIX_MKR[2].$LINE[2]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[3]',0)
+         Set_I_sVar('$MIX_MKR[2].$LINE[4]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[5]',100)
+         Set_I_sVar('$MIX_MKR[2].$LINE[6]',115)
+         Set_I_sVar('$MIX_MKR[2].$LINE[7]',115)
+         Set_I_sVar('$MIX_MKR[2].$LINE[8]',3)
+         Set_I_sVar('$MIX_MKR[2].$LINE[9]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[10]',0)
+         Set_I_sVar('$MIX_MKR[2].$LINE[11]',1)
+         Set_I_sVar('$MIX_MKR[2].$LINE[12]',112)
+         Set_I_sVar('$MIX_MKR[2].$LINE[13]',3)
+         Set_I_sVar('$MIX_MKR[2].$LINE[14]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[15]',0)
+         Set_I_sVar('$MIX_MKR[2].$LINE[16]',7)--register
+         Set_I_sVar('$MIX_MKR[2].$LINE[17]',116)
+         Set_I_sVar('$MIX_MKR[2].$LINE[18]',113)
+         Set_I_sVar('$MIX_MKR[2].$LINE[19]',115)
+         Set_I_sVar('$MIX_MKR[2].$LINE[20]',3)
+         Set_I_sVar('$MIX_MKR[2].$LINE[21]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[22]',0)
+         Set_I_sVar('$MIX_MKR[2].$LINE[23]',1)
+         Set_I_sVar('$MIX_MKR[2].$LINE[24]',110)
+         Set_I_sVar('$MIX_MKR[2].$LINE[25]',3)
+         Set_I_sVar('$MIX_MKR[2].$LINE[26]',2)
+         Set_I_sVar('$MIX_MKR[2].$LINE[27]',0)
+         Set_I_sVar('$MIX_MKR[2].$LINE[28]',8)
+         Set_I_sVar('$MIX_MKR[2].$LINE[29]',116)
+         Set_I_sVar('$MIX_MKR[2].$LINE[30]',116)
+
+                   --Closed M3  Curnt,Min Close  Curnt, Max Close
+-- Set up Marker #3 to be M[3]=((R[11]>=R[15]) AND (R[11]<=R[16]))
+     IF (NumAnlogInpt = 2) THEN
+         Set_I_sVar('$MIX_MKR[3].$LINE_SIZE',30)
+         Set_I_sVar('$MIX_MKR[3].$LINE[1]',42)
+         Set_I_sVar('$MIX_MKR[3].$LINE[2]',2)
+         Set_I_sVar('$MIX_MKR[3].$LINE[3]',0)
+         Set_I_sVar('$MIX_MKR[3].$LINE[4]',3)--Marker
+         Set_I_sVar('$MIX_MKR[3].$LINE[5]',100)
+         Set_I_sVar('$MIX_MKR[3].$LINE[6]',115)
+         Set_I_sVar('$MIX_MKR[3].$LINE[7]',115)
+         Set_I_sVar('$MIX_MKR[3].$LINE[8]',3)
+         Set_I_sVar('$MIX_MKR[3].$LINE[9]',2)
+         Set_I_sVar('$MIX_MKR[3].$LINE[10]',0)
+         Set_I_sVar('$MIX_MKR[3].$LINE[11]',11) --register
+         Set_I_sVar('$MIX_MKR[3].$LINE[12]',112)
+         Set_I_sVar('$MIX_MKR[3].$LINE[13]',3)
+         Set_I_sVar('$MIX_MKR[3].$LINE[14]',2)
+         Set_I_sVar('$MIX_MKR[3].$LINE[15]',0)
+         Set_I_sVar('$MIX_MKR[3].$LINE[16]',15) --register
+         Set_I_sVar('$MIX_MKR[3].$LINE[17]',116)
+         Set_I_sVar('$MIX_MKR[3].$LINE[18]',113)
+         Set_I_sVar('$MIX_MKR[3].$LINE[19]',115)
+         Set_I_sVar('$MIX_MKR[3].$LINE[20]',3)
+         Set_I_sVar('$MIX_MKR[3].$LINE[21]',2)
+         Set_I_sVar('$MIX_MKR[3].$LINE[22]',0)
+         Set_I_sVar('$MIX_MKR[3].$LINE[23]',11) --register
+         Set_I_sVar('$MIX_MKR[3].$LINE[24]',110)
+         Set_I_sVar('$MIX_MKR[3].$LINE[25]',3)
+         Set_I_sVar('$MIX_MKR[3].$LINE[26]',2)
+         Set_I_sVar('$MIX_MKR[3].$LINE[27]',0)
+         Set_I_sVar('$MIX_MKR[3].$LINE[28]',16) --register
+         Set_I_sVar('$MIX_MKR[3].$LINE[29]',116)
+         Set_I_sVar('$MIX_MKR[3].$LINE[30]',116)
+
+                   --Opened M4  Curnt,Min Open      Curnt,Max Open
+-- Set up Marker #4 to be M[4]=((R[11]>=R[17]) AND (R[11]<=R[18]))
+
+         Set_I_sVar('$MIX_MKR[4].$LINE_SIZE',30)
+         Set_I_sVar('$MIX_MKR[4].$LINE[1]',42)
+         Set_I_sVar('$MIX_MKR[4].$LINE[2]',2)
+         Set_I_sVar('$MIX_MKR[4].$LINE[3]',0)
+         Set_I_sVar('$MIX_MKR[4].$LINE[4]',4)--marker
+         Set_I_sVar('$MIX_MKR[4].$LINE[5]',100)
+         Set_I_sVar('$MIX_MKR[4].$LINE[6]',115)
+         Set_I_sVar('$MIX_MKR[4].$LINE[7]',115)
+         Set_I_sVar('$MIX_MKR[4].$LINE[8]',3)
+         Set_I_sVar('$MIX_MKR[4].$LINE[9]',2)
+         Set_I_sVar('$MIX_MKR[4].$LINE[10]',0)
+         Set_I_sVar('$MIX_MKR[4].$LINE[11]',11) --register
+         Set_I_sVar('$MIX_MKR[4].$LINE[12]',112)
+         Set_I_sVar('$MIX_MKR[4].$LINE[13]',3)
+         Set_I_sVar('$MIX_MKR[4].$LINE[14]',2)
+         Set_I_sVar('$MIX_MKR[4].$LINE[15]',0)
+         Set_I_sVar('$MIX_MKR[4].$LINE[16]',17)--register
+         Set_I_sVar('$MIX_MKR[4].$LINE[17]',116)
+         Set_I_sVar('$MIX_MKR[4].$LINE[18]',113)
+         Set_I_sVar('$MIX_MKR[4].$LINE[19]',115)
+         Set_I_sVar('$MIX_MKR[4].$LINE[20]',3)
+         Set_I_sVar('$MIX_MKR[4].$LINE[21]',2)
+         Set_I_sVar('$MIX_MKR[4].$LINE[22]',0)
+         Set_I_sVar('$MIX_MKR[4].$LINE[23]',11) --register
+         Set_I_sVar('$MIX_MKR[4].$LINE[24]',110)
+         Set_I_sVar('$MIX_MKR[4].$LINE[25]',3)
+         Set_I_sVar('$MIX_MKR[4].$LINE[26]',2)
+         Set_I_sVar('$MIX_MKR[4].$LINE[27]',0)
+         Set_I_sVar('$MIX_MKR[4].$LINE[28]',18)--register
+         Set_I_sVar('$MIX_MKR[4].$LINE[29]',116)
+         Set_I_sVar('$MIX_MKR[4].$LINE[30]',116)
+     ENDIF
+
+  RETURN
+END SetupMarker
+-----------------------------------------------------------------------------
+ROUTINE SetAnlgIn1
+-- PURPOSE: setup the Analog Input comments for the
+--          setup the echoing of the output to the PLC output ?? not sure on this one
+--          Confiqure the Ethernet Block if confiqured for Enet--
+-----------------------------------------------------------------------------
+VAR
+Cur_num_Mkrs :INTEGER-- the current number of arker configured
+
+BEGIN
+
+
+  WriteLog('  Analog Port #1 started ',FALSE)
+
+IF UNINIT(AnlgInptBrnd) THEN
+  AnlgInptBrnd = 0
+  WriteLog('Had to set ANLGINPTBRND in GMMHGRIO',FALSE)
+ENDIF
+
+Set_B_sVar('$MIX_LOGIC.$USE_MKR',TRUE)
+GET_VAR(entry, '*SYSTEM*' , '$MIX_LOGIC.$NUM_MKR', Cur_num_mkrs, gm_status)
+   IF gm_status <> 0 THEN
+     WriteLog('[*SYSTEM*].$MIX_LOGIC.$NUM_MKR FAILED Status ='+int2str(gm_status),TRUE)
+     POST_ERR(38000, '[*SYSTEM*].$MIX_LOGIC.$NUM_MKR FAILED', gm_status, 0) --
+   ENDIF
+
+IF UNINIT(Cur_Num_Mkrs) THEN
+  Cur_Num_Mkrs = 0
+ENDIF
+IF (Cur_Num_Mkrs < 8) THEN
+  Set_I_sVar('$MIX_LOGIC.$NUM_MKR',8)
+  WriteLog('  Set Numbers of Markers to 8 for analog setup',FALSE)
+ENDIF
+
+-- Need a bunch of code here and will add when we know what it is
+    SET_PORT_CMT(IO_MARKER,1, 'M1AnalogG1Closed', gm_status)    -- PtHolder 1 In A Position CLOSE
+    SET_PORT_CMT(IO_MARKER,2, 'M2AnalogG1Opened', gm_status)    -- PtHolder 1 In B Position OPEN
+
+     SetupMarker   -- need to call routine to setup the markers
+
+    Set_I_Pvar('MHGRIPDT' , 'clamp_tab[1].sigclose_t', IO_MARKER)-- set to marker type -36
+    Set_I_Pvar('MHGRIPDT' , 'clamp_tab[1].sigclose_i', 1)-- set to marker Number one
+    Set_S_Pvar('MHGRIPDT',  'clamp_tab[1].sigclose_n','M1AnalogG1Closed')
+
+    Set_I_Pvar('MHGRIPDT' , 'clamp_tab[1].sigopen_t', IO_MARKER)-- set to marker type -36
+    Set_I_Pvar('MHGRIPDT' , 'clamp_tab[1].sigopen_i', 2)
+    Set_S_Pvar('MHGRIPDT',  'clamp_tab[1].sigopen_n','M2AnalogG1Opened')
+
+  SELECT (AnlgInptBrnd) OF --
+    CASE (1):  -- Turck BLock was select in PT setup
+      TURK_BLCEN(60,'Analog Input') -- set the analog turck Block up
+      WriteLog('   Turck Analog Block Mapped on Port 60',FALSE)
+          -- set the group input up
+      IF NOT Cnfg_Grp(IO_GPIN,10,EOATCommType,60,1,-16) THEN
+        WriteLog('**   FAILED GI[10] = '+int2str(EOATCommTYPE)+' Rack 60 ****',TRUE)
+      ELSE
+        WriteLog('   Configured GI[10] = '+int2str(EOATCommTYPE)+' Rack 60',FALSE)
+      ENDIF
+    CASE (2):  -- Baluff block selected
+      BALF_BLCEN(61,'Analog Input') -- set the analog Baluff Block up
+      WriteLog('   Baluff Analog Block Mapped on Port 61',FALSE)
+    -- set the group input up
+      IF NOT Cnfg_Grp(IO_GPIN,10,EOATCommType,61,73,-8) THEN --
+        WriteLog('**   FAILED GI[10] = '+int2str(EOATCommTYPE)+' Rack 61 ****',TRUE)
+      ELSE
+        WriteLog('   Configured GI[10] = '+int2str(EOATCommTYPE)+' Rack 61',FALSE)
+        SET_PORT_CMT(IO_GPIN,10, 'GrprAnalgBit#1' , gm_status)     -- Valve 11 to A Position
+      ENDIF
+    -- set the grou73p input up
+      IF NOT Cnfg_Grp(IO_GPIN,11,EOATCommType,61,81,-8) THEN --
+        WriteLog('**   FAILED GI[11] = '+int2str(EOATCommTYPE)+' Rack 61 ****',TRUE)
+      ELSE
+        WriteLog('   Configured GI[11] = '+int2str(EOATCommTYPE)+' Rack 61',FALSE)
+        SET_PORT_CMT(IO_GPIN,11, 'GrprAnalgBit#2' , gm_status)     -- Valve 11 to A Position
+      ENDIF
+
+       -- set variables in ATCUSTOM to be able convert the group input and have atcustom maintain it running
+        Set_B_PVar('ATCUSTOM' , 'Prgs2RunCell[1].NeedToRun',TRUE)
+        Set_B_PVar('ATCUSTOM' , 'Prgs2RunCell[1].NeedForProd',TRUE)
+        Set_S_PVar('ATCUSTOM' , 'Prgs2RunCell[1].Prog_Name','CNVRTGIN') -- this is specific to MH using Baluff
+  ELSE: --
+      POST_ERR(38000, 'ANLGINPTBRND ='+int2str(anlginptbrnd)+' unknown in SETANLGIN1', 0, 0) --
+  ENDSELECT --
+
+AnalgInSetup[1] = TRUE -- Should be able to set to TRUE ie Complete
+
+  WriteLog('  Set Analog port #1 completed',FALSE)
+
+END SetAnlgIn1
+-----------------------------------------------------------------------------
+ROUTINE SetAnlgIn2
+-- PURPOSE: setup the Analog Input comments for the
+--          setup the echoing of the output to the PLC output ?? not sure on this one
+--          Confiqure the Ethernet Block if confiqured for Enet--
+-----------------------------------------------------------------------------
+BEGIN
+
+--POST_ERR(38000, 'NO ANALOG SETUP in SETANLGIN2 Routine', 0, 0) --
+
+        SET_PORT_CMT(IO_MARKER,3, 'M3AnalogG2Closed', gm_status)    -- PtHolder 2 In A Position CLOSE
+        SET_PORT_CMT(IO_MARKER,4, 'M4AnalogG2Opened', gm_status)    -- PtHolder 2 In B Position OPEN
+
+        Set_I_Pvar('MHGRIPDT' , 'clamp_tab[2].sigclose_t', IO_MARKER)-- set to marker type -36
+        Set_I_Pvar('MHGRIPDT' , 'clamp_tab[2].sigclose_i', 3)-- set to marker Number one
+        Set_S_Pvar('MHGRIPDT',  'clamp_tab[2].sigclose_n','M3AnalogG2Closed')
+
+        Set_I_Pvar('MHGRIPDT' , 'clamp_tab[2].sigopen_t', IO_MARKER)-- set to marker type -36
+        Set_I_Pvar('MHGRIPDT' , 'clamp_tab[2].sigopen_i', 4)
+        Set_S_Pvar('MHGRIPDT',  'clamp_tab[2].sigopen_n','M4AnalogG2Opened')
+
+            -- set the group input up
+        IF NOT Cnfg_Grp(IO_GPIN,23,EOATCommType,61,841,-8) THEN -- PORT #3 on analog block
+          WriteLog('**   FAILED GI[23] = '+int2str(EOATCommTYPE)+' Rack 61 ****',TRUE)
+        ELSE
+          WriteLog('   Configured GI[23] = '+int2str(EOATCommTYPE)+' Rack 61',FALSE)
+          SET_PORT_CMT(IO_GPIN,23, 'GrprAnalgBit#3' , gm_status)     -- Valve 11 to A Position
+        ENDIF
+      -- set the group input up
+        IF NOT Cnfg_Grp(IO_GPIN,24,EOATCommType,61,849,-8) THEN -- PORT #3 on analog block
+          WriteLog('**   FAILED GI[24] = '+int2str(EOATCommTYPE)+' Rack 61 ****',TRUE)
+        ELSE
+          WriteLog('   Configured GI[24] = '+int2str(EOATCommTYPE)+' Rack 61',FALSE)
+          SET_PORT_CMT(IO_GPIN,24, 'GrprAnalgBit#4' , gm_status)     -- Valve 11 to A Position
+        ENDIF
+
+AnalgInSetup[2] = TRUE -- After Case Select Should be Able to set to TRUE ie Complete
+  WriteLog('  Set Analog port #2 completed',FALSE)
+
+END SetAnlgIn2
+-----------------------------------------------------------------------------
+ROUTINE SetAnlgIn3
+-- PURPOSE: setup the Analog Input comments for the
+--          setup the echoing of the output to the PLC output ?? not sure on this one
+--          Confiqure the Ethernet Block if confiqured for Enet--
+-----------------------------------------------------------------------------
+BEGIN
+
+POST_ERR(38000, 'NO ANALOG SETUP in SETANLGIN3 Routine', 0, 0) --
+
+RETURN
+
+AnalgInSetup[3] = TRUE -- After Case Select Should be Able to set to TRUE ie Complete
+
+END SetAnlgIn3
+-----------------------------------------------------------------------------
+ROUTINE SetAnlgIn4
+-- PURPOSE: setup the Analog Input comments for the
+--          setup the echoing of the output to the PLC output ?? not sure on this one
+--          Confiqure the Ethernet Block if confiqured for Enet--
+-----------------------------------------------------------------------------
+BEGIN
+
+POST_ERR(38000, 'NO ANALOG SETUP in SETANLGIN4 Routine', 0, 0) --
+
+RETURN
+
+AnalgInSetup[4] = TRUE -- After Case Select Should be Able to set to TRUE ie Complete
+
+END SetAnlgIn4
+-------------------------------------------------------------------
+ROUTINE mh_valvepack						 --
+-------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+   ValvePack_1
+
+  -- Outputs Node 32 dense pack valve maniforld/robot outputs  817-832
+--  IF mh_valvepk2 = TRUE THEN
+    ValvePack_2
+ -- ENDIF
+
+ -- Outputs Node ?? dense pack valve maniforld/robot outputs  833-848
+--  IF mh_valvepk3 = TRUE THEN
+    ValvePack_3
+ -- ENDIF
+
+END mh_valvepack
+
+-------------------------------------------------------------------
+ROUTINE load_mh16												 --
+-------------------------------------------------------------------
+VAR
+  l_i          : INTEGER
+
+BEGIN
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+IF InBlockSetup[1] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Input Block#1 Already Setup')
+    IF NOT ExecSetupAgn('Input Block#1') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+
+  -- Node 34 Material Handling Input Block1  801-816
+  SET_PORT_ASG(IO_DIN,801,EOATCommType,34,IO_DIN,17,-16, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      WriteLog('Rack '+int2Str(EOATCommType)+' Slot 34 Setup FAILED',TRUE)
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 34 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DIN,801, 'di801PH01PX1', gm_status)    -- PtHolder 1 In A Position CLOSE
+  SET_PORT_CMT(IO_DIN,802, 'di802PH01PX2', gm_status)    -- PtHolder 1 In B Position OPEN
+  SET_PORT_CMT(IO_DIN,803, 'di803PH02PX1', gm_status)    -- PtHolder 2 In A Position
+  SET_PORT_CMT(IO_DIN,804, 'di804PH02PX2', gm_status)    -- PtHolder 2 In B Position
+  SET_PORT_CMT(IO_DIN,805, 'di805PH03PX1', gm_status)    -- PtHolder 3 In A Position
+  SET_PORT_CMT(IO_DIN,806, 'di806PH03PX2', gm_status)    -- PtHolder 3 In B Position
+  SET_PORT_CMT(IO_DIN,807, 'di807PH04PX1', gm_status)    -- PtHolder 4 In A Position
+  SET_PORT_CMT(IO_DIN,808, 'di808PH04PX2', gm_status)    -- PtHolder 4 In B Position
+  SET_PORT_CMT(IO_DIN,809, 'di809PH05PX1', gm_status)    -- PtHolder 5 In A Position
+  SET_PORT_CMT(IO_DIN,810, 'di810PH05PX2', gm_status)    -- PtHolder 5 In B Position
+  SET_PORT_CMT(IO_DIN,811, 'di811PH06PX1', gm_status)    -- PtHolder 6 In A Position
+  SET_PORT_CMT(IO_DIN,812, 'di812PH06PX2', gm_status)    -- PtHolder 6 In B Position
+
+-- Comment the Clamp data,starting at Tab#1,StartI/O Point#801,For 6 tabs
+  Cmnt_MH_Tabs(ClampTab,1,801,6)
+
+  IF (Use_Vacuum) OR (Decnt_Vacuum)THEN -- if using vacuum place comments for 1st Block for vacuum Made
+    Cmnt_MH_Tabs(VacuumTab,1,801,6)
+  ENDIF
+
+  SET_PORT_CMT(IO_DIN,813, 'di813PartPres01', gm_status)     -- Part Present 1
+  SET_PORT_CMT(IO_DIN,814, 'di814PartPres02', gm_status)     -- Part Present 2
+  SET_PORT_CMT(IO_DIN,815, 'di815PartPres03', gm_status)     -- Part Present 3
+  SET_PORT_CMT(IO_DIN,816, 'di816PartPres04' , gm_status)     -- Vacuum Made 1
+
+-- Comment the Part Present data,starting at Tab#1,StartI/O Point#813,For 4 tabs
+  Cmnt_MH_Tabs(PartPrsTab,1,813,4)
+
+--call routine to add echo of tool inputs if configured
+  set_echo_out(801,IO_DIN,577,16) -- get input comments, place in output, for loop
+
+-- Setup the IP Config
+IF EOATCommType = Ethernet THEN
+  TURK_IN_EIP(34,'MH Input#1')
+ENDIF
+     
+
+-- Setup so code can determine if block is already been setup before
+  InBlockSetup[1] = TRUE
+  LastDigInBlk = 1 -- Set Last Digital input block configured
+
+END load_mh16
+
+-------------------------------------------------------------------
+ROUTINE load_mh32												 --
+-------------------------------------------------------------------
+BEGIN
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+ IF InBlockSetup[2] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Input Block#2 Already Setup')
+    IF NOT ExecSetupAgn('Input Block#2') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+
+  -- Node 35 Material Handling Input Block2     817-832
+  SET_PORT_ASG(IO_DIN,817,EOATCommType,35,IO_DIN,17,-16, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      WriteLog('Rack '+int2Str(EOATCommType)+' Slot 35 Setup FAILED',TRUE)
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 35 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DIN,817, 'di817PH07PX1', gm_status)    -- PtHolder 7 In A Position CLOSE
+  SET_PORT_CMT(IO_DIN,818, 'di818PH07PX2', gm_status)    -- PtHolder 7 In B Position OPEN
+  SET_PORT_CMT(IO_DIN,819, 'di819PH08PX1', gm_status)    -- PtHolder 8 In A Position
+  SET_PORT_CMT(IO_DIN,820, 'di820PH08PX2', gm_status)    -- PtHolder 8 In B Position
+  SET_PORT_CMT(IO_DIN,821, 'di821PH09PX1', gm_status)    -- PtHolder 9 In A Position
+  SET_PORT_CMT(IO_DIN,822, 'di822PH09PX2', gm_status)    -- PtHolder 9 In B Position
+  SET_PORT_CMT(IO_DIN,823, 'di823PH10PX1',gm_status)     -- PtHolder 10 In A Position
+  SET_PORT_CMT(IO_DIN,824, 'di824PH10PX2',gm_status)     -- PtHolder 10 In B Position
+  SET_PORT_CMT(IO_DIN,825, 'di825PH11PX1',gm_status)     -- PtHolder 11 In A Position
+  SET_PORT_CMT(IO_DIN,826, 'di826PH11PX2',gm_status)     -- PtHolder 11 In B Position
+  SET_PORT_CMT(IO_DIN,827, 'di827PH12PX1',gm_status)     -- PtHolder 12 In A Position
+  SET_PORT_CMT(IO_DIN,828, 'di828PH12PX2',gm_status)     -- PtHolder 12 In B Position
+
+-- Comment the, Clamp data,starting at Tab#13,Start I/O Point#817,For 6 tabs
+  Cmnt_MH_Tabs(ClampTab,7,817,6)
+  IF (Use_Vacuum) OR (Decnt_Vacuum)THEN -- if using vacuum place comments for 1st Block for vacuum Made
+    Cmnt_MH_Tabs(VacuumTab,7,817,6)
+  ENDIF
+
+  SET_PORT_CMT(IO_DIN,829, 'di829PartPres05', gm_status)     -- Part Present 4
+  SET_PORT_CMT(IO_DIN,830, 'di830PartPres06', gm_status)     -- Part Present 5
+  SET_PORT_CMT(IO_DIN,831, 'di831PartPres07', gm_status)     -- Part Present 6
+  SET_PORT_CMT(IO_DIN,832, 'di832PartPres08', gm_status)     -- Part Present 6  --jja R30iB
+
+-- Comment the, Part Present data,starting at Tab#5,Start I/O Point#829,For 4 tabs
+  Cmnt_MH_Tabs(PartPrsTab,5,829,4)
+
+--call routine to add echo of tool inputs if configured
+
+   set_echo_out(817,IO_DIN,593,16) -- get input comments, place in output, for loop
+
+-- Setup the IP Config
+IF EOATCommType = Ethernet THEN
+  TURK_IN_EIP(35,'MH Input#2')
+ENDIF
+
+  -- Setup so code can determine if block is already been setup before
+  InBlockSetup[2] = TRUE
+
+  LastDigInBlk = 2 -- Set Last Digital input block configured
+
+END load_mh32
+-------------------------------------------------------------------
+ROUTINE load_mh48												 --
+-------------------------------------------------------------------
+VAR l_i : INTEGER
+
+BEGIN
+
+IF InBlockSetup[3] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Input Block#3 Already Setup')
+    IF NOT ExecSetupAgn('Input Block#3') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+
+  -- Clear old assignments first
+  FOR l_i = 833 to 848 DO
+      Set_Port_Asg (io_din,l_i,0,0,0,0,0,gm_status)
+  ENDFOR
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+  -- Node 36 Material Handling Input Block3   833-848
+  SET_PORT_ASG(IO_DIN,833,EOATCommType,36,IO_DIN,17,-16, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      WriteLog('Rack '+int2Str(EOATCommType)+' Slot 36 Setup FAILED',TRUE)
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 36 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DIN,833, 'di833PH13PX1', gm_status)   -- PtHolder 13 In A Position CLOSE
+  SET_PORT_CMT(IO_DIN,834, 'di834PH13PX2', gm_status)   -- PtHolder 13 In B Position OPEN
+  SET_PORT_CMT(IO_DIN,835, 'di835PH14PX1', gm_status)   -- PtHolder 14 In A Position
+  SET_PORT_CMT(IO_DIN,836, 'di836PH14PX2', gm_status)   -- PtHolder 14 In B Position
+  SET_PORT_CMT(IO_DIN,837, 'di837PH15PX1', gm_status)   -- PtHolder 15 In A Position
+  SET_PORT_CMT(IO_DIN,838, 'di838PH15PX2', gm_status)   -- PtHolder 15 In B Position
+  SET_PORT_CMT(IO_DIN,839, 'di839PH16PX1',gm_status)    -- PtHolder 16 In A Position
+  SET_PORT_CMT(IO_DIN,840, 'di840PH16PX2',gm_status)    -- PtHolder 16 In B Position
+  SET_PORT_CMT(IO_DIN,841, 'di841PH17PX1',gm_status)    -- PtHolder 17 In A Position
+  SET_PORT_CMT(IO_DIN,842, 'di842PH17PX2',gm_status)    -- PtHolder 17 In B Position
+  SET_PORT_CMT(IO_DIN,843, 'di843PH18PX1',gm_status)    -- PtHolder 18 In A Position
+  SET_PORT_CMT(IO_DIN,844, 'di844PH18PX2',gm_status)    -- PtHolder 18 In B Position
+
+-- Comment the, Clamp data,starting at Tab#13,Start I/O Point#817,For 6 tabs
+  Cmnt_MH_Tabs(ClampTab,13,833,6)
+  IF (Use_Vacuum) OR (Decnt_Vacuum)THEN -- if using vacuum place comments for 1st Block for vacuum Made
+    Cmnt_MH_Tabs(VacuumTab,13,833,6)
+  ENDIF
+
+  SET_PORT_CMT(IO_DIN,845, 'di845PartPres09', gm_status)    -- Part Present 7
+  SET_PORT_CMT(IO_DIN,846, 'di846PartPres10', gm_status)    -- Part Present 8
+  SET_PORT_CMT(IO_DIN,847, 'di847PartPres11', gm_status)    -- Part Present 9
+  SET_PORT_CMT(IO_DIN,848, 'di848PartPres12', gm_status)    -- Part Present 10 --jja R30iB
+-- Comment the, Part Present data,starting at Tab#5,Start I/O Point#829,For 4 tabs
+  Cmnt_MH_Tabs(PartPrsTab,9,845,4)
+
+--RK added 1-12-16 call routine to add echo of tool inputs if configured
+
+   set_echo_out(833,IO_DIN,609,16) -- get input comments, place in output, for loop
+
+-- Setup the IP Config
+IF EOATCommType = Ethernet THEN
+  TURK_IN_EIP(36,'MH Input#3')
+ENDIF
+
+    -- Setup so code can determine if block is already been setup before
+  InBlockSetup[3] = TRUE
+
+  LastDigInBlk = 3 -- Set Last Digital input block configured
+
+END load_mh48
+-----------------------------------------------------------------------------
+ROUTINE load_mh64
+-- PURPOSE: Set up the 4th Input Block for MH Applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: Main Wizard Program
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ l_i : INTEGER
+ array_size :INTEGER -- the array size to ensure code can execute
+
+BEGIN
+
+IF InBlockSetup[4] = TRUE THEN -- setup valve pack has been setup
+  WRITE TPERROR(CHR(cc_clear_win),'Input Block#4 Already Setup')
+    IF NOT ExecSetupAgn('Input Block#4') THEN -- ask user if they want to setup again
+      RETURN
+    ENDIF
+ENDIF
+
+  -- Clear old assignments first
+  FOR l_i = 849 to 864 DO
+      Set_Port_Asg (io_din,l_i,0,0,0,0,0,gm_status)
+  ENDFOR
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+  -- Node 31 Material Handling Input Block4   849-864
+  SET_PORT_ASG(IO_DIN,849,EOATCommType,37,IO_DIN,17,-16, gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      WriteLog('Rack '+int2Str(EOATCommType)+' Slot 37 Setup FAILED',TRUE)
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 37 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DIN,849, 'di849PH19PX1', gm_status)   -- PtHolder 13 In A Position CLOSE
+  SET_PORT_CMT(IO_DIN,850, 'di850PH19PX2', gm_status)   -- PtHolder 13 In B Position OPEN
+  SET_PORT_CMT(IO_DIN,851, 'di851PH20PX1', gm_status)   -- PtHolder 14 In A Position
+  SET_PORT_CMT(IO_DIN,852, 'di852PH20PX2', gm_status)   -- PtHolder 14 In B Position
+  SET_PORT_CMT(IO_DIN,853, 'di853PH21PX1', gm_status)   -- PtHolder 15 In A Position
+  SET_PORT_CMT(IO_DIN,854, 'di854PH21PX2', gm_status)   -- PtHolder 15 In B Position
+  SET_PORT_CMT(IO_DIN,855, 'di855PH22PX1',gm_status)    -- PtHolder 16 In A Position
+  SET_PORT_CMT(IO_DIN,856, 'di856PH22PX2',gm_status)    -- PtHolder 16 In B Position
+  SET_PORT_CMT(IO_DIN,857, 'di857PH23PX1',gm_status)    -- PtHolder 17 In A Position
+  SET_PORT_CMT(IO_DIN,858, 'di858PH23PX2',gm_status)    -- PtHolder 17 In B Position
+  SET_PORT_CMT(IO_DIN,859, 'di859PH24PX1',gm_status)    -- PtHolder 18 In A Position
+  SET_PORT_CMT(IO_DIN,860, 'di860PH24PX2',gm_status)    -- PtHolder 18 In B Position
+
+-- Comment the, Clamp data,starting at Tab#19,Start I/O Point#849,For 6 tabs
+  Cmnt_MH_Tabs(ClampTab,19,849,6)
+
+  IF (Use_Vacuum) OR (Decnt_Vacuum)THEN -- if using vacuum place comments for 1st Block for vacuum Made
+    Cmnt_MH_Tabs(VacuumTab,19,849,6)
+  ENDIF
+
+  SET_PORT_CMT(IO_DIN,861, 'di861PartPres13', gm_status)    -- Part Present 13
+  SET_PORT_CMT(IO_DIN,862, 'di862PartPres14', gm_status)    -- Part Present 14
+  SET_PORT_CMT(IO_DIN,863, 'di863PartPres15', gm_status)    -- Part Present 15
+  SET_PORT_CMT(IO_DIN,864, 'di864PartPres16', gm_status)    -- Part Present 16 --jja R30iB
+
+-- Comment the, Part Present data,starting at Tab#13,Start I/O Point#829,For 4 tabs
+  Cmnt_MH_Tabs(PartPrsTab,13,861,4)
+
+ --RK added 1-12-16 call routine to add echo of tool inputs if configured
+
+   set_echo_out(849,IO_DIN,625,16) -- get input comments, place in output comment, for # loop
+
+-- Setup the IP Config
+IF EOATCommType = Ethernet THEN
+  TURK_IN_EIP(37,'MH Input#4')
+ENDIF
+
+-- Setup so code can determine if block is already been setup before
+  InBlockSetup[4] = TRUE
+
+  LastDigInBlk = 4 -- Set Last Digital input block configured
+
+END load_mh64
+-------------------------------------------------------------------
+ROUTINE load_dvac
+-------------------------------------------------------------------
+BEGIN
+
+-- Comment the, VacuumTab,starting at Tab#13,Start I/O Point#801,For 12 tabs
+  Cmnt_MH_Tabs(VacuumTab,1,801,18)
+
+END load_dvac
+-------------------------------------------------------------------
+ROUTINE mh_smartpmp(p_vacsti_idx, p_vacsto_idx: INTEGER)
+--                                                               --
+-------------------------------------------------------------------
+VAR
+  l_i          : INTEGER
+  l_vmade_strt : INTEGER
+BEGIN
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+  -- Inputs Node 36 dense pack valve smartpump outputs  865-866
+  SET_PORT_ASG(IO_DIN,865,EOATCommType,29,IO_DIN,1,-2,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      WriteLog('Rack '+int2Str(EOATCommType)+' Slot 29 Setup FAILED',TRUE)
+      POST_ERR(38000, 'Rack '+int2Str(EOATCommType)+' Slot 29 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_CMT(IO_DIN,865, 'di865VPVacMade1',   gm_status)   -- SP Vacuum Made 1
+  SET_PORT_CMT(IO_DIN,866, 'di866VPVacMade2',   gm_status)   -- SP Vacuum Made 2
+
+  --dnet_node = 36
+  --wiz_dnet
+
+IF UNINIT(NEW_QTY_VMAD) OR UNINIT(NEW_QTY_TOOL) OR UNINIT(NEW_QTY_GRIP) THEN
+
+  -- Error Cancel
+  clr_io_stat(prompt_wndw)
+  set_file_atr(prompt_wndw, 1, 0)
+  open file prompt_wndw ('RW', 'WD:prmp/tpkb')
+  WRITE prompt_wndw (CHR(128)) -- clear line
+
+   new_qty_grip = qty_grip
+   new_qty_tool = ARRAY_LEN(mh_tool)
+   new_qty_clmp = ARRAY_LEN(clamp_tab)
+   new_qty_pprs = ARRAY_LEN(partp_tab)
+   new_qty_vmad = ARRAY_LEN(vmade_tab)
+
+   new_qty_grip = 10
+   new_qty_vmad = 18
+   update_qty(FALSE)  --jja  R30iB  -- 3-09-15 RK Changed to false so menu does not come up
+  DELAY 100
+
+  -- Error Cancel
+  clr_io_stat(prompt_wndw)
+  set_file_atr(prompt_wndw, 1, 0)
+  open file prompt_wndw ('RW', 'WD:prmp/tpkb')
+  WRITE prompt_wndw (CHR(128)) -- clear line
+
+ENDIF
+
+    FOR l_i = 1 TO ARRAY_LEN(vmade_tab) DO
+      IF (vmade_tab[l_i].signal_i = 0) THEN
+        l_vmade_strt = l_i
+        l_i = NEW_QTY_VMAD
+      ENDIF
+    ENDFOR
+
+IF ARRAY_LEN(vmade_tab)>=2 THEN
+  vmade_tab[1].signal_i = 865
+  vmade_tab[1].signal_n = readcomment(vmade_tab[1].signal_t,vmade_tab[1].signal_i) --'di865VPVacMade1'  --  865-866
+  vmade_tab[2].signal_i = 866
+  vmade_tab[2].signal_n = readcomment(vmade_tab[2].signal_t,vmade_tab[2].signal_i) --'di866VPVacMade2'
+ELSE
+  POST_ERR(38000, 'mh_smartpmp needs vmade_tab array set to 2', 0, 0) --
+ENDIF
+
+  -- Outputs Node 29 dense pack valve smartpump outputs  865 -868
+  SET_PORT_ASG(IO_DOUT,865,EOATCommType,29,IO_DOUT,1,-8,gm_status)
+  SET_PORT_CMT(IO_DOUT,865, 'do865Vacuum1on',     gm_status)  -- Vacuum 1 On
+  SET_PORT_CMT(IO_DOUT,866, 'do866Vacuum1BlowOn', gm_status)  -- Vacuum 1 Blow-Off
+  SET_PORT_CMT(IO_DOUT,867, 'do867Vacuum2on',     gm_status)  -- Vacuum 2 On
+  SET_PORT_CMT(IO_DOUT,868, 'do868Vacuum2BlowOn', gm_status)  -- Vacuum 2 Blow-Off
+  SET_PORT_CMT(IO_DOUT,869, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,870, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,871, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,872, '(Reserved)' , gm_status)
+
+IF ARRAY_LEN(valve_tab)>=8 THEN
+  valve_tab[7].sigtoa_i = 865
+  valve_tab[7].sigtoa_n = readcomment(valve_tab[7].sigtoa_t,valve_tab[7].sigtoa_i) --865-868
+  valve_tab[7].sigtob_i = 866
+  valve_tab[7].sigtob_n = readcomment(valve_tab[7].sigtob_t,valve_tab[7].sigtob_i) --'do866Vacuum1BlowOn'
+  valve_tab[8].sigtoa_i = 867
+  valve_tab[8].sigtoa_n = readcomment(valve_tab[8].sigtoa_t,valve_tab[8].sigtoa_i) --'do867Vacuum2on'
+  valve_tab[8].sigtob_i = 868
+  valve_tab[8].sigtob_n = readcomment(valve_tab[8].sigtob_t,valve_tab[8].sigtob_i) --'do868Vacuum2Blowon'
+ELSE
+  POST_ERR(38000, 'mh_smartpmp needs valve_tab array set to 8', 0, 0) --
+ENDIF
+
+END mh_smartpmp
+-------------------------------------------------------------------
+ROUTINE mh_smartpmp2(p_vacsti_idx, p_vacsto_idx: INTEGER)
+--                                                               --
+-------------------------------------------------------------------
+VAR
+  l_i          : INTEGER
+
+BEGIN
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet-- set it to 89
+ENDIF
+
+  -- Node 30 dense pack valve smartpump Inputs
+  SET_PORT_ASG(IO_DIN,873,EOATCommType,30,IO_DIN,1,-2,gm_status) -- 873-874
+  SET_PORT_CMT(IO_DIN,873, 'di873VPVacMade3',   gm_status)   -- SP Vacuum Made 3
+  SET_PORT_CMT(IO_DIN,874, 'di874VPVacMade4',   gm_status)   -- SP Vacuum Made 4
+
+IF ARRAY_LEN(vmade_tab)>=4 THEN
+  vmade_tab[3].signal_i = 873
+  vmade_tab[3].signal_n = readcomment(vmade_tab[3].signal_t,vmade_tab[3].signal_i) --'di873VPVacMade3'
+  vmade_tab[4].signal_i = 874 --690
+  vmade_tab[4].signal_n = readcomment(vmade_tab[4].signal_t,vmade_tab[4].signal_i) --'di874VPVacMade4'
+ELSE
+  POST_ERR(38000, 'mh_smartpmp2 needs vmade_tab array set to 10', 0, 0) --
+ENDIF
+
+  -- Node 30 dense pack valve smartpump Outputs     873-880
+  SET_PORT_ASG(IO_DOUT,873,89,30,IO_DOUT,1,-8,gm_status)
+  SET_PORT_CMT(IO_DOUT,873, 'do873Vacuum3on',     gm_status)  -- Vacuum 3 On
+  SET_PORT_CMT(IO_DOUT,874, 'do874Vacuum3BlowOn', gm_status)  -- Vacuum 3 Blow-Off
+  SET_PORT_CMT(IO_DOUT,875, 'do875Vacuum4on',     gm_status)  -- Vacuum 4 On
+  SET_PORT_CMT(IO_DOUT,876, 'do876Vacuum4BlowOn', gm_status)  -- Vacuum 4 Blow-Off
+  SET_PORT_CMT(IO_DOUT,877, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,878, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,879, '(Reserved)' , gm_status)
+  SET_PORT_CMT(IO_DOUT,680, '(Reserved)' , gm_status)
+
+IF ARRAY_LEN(valve_tab)>=10 THEN
+  valve_tab[9].sigtoa_i = 873
+  valve_tab[9].sigtoa_n = readcomment(valve_tab[9].sigtoa_t,valve_tab[9].sigtoa_i) --'do873Vacuum3on'      -- 873-876
+  valve_tab[9].sigtob_i = 874
+  valve_tab[9].sigtob_n = readcomment(valve_tab[9].sigtob_t,valve_tab[9].sigtob_i) --'do874Vacuum3BlowOn'
+  valve_tab[10].sigtoa_i = 875
+  valve_tab[10].sigtoa_n = readcomment(valve_tab[10].sigtoa_t,valve_tab[10].sigtoa_i) --'do875Vacuum4on'
+  valve_tab[10].sigtob_i = 876
+  valve_tab[10].sigtob_n = readcomment(valve_tab[10].sigtob_t,valve_tab[7].sigtob_i) --'do876Vacuum4BlowOn'
+ELSE
+  POST_ERR(38000, 'mh_smartpmp2 needs valve_tab array set to 10', 0, 0) --
+ENDIF
+  -- Load all mh macros
+ -- do_sp2_macs = TRUE
+  -- Must load macros when robot comes up because macro table has
+  -- changed from 150 to 200.
+
+  --dnet_node = 37
+  --wiz_dnet
+
+END mh_smartpmp2
+-----------------------------------------------------------------------------
+ROUTINE mh_select
+-- PURPOSE: Material Handling I/O Setup has been selected
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+  l_status     : INTEGER
+  l_i          : INTEGER
+  l_vmade_strt : INTEGER
+  l_psve       : INTEGER
+  l_dummy      : INTEGER
+  l_numcups    : INTEGER
+
+BEGIN
+
+  $ap_selap[4] = TRUE  -- MH
+
+  Grp_Is_Setup = TRUE
+
+END mh_select
+-----------------------------------------------------------------------------
+ROUTINE ConfigVacGrp
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+  l_status     : INTEGER
+  l_i          : INTEGER
+  l_vmade_strt : INTEGER
+  l_psve       : INTEGER
+  l_dummy      : INTEGER
+  l_numcups    : INTEGER
+
+BEGIN
+
+    FOR l_i = 1 TO ARRAY_LEN(vmade_tab) DO -- Search for 1st empty Location
+      IF (vmade_tab[l_i].signal_i = 0) THEN
+        l_vmade_strt = l_i
+        l_i = ARRAY_LEN(vmade_tab) -- Make it stop. -- NEW_QTY_VMAD
+      ENDIF
+    ENDFOR
+
+    SELECT VacPumpType OF
+      CASE(1): -- 1 Vacuum Pump
+        IF Use_MH_Tool THEN -- mh_present
+          mh_smartpmp(l_vmade_strt,4)
+        ELSE -- NO clamps just smart pump
+          mh_smartpmp(l_vmade_strt,1)
+        ENDIF
+      CASE(2):-- 2 Vacuum Pumps
+        -- NO venture input for vacuum will be configured if you have
+        -- purchased 2 smart pumps.
+        IF Use_MH_Tool THEN -- mh_present
+          mh_smartpmp(1,2)
+          mh_smartpmp2(3,4)
+        ELSE
+          mh_smartpmp(1,1)
+          mh_smartpmp2(3,3)
+        ENDIF
+      CASE(3):--Decentralized Unit
+          load_dvac
+          --do_sp1_macs = TRUE
+          --do_sp2_macs = TRUE
+      ELSE:
+        IF (mfg_area <> mfg_area_ps) THEN -- LPT Lloyd Steed Press Nest are PLC not Robot
+          POST_ERR(38000, 'VacPumpType of '+int2str(VacPumpType)+' is INVALID', 0, 0) --
+        ENDIF
+    ENDSELECT
+
+
+END ConfigVacGrp
+-----------------------------------------------------------------------------
+ROUTINE Chk_GRS4Grip: BOOLEAN
+-- PURPOSE: to check if the Tool COnfiguration is to the GRS4 Standard
+--
+-- INPUT:
+--            -
+-- OUTPUT:    Boolean If the tool matches the GRS4 Specification
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ --  new_qty_grip = qty_grip -- Qty of Grp is set somewhere, but dont know why differant
+-- Go get and save last values so can be evaluated later?
+-- they were just set, so they should be good, but check them
+
+  Grp_Is_GRS4 = TRUE -- Should be to spec, just set it, will set to FALSE if NOT
+
+  Cur_qty_tool = ARRAY_LEN(mh_tool)
+  Cur_qty_grip = qty_grip
+  Cur_qty_clmp = ARRAY_LEN(clamp_tab)
+  Cur_qty_pprs = ARRAY_LEN(partp_tab)
+  Cur_qty_vmad = ARRAY_LEN(vmade_tab)
+
+-- Check the tool sizes
+ IF (Cur_qty_tool<>GM_Qty_Tool) THEN
+   WriteLog('MHGRIP Qty Tool '+ int2str(Cur_qty_tool) +' is Not TO GRS4-'+ int2str(GM_Qty_Tool),FALSE)
+   Grp_Is_GRS4 = FALSE
+ ENDIF
+ IF (Cur_qty_grip<>GM_Qty_grip) THEN
+   WriteLog('MHGRIP Qty Grip '+ int2str(Cur_qty_grip) +' is Not TO GRS4-'+ int2str(GM_Qty_grip),FALSE)
+   Grp_Is_GRS4 = FALSE
+ ENDIF
+ IF (Cur_qty_clmp<>GM_Qty_clmp) THEN
+   WriteLog('MHGRIP Qty Clamp '+ int2str(Cur_qty_clmp) +' is Not TO GRS4-'+ int2str(GM_Qty_clmp),FALSE)
+   Grp_Is_GRS4 = FALSE
+ ENDIF
+ IF (Cur_qty_pprs<>GM_Qty_pprs) THEN
+   WriteLog('MHGRIP Qty Part Pres '+ int2str(Cur_qty_pprs) +' is Not TO GRS4-'+ int2str(GM_Qty_pprs),FALSE)
+   Grp_Is_GRS4 = FALSE
+ ENDIF
+ IF (Cur_qty_vmad<>GM_Qty_vmad) THEN
+   WriteLog('MHGRIP Qty Vacuum '+ int2str(Cur_qty_pprs) +' is Not TO GRS4-'+ int2str(GM_Qty_pprs),FALSE)
+   Grp_Is_GRS4 = FALSE
+ ENDIF
+
+RETURN(Grp_Is_GRS4)
+
+END Chk_GRS4Grip
+-----------------------------------------------------------------------------
+ROUTINE ConfigMHGRIP
+-- PURPOSE: this routine sets teh Gripper up to the GM standard. It should only
+--          execute the first time this setup is called, or if RESET_CELL is
+--          set to TRUE by the Wizard because it clears ALL Comments and reset the
+--          MH array size.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  -- Error Cancel below is need if you are going to ask user
+  -- No questions Asked Per B Kroll G4 V8.33
+
+  --  clr_io_stat(prompt_wndw)
+  --  set_file_atr(prompt_wndw, 1, 0)
+  --  open file prompt_wndw ('RW', 'WD:prmp/tpkb')
+  --  WRITE prompt_wndw (CHR(128)) -- clear line
+
+  -- Set Variable in MHGRIP feature to GM defaults. No questions Asked Per B Kroll
+  -- Only occurs on First run or the Reset_Cell
+
+  new_qty_tool = GM_Qty_Tool -- setting these variables so when Update_Qty runs
+  new_qty_grip = GM_Qty_grip -- it will setup to the NEW_QTY_xxxx values for GM
+  new_qty_clmp = GM_Qty_clmp
+  new_qty_pprs = GM_Qty_pprs
+  new_qty_vmad = GM_Qty_vmad
+
+  Updt_MH_Arry = TRUE  -- Set Flag to Update array lenght
+
+-- Update the array lenghts for the valves and sensors
+-- Passing FALSE the routine will not prompt the Operator to confirm array changes, just do it
+  -- Error Cancel
+  clr_io_stat(prompt_wndw)
+  set_file_atr(prompt_wndw, 1, 0)
+  open file prompt_wndw ('RW', 'WD:prmp/tpkb')
+  WRITE prompt_wndw (CHR(128)) -- clear line
+
+ IF Updt_MH_Arry THEN
+   update_qty(FALSE)  --
+   DELAY 100
+ ENDIF
+
+-- Call routine to Verify tool is to spec
+   IF NOT Chk_GRS4Grip THEN
+     WriteLog('MHGrip is Not to GM RS4 Spec Sizes',FALSE)
+   ENDIF
+
+-- Clearing MH plugin setup I/O
+  WriteLog('  Clearing MHGRIP valve Tab assignments',FALSE)
+  FOR l_i = 1 TO qty_grip DO
+    valve_tab[l_i].sigtoa_t = io_dout -- Set I/O type to Digital Output
+    valve_tab[l_i].sigtoa_i = 0     -- Clear all setups
+    valve_tab[l_i].sigtoa_n = ''    -- Clear all Comments
+
+    valve_tab[l_i].sigtob_t = io_dout -- Set I/O type to Digital Output
+    valve_tab[l_i].sigtob_i = 0     -- Clear all setups
+    valve_tab[l_i].sigtob_n = ''    -- Clear all Comments
+  ENDFOR
+
+  WriteLog('  Clearing MHGRIP clamp Tab assignments',FALSE)
+  FOR l_i = 1 TO ARRAY_LEN(clamp_tab) DO
+    clamp_tab[l_i].sigclose_t = io_din -- Set I/O type to Digital Input
+    clamp_tab[l_i].sigclose_n = ''
+    clamp_tab[l_i].sigclose_i = 0
+
+    clamp_tab[l_i].sigopen_t = io_din -- Set I/O type to Digital Input
+    clamp_tab[l_i].sigopen_n  = ''
+    clamp_tab[l_i].sigopen_i  = 0
+  ENDFOR
+
+  WriteLog('  Clearing MHGRIP Part Present Tab assignments',FALSE)
+  FOR l_i = 1 TO ARRAY_LEN(partp_tab) DO
+    partp_tab[l_i].signal_t = io_din -- Set I/O type to Digital Input
+    partp_tab[l_i].signal_n = ''
+    partp_tab[l_i].signal_i = 0
+  ENDFOR
+
+  WriteLog('  Clearing MHGRIP Vacuum Tab assignments',FALSE)
+  FOR l_i = 1 TO  ARRAY_LEN(vmade_tab) DO
+    vmade_tab[l_i].signal_t = io_din -- Set I/O type to Digital Input
+    vmade_tab[l_i].signal_n = ''
+    vmade_tab[l_i].signal_i = 0
+  ENDFOR
+
+-- RK added this to address Bill Krolls request to ensure defaults are set
+ WriteLog('  Setting MHGRIP Check Opened and Closed to TRUE',FALSE)
+  FOR l_i = 1 TO Cur_qty_tool DO
+    FOR l_j = 1 TO qty_grip DO
+      Set_B_PVar('mhgripdt','mh_grippers['+int2str(l_i)+','+int2str(l_j)+'].chk_opened',TRUE)
+      Set_B_PVar('mhgripdt','mh_grippers['+int2str(l_i)+','+int2str(l_j)+'].chk_closed',TRUE)
+    ENDFOR --
+  ENDFOR
+
+-- Set the Flag the Tool was cleared setup the the GRS4 standard and
+-- And all data reset the Base
+
+  Grp_Is_Setup = TRUE
+
+END ConfigMHGRIP
+-----------------------------------------------------------------------------
+ROUTINE Chk_MH_Init
+-- PURPOSE: to ensure all variable for this program is initialized so it can run
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = TRUE
+ENDIF
+
+IF UNINIT(DisplayDely) THEN
+  DisplayDely = 1000
+ENDIF
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+IF UNINIT(Use_MH_Tool) THEN
+  Use_MH_Tool = FALSE
+ENDIF
+IF UNINIT(Grp_Is_Setup) THEN
+  Grp_Is_Setup = FALSE
+ENDIF
+
+FOR i = 1 TO ARRAY_LEN(InBlockSetup) DO
+  IF UNINIT(InBlockSetup[i]) THEN
+    InBlockSetup[i] = FALSE
+  ENDIF
+ENDFOR -- Insure Input Blocks initialized
+
+FOR i = 1 TO ARRAY_LEN(OutVlvSetup) DO
+  IF UNINIT(OutVlvSetup[i]) THEN
+    OutVlvSetup[i] = FALSE
+  ENDIF
+ENDFOR -- Insure Valve packs initialized
+
+IF UNINIT(EOATUseAnlog) THEN -- If Analog is Used
+  EOATUseAnlog = FALSE
+ENDIF
+IF UNINIT(NumAnlogInpt) THEN  -- Number of analog
+  NumAnlogInpt = 0
+ENDIF
+FOR i = 1 TO ARRAY_LEN(AnalgInSetup) DO -- it the configured analog
+  IF UNINIT(AnalgInSetup[i]) THEN
+    AnalgInSetup[i] = FALSE
+  ENDIF
+ENDFOR --
+
+IF Reset_Cell THEN -- CEll is never setup or is being reset
+  FOR i = 1 TO ARRAY_LEN(InBlockSetup) DO
+    InBlockSetup[i] = FALSE
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(OutVlvSetup) DO
+    OutVlvSetup[i] = FALSE
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(AnalgInSetup) DO
+    AnalgInSetup[i]= FALSE
+  ENDFOR --
+  Grp_Is_Setup = FALSE -- reset Grip Setup
+  POST_ERR(38000, 'MH Grip setup RESET by GMMHGPIO', 0, 0) --
+  WriteLog('  MH Grip Setup Reset by RESET_CELL in MHGRIPIO',FALSE)
+ENDIF
+
+IF Grp_Is_Setup = FALSE THEN -- If this is false MHgrip has never been set or Checked
+  ConfigMHGRIP
+ENDIF
+IF UNINIT(IO_MH_Setup)  THEN
+  IO_MH_Setup = FALSE
+ENDIF
+IF UNINIT(Decnt_Vacuum) THEN
+  Decnt_Vacuum = FALSE
+ENDIF
+
+END Chk_MH_Init
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+  ErrsInShop.ErrorsIOCom = 0
+ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsIOCom -- grab curent eror count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog('  Starting the MH I/O setup Program', FALSE)
+
+Chk_MH_Init  -- Call routine to ensure all vars are initialized or need reset
+
+  IF (IO_MH_Setup = TRUE) THEN -- setup has already been setup
+      WriteLog('  Material Handling I/O Already Setup', FALSE)
+    IF ExecSetupAgn('All MH I/O') THEN -- ask user if they want to setup again
+      IO_MH_Setup = FALSE
+    ELSE
+      WriteLog('  MH I/O already Complete', FALSE)
+      WriteLog('  GMMHGPIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+IF (NOT Use_MH_Tool) AND (NOT Use_Vacuum) THEN -- No MH Gripper configured
+  POST_ERR(38000, 'Use_MH_Tool & Use_Vacuum are FALSE', 0, 0) --
+  WriteLog('  Use_MH_Tool & Use_Vacuum are FALSE', FALSE)
+  RETURN                                       -- No Vacuum Either
+ENDIF
+
+--***************** Configure the Vacuum *****************************
+  IF Use_Vacuum THEN
+    ConfigVacGrp
+  ENDIF
+--***************** Configure the Input blocks *****************************
+
+FOR i = 1 TO NumEOATInBlk DO -- Loop through user configured # of Input Blocks
+
+    WriteLog('  Starting Input Block#'+int2str(i)+' I/O Setup', FALSE)
+
+  IF (InBlockSetup[i] = TRUE) THEN -- setup has already been setup
+    WRITE TPERROR(CHR(cc_clear_win),'Input Block#',i,' Already Setup')
+    IF ExecSetupAgn('Input Block#'+int2Str(i)) THEN -- ask user if they want to setup again
+      InBlockSetup[i]=FALSE
+    ENDIF
+  ENDIF
+
+  IF (InBlockSetup[i]=FALSE) THEN -- If never setup then setup the I/O
+    SELECT (i) OF -- setup based on Number of Input Blocks Confiquired
+      CASE (1):load_mh16  --
+      CASE (2):load_mh32  --
+      CASE (3):load_mh48  --
+      CASE (4):load_mh64  --
+      ELSE: --
+        WriteLog('  InBlockSetup #'+int2str(i)+' in GMMHGPIO is INVALID', TRUE)
+    ENDSELECT --
+        WriteLog('  Input Block#'+int2str(i)+' Setup Completed', FALSE)
+  ELSE-- Input Block Already Setup
+        WriteLog('  Input Block#'+int2str(i)+' Already has Configured', FALSE)
+  ENDIF
+ENDFOR --
+
+--***************** Configure the Analog Input blocks *****************************
+IF EOATUseAnlog THEN
+  FOR i = 1 TO NumAnlogInpt DO -- Loop through user configured # of Input Blocks
+        WriteLog('  Starting MH Analog Input#'+int2str(i)+' I/O Setup', FALSE)
+    IF (AnalgInSetup[i]=FALSE) THEN -- If never setup then setup the I/O
+      SELECT (i) OF -- setup based on Number of Input Ports Confiquired
+        CASE (1):SetAnlgIn1  --
+        CASE (2):SetAnlgIn2  --
+        CASE (3):SetAnlgIn3  --
+        CASE (4):SetAnlgIn4  --
+        ELSE: --
+          POST_ERR(38000, '  AnalgInSetup '+int2str(i)+' in GMMHGPIO is INVALID', 0, 0) --
+      ENDSELECT --
+
+        WriteLog('  Analog Input#'+int2str(i)+'  Setup Completed', FALSE)
+    ELSE-- Anaolog Input Already Setup
+        WriteLog('  Analog Input#'+int2str(i)+'  Already has Configured', FALSE)
+    ENDIF
+  ENDFOR --
+ENDIF -- end of EOATUseAnlog
+
+--***************** Configure Output Blocks *****************************
+
+FOR ot = 1 TO NumEOATOtMan DO -- Loop through user configured # of Valve Manifolds
+      WriteLog('  Starting Valve Manifold#' +int2str(ot)+ ' I/O Setup',FALSE)
+
+  IF (OutVlvSetup[ot] = TRUE) THEN -- setup has already been setup
+    WriteLog('  Valve Manifold#' +int2str(ot)+ ' Already Setup',FALSE)
+    WRITE TPERROR(CHR(cc_clear_win),'Valve Manifold',ot,' Already Setup')
+    IF ExecSetupAgn('Valve Manifold#'+int2Str(ot)) THEN -- ask user if they want to setup again
+      OutVlvSetup[ot]=FALSE
+    ENDIF
+  ENDIF
+
+  IF (OutVlvSetup[ot]=FALSE) THEN -- If never setup
+    SELECT (ot) OF -- setup based on Number of Output Manifolds Confiquired
+      CASE (1):ValvePack_1  --
+      CASE (2):ValvePack_2  --
+      CASE (3):ValvePack_3  --
+      ELSE: --
+        WriteLog('  OutVlvSetup '+int2str(ot)+' in GMMHGPIO is INVALID',TRUE)
+    ENDSELECT --
+      WriteLog('  Valve Manifold#' +int2str(ot)+ ' Setup Completed',FALSE)
+  ELSE-- Input Block Already Setup
+      WriteLog('  Valve Manifold#' +int2str(ot)+ ' Already has Configured',FALSE)
+  ENDIF
+
+ENDFOR --
+Grp_Is_Setup = TRUE
+
+ ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('  MH I/O setup Program GMMHGRIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog('  Material Handling I/O setup Program completed', FALSE)
+   IO_MH_Setup = TRUE
+ ENDIF
+
+END GMMHGPIO

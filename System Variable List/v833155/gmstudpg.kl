@@ -1,0 +1,286 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSTUDPG.KL
+--   TITLE:          GMSTUDPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Stud Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Program file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/07/25 marchaka Load templates 10 and 11 for all pedestal apps.
+--         2016/10/20 marchaka Add wizlog logging functionality
+--             V4.1   2017/02/05 marchaka         Modify prompt logic for wizard rerun.
+--             V4.2   2017/02/13 marchaka         Remove $dev_path setting.  Handled in gmmain1.
+--             V4.3   2018/04/04  schoensm  			V8.33P05 updates 
+--------------------------------------------------------------------------
+PROGRAM GMSTUDPG
+
+%COMMENT = 'GM Stud V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT TPE  -- set_attr_prg
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gm_var    --GM variables
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgstd  -- GM wizard variables for Stud Applications
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgcel  -- cell wizard variables
+
+
+CONST
+Version = '2018-04-04'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+  gm_status:  INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  StudPG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Stud PG at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines 
+
+
+-----------------------------------------------------------------------------
+ROUTINE initSTUDPRGS
+-- PURPOSE: to initialize application Programs associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(StudPG_Setup) THEN
+    StudPG_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(bshop_proc1) THEN
+    bshop_proc1 = 0
+  ENDIF
+  IF UNINIT(bshop_proc2) THEN
+    bshop_proc2 = 0
+  ENDIF
+
+  IF UNINIT(numstudctrl) THEN
+    numstudctrl = 0
+  ENDIF
+
+  Set_S_sVar('$TP_DEFPROG', 'PROMPTYN')
+  Set_S_sVar('$SHELL_WRK.$ROUT_NAME', '')
+
+END initSTUDPRGS
+-----------------------------------------------------------------------------
+ROUTINE load_stud_pg
+-- PURPOSE: Load application programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+   
+  -- load common stud programs
+
+
+  -- Load standard HMIOCST.TP file.
+  Clear_Prog('HMIOCST')
+  SPRUNCMD ('COPY FRS:HMIOCST.TP FR:\HMIOCST.TP', gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy HMIOCST to FR', 0,0)
+    ENDIF
+  LOAD('FR:HMIOCST.TP',0,gm_status)
+
+  -- Load FFR Templates
+  IF (bshop_proc1 = studappl) THEN  --process 1 is a stud application
+    SELECT stud1_app OF      
+      CASE(stud_rhg):
+      	SPRUNCfile('FRS:\cstd1ffr.tp', 'FR:\ffrstud1.tp')
+     		Load_File('FR:','ffrstud1.tp',1)
+      CASE(stud_phg, stud_spdg, stud_3pg, stud_4pg):
+      	SPRUNCfile('FRS:\pstd1ffr.tp', 'FR:\ffrstud1.tp')
+     		Load_File('FR:','ffrstud1.tp',1)
+      	SPRUNCfile('FRS:\pstd2ffr.tp', 'FR:\ffrstud2.tp')
+     		Load_File('FR:','ffrstud2.tp',1)
+       ELSE:
+     ENDSELECT
+   ENDIF  --process 1 is a stud application
+
+  IF (bshop_proc2 = studappl) THEN  --it is a ped by default
+   -- Load FFR Templates Ped Stud and Ped Held
+    SPRUNCfile('FRS:\pstd1ffr.tp', 'FR:\ffrstud1.tp')
+    Load_File('FR:','ffrstud1.tp',1)
+    SPRUNCfile('FRS:\pstd2ffr.tp', 'FR:\ffrstud2.tp')
+    Load_File('FR:','ffrstud2.tp',1)
+  ENDIF  --process 2 is a stud welder
+
+  -- load template programs
+  LOAD('FRS:TLCKSTUD.TP',1,gm_status)
+
+  IF (stud1_app = stud_rhg) THEN
+    LOAD('FRS:TEMPLA03.TP',1,gm_status)  
+    LOAD('FRS:TEMPLA30.TP',1,gm_status)  
+  ENDIF
+
+  IF (stud1_app = stud_phg) THEN
+    LOAD('FRS:TEMPLA10.TP',1,gm_status)
+    LOAD('FRS:TEMPLA11.TP',1,gm_status)
+  ENDIF     
+
+  IF (stud1_app = stud_spdg) THEN
+    LOAD('FRS:TEMPLA10.TP',1,gm_status)
+    LOAD('FRS:TEMPLA11.TP',1,gm_status)
+  ENDIF
+
+  IF (stud1_app = stud_3pg) THEN
+    LOAD('FRS:TEMPLA10.TP',1,gm_status)
+    LOAD('FRS:TEMPLA11.TP',1,gm_status)
+  ENDIF
+
+  IF (stud1_app = stud_4pg) THEN
+    LOAD('FRS:TEMPLA10.TP',1,gm_status)
+    LOAD('FRS:TEMPLA11.TP',1,gm_status)
+  ENDIF
+
+  -- Templates Ped Stud and Ped Disp
+  IF (bshop_proc1 = studappl) AND (bshop_proc2 = dispappl) THEN  --process 1 is a stud, process 2 is dispense
+    LOAD('FRS:TEMPLA22.TP',1,gm_status)  
+  ENDIF
+
+END load_stud_pg
+
+
+-----------------------------------------------------------------------------
+ROUTINE set_studmac
+-- PURPOSE: set_studmac
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+ 
+
+END set_studmac
+
+
+-----------------------------------------------------------------------------
+ROUTINE set_stud_pg
+-- PURPOSE: Setup and load stud programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numstudctrl <> 0) THEN --application has stud
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+    ErrsInShop.ErrorsPrgrms = 0
+  ENDIF
+  IF UNINIT(StudPG_Setup) OR (Reset_Cell) THEN
+    StudPG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsPrgrms -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Stud Program GMSTUDPG', FALSE)
+
+  IF (StudPG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Stud Programs Already Setup', FALSE)
+    IF ExecSetupAgn('Stud Progs') THEN -- ask user if they want to setup again
+      StudPG_Setup = FALSE
+    ELSE
+      WriteLog('  Stud Programs already Complete', FALSE)
+      WriteLog('  GMSTUDPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+--setup routines
+  initSTUDPRGS
+  load_stud_pg
+  set_studmac
+
+  ErrsInShop.ErrorsPrgrms =  ErrsInShop.ErrorsPrgrms + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsPrgrms -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Stud Program Setup GMSTUDPG had ' + int2str((ErrsInShop.ErrorsPrgrms- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Stud Program Setup completed', FALSE)
+    StudPG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_stud_pg
+-----------------------------------------------------------------------------
+BEGIN
+
+  set_stud_pg
+
+END GMSTUDPG
+
+
+

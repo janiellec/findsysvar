@@ -1,0 +1,655 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPOTVR.KL
+--   TITLE:          GMSPOTVR PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Spot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4.1        2017/01/11 marchaka         Add $spotweldio[x].$eow_type = 3,
+--                                                weld in process and weld complete
+--         4.1        2017/02/05 marchaka         Use new utility for setting up file_abpck 
+--                                                settings.  Modify prompts for wizard rerun.
+--         4.1        2017/02/13 marchaka         Removed $dev_path setting.  Handled in gmmain1.
+--         4.1        2017/03/20 marchaka         Add loading of new master tip dress web screen.  Remove loading of second
+--                                                tip dress web screen.
+--         4.2        2017/06/24 marchaka         Moved webscreen setup to SetWebScreen in gmcellvr
+--         4.3        2018/04/06 marchaka         Set weld schedule 0 alarm to pause severity
+--         4.4        2019/08/27 marchaka         Add servo nut weld setup
+--         4.5        2020/10/15 marchaka	  Add weld schedule in tryout mode Karel variables
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPOTVR
+
+%COMMENT = 'GM Spot V4.5'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE atconst -- required for the constants for the "shell_check" variable array
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INClUDE gmcfgspt  -- spot welding wizard variables
+%INCLUDE gmevrs4io -- GM variables
+%INCLUDE gm_var -- GM variables
+
+
+CONST
+Version = '2020-10-15'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SpotVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+  gm_status: INTEGER
+
+  sgunchng     IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Servo gun tool changer option loaded
+
+  shell_check  IN SHADOW FROM ATSHELL  : ARRAY[MAX_CHECKS,MAX_CONDS] of BOOLEAN
+
+  srvo_td_opt  IN SHADOW FROM GMCUSTO: BOOLEAN --servo tip dress option loaded
+  
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt --check if servo gun option loaded
+ROUTINE sgunchg_optn FROM gmwizspt --check if servo gun change option is loaded
+ROUTINE srvo_td FROM gmwizspt --check if servo tip dress option is installed
+-----------------------------------------------------------------------------
+ROUTINE initspotvars
+-- PURPOSE: to initialize registers associated with setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  l_equip: INTEGER
+  l_gun:  INTEGER
+
+
+BEGIN
+
+  IF UNINIT(numwldctrl) THEN
+    numwldctrl = 0
+  ENDIF
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+  IF UNINIT(sgunchng) THEN
+    sgunchg_optn
+  ENDIF
+
+  FOR l_equip = 1 TO 5 DO
+    FOR l_gun = 1 TO 2 DO 
+      gn_montd_den[l_equip, l_gun] = FALSE
+      g_servo_gun[l_equip, l_gun]  = FALSE
+      pedpins[l_equip,l_gun]       = FALSE
+      g_tipdress[l_equip, l_gun]   = FALSE
+    ENDFOR
+  ENDFOR
+
+  IF UNINIT(do_comp_io) THEN
+    do_comp_io = FALSE
+  ENDIF
+
+END initspotvars
+-----------------------------------------------------------------------------
+ROUTINE spot_var
+-- PURPOSE: set spot weld variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+x         : INTEGER
+a         : STRING[4]
+index     : INTEGER
+file_done : BOOLEAN
+tip_dress : BOOLEAN
+srvotipdrs: BOOLEAN
+eq_num: STRING[2]
+gun_num: STRING[2]
+CurntAppLoc : STRING[32] -- used for setting fileappbck variable
+
+
+BEGIN
+
+  tip_dress = FALSE -- reset for wizard setup
+
+  Set_B_sVar('$ap_selap[2]',TRUE) -- Spot Application
+  Set_B_sVar('$spotconfig.$ext_wsd_sch', TRUE)
+  Set_B_sVar('$spotconfig.$td_dump_chk', FALSE)
+  Set_I_sVar('$spotconfig.$wid_dsp_enb', 0)  --Weld ID not visible in SPOT instruction
+  Set_I_sVar('$spots0alarm', 2) --set weld schedule 0 alarm to pause severity
+
+  SELECT numwldctrl OF
+    CASE(1):
+      Set_I_sVar('$spotconfig.$num_wd_ctls',1)
+      Set_I_sVar('$spotweldio[1].$eow_type', 3)
+
+      SELECT wld1_app OF
+        CASE(wld1app_cg, wld1app_snut): --carried gun or carried servo nut weld
+          Set_I_sVar('$spotnumeq',1)
+          Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl',TRUE)
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+        CASE(wld1app_pg): --pedestal gun
+          Set_I_sVar('$spotnumeq',1)
+          Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl',TRUE)
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+        CASE(wld1app_spdg): --single ped dual gun
+          Set_I_sVar('$spotnumeq', 1)                 
+          Set_I_sVar('$spoteqsetup[1].$num_guns', 2)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]', 1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]', 1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl', FALSE) -- Enable Simultaneous Welding
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+        CASE(wld1app_dpsg): --dual ped single gun each
+          Set_I_sVar('$spotnumeq', 2)                 
+          Set_I_sVar('$spoteqsetup[1].$num_guns', 1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]', 1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]', 1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl', TRUE) -- Disable Simultaneous Welding
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+          Set_I_sVar('$spoteqsetup[2].$num_guns', 1)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]', 1)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]', 1)
+          Set_B_sVar('$spoteqsetup[2].$dg_sequentl', TRUE) -- Disable Simultaneous Welding
+          Set_B_sVar('$spoteqsetup[2].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[2].$studbackup', FALSE)
+        CASE(wld1app_cgmh): --robot held gun with material handler
+          Set_I_sVar('$spotnumeq',1)
+          Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl',TRUE)
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+        ELSE:
+      ENDSELECT --type of application for weld controller 1
+     
+    CASE(2):
+      Set_I_sVar('$spotconfig.$num_wd_ctls',2)
+      Set_I_sVar('$spotweldio[1].$eow_type', 3)
+      Set_I_sVar('$spotweldio[2].$eow_type', 3)
+      
+      SELECT wld2_app OF
+        CASE(wld2app_spdg):  --single pedestal dual gun
+          Set_I_sVar('$spotnumeq', 1)
+          Set_I_sVar('$spoteqsetup[1].$num_guns', 2)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]', 2)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl', FALSE) -- Enable Simultaneous Welding
+          Set_B_sVar('$spoteqsetup[1].$studwelder', FALSE) 
+          Set_B_sVar('$spoteqsetup[1].$studbackup', FALSE)
+        CASE(wld2app_dpsg): --dual pedestal single gun each
+          Set_I_sVar('$spotnumeq',2)
+          Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl', TRUE) -- Disable Simultaneous Welding
+          Set_I_sVar('$spoteqsetup[2].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+          Set_B_sVar('$spoteqsetup[2].$dg_sequentl',TRUE) -- Disable Simultaneous Welding  
+        CASE(wld2app_cgpg): --robot held gun and pedestal gun       
+          Set_I_sVar('$spotnumeq',2)
+          Set_I_sVar('$spoteqsetup[1].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[1]',1)
+          Set_I_sVar('$spoteqsetup[1].$weld_ctrler[2]',1)
+          Set_B_sVar('$spoteqsetup[1].$dg_sequentl',TRUE) -- Disable Simultaneo  us Welding
+          Set_I_sVar('$spoteqsetup[2].$num_guns',1)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+          Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+          Set_B_sVar('$spoteqsetup[2].$dg_sequentl',TRUE) -- Disable Simultaneous Welding
+      ELSE:
+      ENDSELECT --type of application for both weld controllers
+    ELSE:
+      Set_I_sVar('$spotconfig.$num_wd_ctls',1)
+  ENDSELECT
+
+
+  IF (g_servog_opt) THEN --servo gun option
+
+    --weld schedule in tryout mode
+    wschtry_enb = TRUE --enable weld schedule in tryout mode for servo gun applications
+    tryout_sch = 231 --per B.Kroll on September 15, 2020
+
+    IF (sp_ttl_eq >= 1) THEN --at least one spot equipment
+      Set_I_sVar('$sgcfg[1].$equip_type',2)
+    ENDIF --at least one spot equipment
+
+    IF (sp_ttl_eq = 2) THEN --two spot equipment
+      Set_I_sVar('$sgcfg[2].$equip_type',2)
+    ENDIF --two spot equipment
+
+    IF ((wld1_app = wld1app_spdg) OR (wld1_app = wld1app_dpsg) OR (wld2_app = wld2app_spdg)) THEN --single ped dual gun, dual ped single gun each
+      Set_B_sVar('$SGSYSDG.$UGA_IDX_4GB', FALSE)
+    ENDIF --single ped dual gun, dual ped single gun each
+
+    Set_S_sVar('$MIX_BG[7].$PROG_NAME', 'ffrmtr')   
+    Set_I_sVar('$MIX_BG[7].$MODE', 2)   
+    Set_I_sVar('$MIX_BG[7].$STATUS', 2)
+
+    --set tunediag to be in backup
+    IF ChkIfBckedup('tunediag') THEN -- check if already in setup
+      writeLog('  tunediag is already setup in FILE APP BACKUP' , FALSE)
+    ELSE -- Not already in file_appbck
+      CurntAppLoc = SetBackUpLoc -- Call routine to return available variable location
+      IF CurntAppLoc <> 'NONE' THEN
+        Set_S_sVar(CurntAppLoc + '.$file_name','tunediag.vr')
+        Set_S_sVar(CurntAppLoc + '.$prog_name','tunediag')
+        Set_I_sVar(CurntAppLoc + '.$func_code',0)
+        Set_I_sVar(CurntAppLoc + '.$modifier',0)
+        Set_S_sVar(CurntAppLoc + '.$comment','tunediag')
+        writeLog(' ' + CurntAppLoc + '.$prog_name set to tunediag' , FALSE)
+      ELSE
+        writeLog('** No FILE BACKUP Opening for tunediag to be set to. **' , TRUE)
+      ENDIF
+    ENDIF
+
+    IF (sgunchng = TRUE) THEN --servo gun tool change loaded on robot
+      -- Machine Locking
+      Set_B_sVar('$shell_chk[6].$enable',FALSE)
+      Set_B_sVar('$shell_chk[6].$resume',FALSE)
+      Set_B_sVar('$shell_chk[6].$prompt',FALSE)
+      shell_check[6,1] = TRUE
+      shell_check[6,2] = TRUE
+      shell_check[6,3] = TRUE
+
+      IF (srvo_td_opt = TRUE) THEN
+        Set_I_sVar('$sgtdcfg.$num_sched',8) --number of dresser schedules to display
+        Set_I_sVar('$sgtdcfg.$num_dresrs',4) --number of tip dressers
+      ENDIF
+    ELSE --no servo gun change
+      IF (srvo_td_opt = TRUE) THEN
+        Set_I_sVar('$sgtdcfg.$num_sched',4) --number of dresser schedules to display
+        Set_I_sVar('$sgtdcfg.$num_dresrs',2) --number of tip dressers 
+      ENDIF
+
+    ENDIF --servo gun tool change
+
+  ELSE --air gun
+
+    sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+    sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+    sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+    FOR sp_eqnum = 1 TO sp_ttl_eq DO
+      FOR sp_gnnum = 1 TO sp_eqgn_num DO
+        eq_num = int_to_strg(sp_eqnum)
+        gun_num = int_to_strg(sp_gnnum)
+
+        --Anticipate Times
+        Set_B_sVar('$spoteqsetup[' + eq_num + '].$wcu_gun_io[1]',TRUE)
+        Set_B_sVar('$spoteqsetup[' + eq_num + '].$wcu_gun_io[2]',TRUE)
+
+        -- Spot Equipment Product defaults to zero
+        Set_I_sVar('$spoteqsetup[' + eq_num + '].$td_reg_idx[1]', 0)
+        Set_I_sVar('$spoteqsetup[' + eq_num + '].$td_reg_idx[2]', 0)
+        Set_I_sVar('$spoteqsetup[' + eq_num + '].$td_limit[1]', 0)
+        Set_I_sVar('$spoteqsetup[' + eq_num + '].$td_limit[2]', 0)
+
+        IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_vlv = ag_eurovlv) THEN -- Euro Double Acting Valves
+          euro_double = TRUE
+          gn_montd_den[sp_eqnum, sp_gnnum] = TRUE
+          Set_I_sVar('$spoteqsetup[' + eq_num + '].$press_type', 3)
+          Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_cl[' + gun_num + ']',TRUE)
+          Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_open[1]',TRUE)
+          Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_open[2]',TRUE)
+          Set_B_sVar('$spoteqsetup[' + eq_num + '].$bu_stroke[1]', TRUE)
+          Set_B_sVar('$spoteqsetup[' + eq_num + '].$bu_stroke[2]',TRUE)
+        ENDIF -- Euro Double Acting Valves
+        IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_vlv = ag_NA_vlv) THEN -- North American Valves
+          euro_double = FALSE
+          do_comp_io = TRUE
+          Set_I_sVar('$spoteqsetup[' + eq_num + '].$press_type', 0)
+         
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_denspk = wizans_yes) THEN --Dense Pack Integrated
+            gn_montd_den[sp_eqnum, sp_gnnum] = TRUE
+          ENDIF --Dense Pack Integrated
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_retstrk = wizans_yes) THEN --Retract Stroke
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$bu_stroke[1]', TRUE)
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$bu_stroke[2]', TRUE)
+          ENDIF --Retract Stroke
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_gun_opn = wizans_yes) THEN --Gun Open Detect
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_cl[' + gun_num + ']',TRUE)
+          ELSE --no gun open detect
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_cl[' + gun_num + ']',FALSE)
+          ENDIF --gun open detect
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_gun_rtrc = wizans_yes) THEN --Retract Open Detect
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_open[1]', TRUE)
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$det_bu_open[2]', TRUE)
+          ENDIF --retract open detect
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_eql_prss = wizans_yes) THEN --equalization pressure
+             Set_B_sVar('$spoteqsetup[' + eq_num + '].$equal_press[' + gun_num + ']', TRUE)
+             Set_I_sVar('$spoteqsetup[' + eq_num + '].$num_eqp[' + gun_num + ']', 31)
+           ELSE --no equalization pressure --when answered no for carried and all pedestal apps (init in gmwizard to 0)
+             Set_B_sVar('$spoteqsetup[' + eq_num + '].$equal_press[' + gun_num + ']', FALSE)
+             Set_I_sVar('$spoteqsetup[' + eq_num + '].$num_eqp[' + gun_num + ']', 0)
+           ENDIF --equalization pressure
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ag_soft_tch = wizans_yes) THEN --soft touch
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$soft_touch[' + gun_num + ']',TRUE)
+          ELSE --no soft touch
+            Set_B_sVar('$spoteqsetup[' + eq_num + '].$soft_touch[' + gun_num + ']',FALSE)
+          ENDIF -- soft touch
+            
+        ENDIF --North American Valves
+        
+      ENDFOR
+        IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+          sp_eqgn_num = sp_ttl_gn
+        ENDIF
+    ENDFOR
+
+  ENDIF --servo gun option
+
+  srvotipdrs = FALSE --reset for wizard setup
+  sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+  sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+  sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+  FOR sp_eqnum = 1 TO sp_ttl_eq DO
+    FOR sp_gnnum = 1 TO sp_eqgn_num DO    
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_td = wizans_yes) THEN --tipdress
+        tip_dress = TRUE
+      ENDIF --tip dress
+      IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sp_srvo_td = wizans_yes) THEN --servo tip dress
+        srvotipdrs = TRUE
+      ENDIF --servo tip dress 
+    ENDFOR
+    IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+      sp_eqgn_num = sp_ttl_gn
+    ENDIF
+  ENDFOR 
+
+  IF (tip_dress = TRUE) THEN --one gun in config has tip dress
+    IF (srvotipdrs = TRUE) THEN --servo tip dress
+      Set_B_sVar('$sgtdcfg.$srvo_tdrs', TRUE)
+    ELSE --electric dress
+      Set_B_sVar('$sgtdcfg.$srvo_tdrs', FALSE)
+    ENDIF --servo tip dress?
+
+    Set_B_sVar('$spotconfig.$td_dump_chk', TRUE)
+    Set_B_sVar('$spotconfig.$td_after_cc', TRUE)
+
+    IF ((spotapp_eq[1].spotgun[1].sp_td = wizans_yes) AND ((spotapp_eq[1].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[1].spotgun[1].sp_srvo_td = 0))) THEN --equipment 1, gun 1 has a tip dresser, electric dresser
+       Set_S_sVar('$MIX_BG[1].$PROG_NAME', 'TD_1_MTR')
+       Set_I_sVar('$MIX_BG[1].$MODE', 2)
+       Set_I_sVar('$MIX_BG[1].$STATUS', 2)
+    ENDIF --equipment 1, gun 1 has a tip dresser, electric dresser
+      
+    IF (((spotapp_eq[1].spotgun[2].sp_td = wizans_yes) AND ((spotapp_eq[1].spotgun[2].sp_srvo_td = wizans_no) OR 
+          (spotapp_eq[1].spotgun[2].sp_srvo_td = 0))) OR  ((spotapp_eq[2].spotgun[1].sp_td = wizans_yes) AND 
+            ((spotapp_eq[2].spotgun[1].sp_srvo_td = wizans_no) OR (spotapp_eq[2].spotgun[1].sp_srvo_td = 0)))) THEN --tip dresser 2, electric dresser
+      Set_S_sVar('$MIX_BG[2].$PROG_NAME', 'TD_2_MTR')      
+      Set_I_sVar('$MIX_BG[2].$MODE', 2)
+      Set_I_sVar('$MIX_BG[2].$STATUS', 2)
+    ENDIF --tip dresser 2, electric dresser
+
+    --when there is three dressers will also need to condition this for electric dresser only
+    --IF ((spotapp_eq[2].spotgun[1].sp_td = wizans_yes) AND (spttl_eq1gn = 2)) THEN --tip dresser 3
+      --Set_S_sVar('$MIX_BG[3].$PROG_NAME', 'TD_3_MTR')
+      --Set_I_sVar('$MIX_BG[3].$MODE', 2)
+      --Set_I_sVar('$MIX_BG[3].$STATUS', 2)
+    --ENDIF --tip dresser 3
+
+    --when there is four dressers will also need to condition this for electric dresser only
+    --IF (spotapp_eq[2].spotgun[2].sp_td = wizans_yes) THEN --tip dresser 4
+      --Set_S_sVar('$MIX_BG[4].$PROG_NAME', 'TD_4_MTR')
+      --Set_I_sVar('$MIX_BG[4].$MODE', 2)
+      --Set_I_sVar('$MIX_BG[4].$STATUS', 2)
+    --ENDIF --tip dresser 4
+
+  ELSE --no guns have tip dress
+
+  ENDIF --one gun in config has tip dress 
+  
+END spot_var
+-----------------------------------------------------------------------------
+ROUTINE spotproc1var
+-- PURPOSE: set spot process 1 weld variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (numwldctrl <> 0) THEN --setup process 1 VAR
+    
+    IF (g_servog_opt = TRUE) THEN --servo gun option is loaded on the robot
+      Set_B_sVar('$spotweldio[1].$wc_con_pres',FALSE)
+    ELSE  --servo gun option not loaded on the robot
+      Set_B_sVar('$spotweldio[1].$wc_con_pres',TRUE)    
+    ENDIF --servo gun option is loaded on the robot
+
+    IF (wldapp[1].wld_wtreip = wizans_yes) THEN --no watersaver
+      Set_S_sVar('$MIX_BG[5].$PROG_NAME', 'woffmtr')
+      Set_I_sVar('$MIX_BG[5].$MODE', 2)
+      Set_I_sVar('$MIX_BG[5].$STATUS', 2) 
+    ENDIF -- no water saver
+
+    SELECT wld1_app OF
+  
+      CASE(wld1app_cg, wld1app_snut): --robot held gun
+        
+      ELSE:
+    ENDSELECT --weld application process 1
+   
+  ENDIF --process 1 VAR
+
+END spotproc1var
+-----------------------------------------------------------------------------
+ROUTINE spotproc2var
+-- PURPOSE: set spot process 2 weld variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (numwldctrl = 2) THEN --setup process 2 VAR
+ 
+    IF (g_servog_opt = TRUE) THEN --servo gun option is loaded on the robot      
+      Set_B_sVar('$spotweldio[2].$wc_con_pres',FALSE)
+    ELSE  --servo gun option not loaded on the robot
+      Set_B_sVar('$spotweldio[2].$wc_con_pres',TRUE)
+    ENDIF --servo gun option is loaded on the robot
+
+    IF (wldapp[2].wld_wtreip = wizans_yes) THEN --no watersaver
+      Set_S_sVar('$MIX_BG[5].$PROG_NAME', 'w2offmtr')
+      Set_I_sVar('$MIX_BG[5].$MODE', 2)
+      Set_I_sVar('$MIX_BG[5].$STATUS', 2) 
+    ENDIF -- no water saver
+  
+  ENDIF --process 2 VAR setup
+
+END spotproc2var
+-----------------------------------------------------------------------------
+ROUTINE spot_webscrn
+-- PURPOSE: Sets spot webscreens
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+--moved to SetWebScreen in gmcellvr
+
+END spot_webscrn
+-----------------------------------------------------------------------------
+ROUTINE spot_imenu
+-- PURPOSE: Set spot imenu settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option is loaded on the robot 
+    Set_S_sVar('$UI_TOPMENU[5].$TEXT[6]', '*default')
+    Set_S_sVar('$UI_TOPMENU[5].$ICON[6]', 'h3BD01.gif')
+    Set_S_sVar('$UI_TOPMENU[5].$URL[6]', 'config=SINGLE&prim=menupage,957,1')
+    Set_S_sVar('$UI_TOPMENU[5].$TEXT[7]', '*default')
+    Set_S_sVar('$UI_TOPMENU[5].$ICON[7]', 'h17A03.gif')
+    Set_S_sVar('$UI_TOPMENU[5].$URL[7]', 'config=SINGLE&prim=menupage,378,3')
+  ENDIF
+
+END spot_imenu
+-----------------------------------------------------------------------------
+ROUTINE set_spot_var
+-- PURPOSE: Set spotwelding application variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numwldctrl <> 0) THEN  --spot welding application
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(SpotVR_Setup) OR (Reset_Cell) THEN
+    SpotVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Spot Variables GMSPOTVR', FALSE)
+
+  IF (SpotVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Spot Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Spot Vars') THEN -- ask user if they want to setup again
+      SpotVR_Setup = FALSE
+     ELSE
+       WriteLog('  Spot Variables already Complete', FALSE)
+       WriteLog('GMSPOTVR Setup NOT executing again', FALSE)
+     RETURN
+    ENDIF
+  ENDIF
+
+  --Configuration routines
+  initspotvars
+  spot_var
+  spotproc1var
+  spotproc2var
+  spot_webscrn
+  spot_imenu 
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Spot Variable Setup GMSPOTVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Spot Variable Setup completed', FALSE)
+    SpotVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numwldctrl
+
+END set_spot_var
+-----------------------------------------------------------------------------
+BEGIN 
+
+END gmspotvr

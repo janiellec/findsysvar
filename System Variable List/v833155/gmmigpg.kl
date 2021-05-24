@@ -1,0 +1,215 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMMigPG.KL
+--   TITLE:          GMMigPG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2020/10/23
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 MigTool Program Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.0   2020/10/23 schoensm         Created during V8.33P10 
+--              
+--------------------------------------------------------------------------
+PROGRAM gmMigpg
+
+%COMMENT = 'GM Mig PG V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgmig  -- ArcTool Mig-Wizard variables
+
+CONST
+Version = '2020-12-07'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+  Current_Ver  IN SHADOW : STRING[32] 	-- Set equal to Version constant in initialization routine
+  StrtinErs   		 : INTEGER   	-- How many errors I/O error counter had when the program started
+  MigPG_Setup  IN SHADOW : BOOLEAN      -- Keeps track if routine setup Mig tool program setup at least first time
+  gm_status		 : INTEGER
+  prog_nam     		 : STRING[12]
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_Mig_pg
+-- PURPOSE: to initialize variables for Mig program setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCfile('FRH:\cgtp\gmrmr1.stm','FR:\gmrmr1.stm')
+  SPRUNCfile('FRH:\gui\h17d12.gif', 'FRH:\gui\h17d0e.gif')
+
+END init_Mig_pg
+-----------------------------------------------------------------------------
+ROUTINE set_Mig_tp
+-- PURPOSE: load MigTool tp
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:','chktpcln.tp',1)
+  Load_File('FRS:','hometotr.tp',1)
+  Load_File('FRS:','migcutrlmt.tp',1)
+  Load_File('FRS:','migcutrrplc.tp',1)
+  Load_File('FRS:','nozzledetect.tp',1)
+  Load_File('FRS:','ream.tp',1)
+  Load_File('FRS:','reamerlmt.tp',1)
+  Load_File('FRS:','reamerrplc.tp',1)
+  Load_File('FRS:','spray.tp',1)
+  Load_File('FRS:','style29.tp',1)
+  Load_File('FRS:','templa35.tp',1)
+  Load_File('FRS:','tmpcmigpr.tp',1)
+  Load_File('FRS:','tr_proc1.tp',1)
+  Load_File('FRS:','trtohome.tp',1)
+  Load_File('FRS:','wire_cut.tp',1)
+  Load_File('FRS:','wld_mtr.tp',1)
+
+
+END set_Mig_tp
+-----------------------------------------------------------------------------
+ROUTINE set_Mig_mac
+-- PURPOSE: set Mig macros
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END set_Mig_mac
+-----------------------------------------------------------------------------
+ROUTINE mig_stytb
+-- PURPOSE: setup mig style table
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_sVar('$style_comnt[29]','Torch Maintenance')
+  Set_S_sVar('$style_name[29]', 'STYLE29') 
+  Set_B_sVar('$style_enab[29]', TRUE)
+
+END mig_stytb
+-----------------------------------------------------------------------------
+ROUTINE set_Mig_pg
+-- PURPOSE: set Mig pg
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(MigPG_Setup) OR (Reset_Cell) THEN
+    MigPG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Mig Program GMMigPG', FALSE)
+
+  IF (MigPG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('Mig Prog Already Setup', FALSE)
+    IF ExecSetupAgn('Mig Program') THEN -- ask user if they want to setup again
+      MigPG_Setup = FALSE
+    ELSE
+      WriteLog('Mig Program already Complete', FALSE)
+      WriteLog('GMMigPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  IF (rmr_trch_wiz = wizans_yes) THEN --application is a Reamer Torch Wizard
+    init_Mig_pg
+    set_Mig_tp  --load Migtool TP
+    mig_stytb   --setup style table
+    set_Mig_mac --setup macros
+  ENDIF
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Mig Prog Setup GMMigPG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Mig Prog Setup completed', FALSE)
+    MigPG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+END set_Mig_pg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmMigpg

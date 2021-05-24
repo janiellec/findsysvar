@@ -1,0 +1,214 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMBODYRG.KL
+--   TITLE:          GMBODYRG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2017/01/25
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GMPT registers setup. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZMH,GMWIZVIS are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             V4.1   2018/04/25 schoenberg       Add data register 444 settings
+--             v4.2   2018/09/17 marchaka         Add comment for data register 44
+--             v4.3   2019/08/25 marchaka         Add comments for data registers 496-499 for double blank sensor app.
+--                                                Add bcm comments for data registers 105-108.
+--              
+--                    
+--                                                
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMBODYRG
+
+%COMMENT = 'GM BODY REG V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%ENVIRONMENT REGOPE -- required for register builtins
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT SYSDEF  -- required for the $group[1]. variable
+%INCLUDE iosetup
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+
+Version = '2019/08/25'
+
+%INCLUDE gmcnstnt -- all gm Wizard constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+   StrtinErs  : INTEGER  -- How many errors I/O error counter had when the program started
+ GM_status :INTEGER -- Used for the Builtins returned status
+
+GMBSRegsDone IN SHADOW : BOOLEAN -- if the registers has ran completly
+
+%INCLUDE gmcfgcel  -- used for all the workcell variables
+%INCLUDE gmcfgerr  -- used for all the error counting and status while executing the wizard
+
+%INCLUDE gmrdutil
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-----------------------------------------------------------------------------
+ROUTINE initGMBODYRG
+-- PURPOSE: to initialize VARs for bodyshop registers setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END initGMBODYRG
+-----------------------------------------------------------------------------
+ROUTINE set_bdy_reg
+-- PURPOSE: set bodyshop registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+--data registers
+  Comment_Reg(1,44,'Cap Changer Type')
+  Comment_Reg(1,105,'BOLTPR')
+  Set_Reg_Val(105,0)
+  Comment_Reg(1,106,'SlowZ')
+  Set_Reg_Val(106,0)
+  Comment_Reg(1,107,'AtlsCpcTime')
+  Set_Reg_Val(107,0)
+  Comment_Reg(1,108,'Z_Offset')
+  Set_Reg_Val(108,0)
+  Comment_Reg(1,387,'Alarm Word 3')
+  SET_INT_REG(387,0,gm_status)
+  Comment_Reg(1,388,'Alarm Word 4')
+  SET_INT_REG(388,0,gm_status)
+  Comment_Reg(1,389,'Alarm Word 5')
+  SET_INT_REG(389,0,gm_status)
+  Comment_Reg(1,390,'Alarm Word 6')
+  SET_INT_REG(390,0,gm_status)
+  Comment_Reg(1,391,'Alarm Word 7')
+  SET_INT_REG(391,0,gm_status)
+  Comment_Reg(1,392,'Alarm Word 8')
+  SET_INT_REG(392,0,gm_status)
+  Comment_Reg(1,393,'External Frame')
+  SET_INT_REG(393,0,gm_status)
+  Comment_Reg(1,394,'TrackerCalMode')
+  SET_INT_REG(394,0,gm_status)
+  Comment_Reg(1,395,'Shim Direction')
+  SET_INT_REG(395,0,gm_status)
+  Comment_Reg(1,444,'SPRFaultActive') 
+  SET_INT_REG(444,0,gm_status)
+
+  Comment_Reg(1,496,'PHD Rcvr Seg')
+  Comment_Reg(1,497,'PHD PPX Di')
+  Comment_Reg(1,498,'PHD PPX')
+  Comment_Reg(1,499,'PHD Bypass Di')
+
+END set_bdy_reg
+-----------------------------------------------------------------------------
+ROUTINE bodyshop_reg
+-- PURPOSE: configure body shop registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+  ErrsInShop.ErrorsRgstrs = 0
+ENDIF
+IF UNINIT(GMBSRegsDone) OR (Reset_Cell) THEN
+  GMBSRegsDone = FALSE
+ENDIF
+
+   WriteLog('Bodyshop GMBODYRG Program started', FALSE)
+
+  IF (GMBSRegsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('GM Bodyshop Registers Already Setup', FALSE)
+    IF ExecSetupAgn('GM Bodyshop Registers') THEN -- ask user if they want to setup again
+      GMBSRegsDone = FALSE
+    ELSE
+      WriteLog('GM Bodyshop Registers already Complete', FALSE)
+      WriteLog('GMBODYRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsRgstrs
+
+ ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+--setup routines
+  initGMBODYRG -- init settings for execution
+  set_bdy_reg --set registers specific for the body shop
+
+   -- Get all errors in utility program that was used to any program errors
+ ErrsInShop.ErrorsRgstrs = ErrsInShop.ErrorsRgstrs +  (AddUtltyErrs)
+
+ IF (ErrsInShop.ErrorsRgstrs - StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('GM Bodyshop Register setup,GMBODYRG had ' + int2str((ErrsInShop.ErrorsRgstrs-StrtinErs))+' Errors', TRUE)
+ ELSE
+   WriteLog('GM Bodyshop Register setup Program completed', FALSE)
+   GMBSRegsDone = TRUE
+ ENDIF
+
+   WriteLog(' ',FALSE)
+
+END bodyshop_reg
+-----------------------------------------------------------------------------
+BEGIN
+
+  bodyshop_reg
+
+END GMBODYRG

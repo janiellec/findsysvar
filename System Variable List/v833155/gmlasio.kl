@@ -1,0 +1,1409 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASIO.KL
+--   TITLE:          GMLASIO PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser I/O Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.1   2018/03/06 marchaka         v833p05 official release modifications.  Includes new setup, modified setup
+--                                                removal of unsupported configs.  Updated laser app I/O.
+--             v4.1   2018/03/24 marchaka         Modify gas box I/O settings based on head type
+--             v4.1   2018/04/09 marchaka	  Change start point for laserline gas box to 17 (gasbox_slot1) and wire cutter to 17
+--             v4.1   2018/04/30 marchaka         Set gas box ENET settings to WARN.  Fix LaserLine GPIN[11] and GPIN[15] start points. 
+--                                                Remove setup of GPOUT[19] for wire feeder.  Add DI[1181] comment for gasbox.  
+--             v4.1   2018/05/02 marchaka         Remove analog I/O mock I/O settings for wire feed applications
+--             v4.2   2019/09/16 marchaka         Add I/O settings for RSI laser application.
+--             v4.3   2020/10/27 schoensm         Add heartbeat interconnect after removing from PMC                                               
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlasio
+
+%COMMENT = 'GM LASER I/O V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps  
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas -- GM laser wizard variables
+%INCLUDE gmatvar   -- GM variables
+
+
+CONST
+
+  Version = '2020-10-27'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn -- GM Arc Tool constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  LasIO_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup laser i/o at least first time
+
+  lasrcommtype,
+  lsrct_slot,
+  lsrhd_slot,
+  lsrwireslot,
+  wirecut_slot,
+  gasbox_slot1,
+  gasbox_slot2   IN CMOS: INTEGER --ENET comm type, ENET slot
+
+  Bwirf_Err_Sv IN SHADOW FROM GMENETSU:  INTEGER --used for serviery for $eip_conn[x].$err_sv setting by gnenets2
+  
+
+  gm_status : INTEGER
+
+  --interupt program
+  --Trumpf controller
+  do_tmpfreqls IN SHADOW FROM INTERUPT: INTEGER  -- Interupt REQUEST_LASER
+  do_tmpfstdyn IN SHADOW FROM INTERUPT: INTEGER  -- Interupt PSTART_DYN
+  do_tmpfstat IN SHADOW FROM INTERUPT: INTEGER   -- Interupt PSTART_STATITCAL
+  do_tmpflstnd IN SHADOW FROM INTERUPT: INTEGER   -- Interupt LASER_STANDBY
+  do_tmpflsron IN SHADOW FROM INTERUPT: INTEGER  -- Interupt LASER_ON
+  do_tmpfoppan IN SHADOW FROM INTERUPT: INTEGER    -- Interupt LOCK_OPERATING PANEL
+  do_tmpfexact IN SHADOW FROM INTERUPT: INTEGER  -- Interupt EXT_ACTIVATION
+  --Laser Line controller
+  do_lslnlsrq IN SHADOW FROM INTERUPT: INTEGER  --Interupt LASER REQUEST
+  do_lslndypg IN SHADOW FROM INTERUPT: INTEGER  --Interupt DYNAMIC PROGRAM START
+  do_lslnstpg IN SHADOW FROM INTERUPT: INTEGER  --Interupt STATIC PROGRAM START
+  do_lslnlsrd IN SHADOW FROM INTERUPT: INTEGER  --Interupt LASER READY (STANDBY)
+  do_lslnlson IN SHADOW FROM INTERUPT: INTEGER  --Interupt LASER CONTROLLER ON
+  do_lslncnlk IN SHADOW FROM INTERUPT: INTEGER  --Interupt CONSOLE LOCKED
+  do_lslnexct IN SHADOW FROM INTERUPT: INTEGER  --Interupt EXTERNAL CONTROL
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE LSRLINE_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE SMC_OUT_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM gmenetsu
+ROUTINE bwirfeed_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE scansonc_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE TRUMPF_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE ipfo_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE ipfo_rsi_eip(P_Con_Num:INTEGER;p_Con_Name:STRING;P_host_ip:STRING) FROM gmenets2
+ROUTINE gas_gmstd_io FROM gmlasio2
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_las_io
+-- PURPOSE: to initialize variables for laser I/O setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(lasrcommtype) THEN
+  lasrcommtype = Ethernet
+ENDIF
+
+IF UNINIT(lsrct_slot) THEN
+  lsrct_slot = 10
+ENDIF
+
+IF UNINIT(lsrhd_slot) THEN
+  lsrhd_slot = 12
+ENDIF
+
+IF UNINIT(lsrwireslot) THEN
+  lsrwireslot = 11
+ENDIF
+
+IF UNINIT(wirecut_slot) THEN
+  wirecut_slot = 35
+ENDIF
+
+IF UNINIT(gasbox_slot1) THEN
+  gasbox_slot1 = 34
+ENDIF
+
+IF UNINIT (gasbox_slot2) THEN
+  gasbox_slot2 = 14
+ENDIF
+
+END init_las_io
+-----------------------------------------------------------------------------
+ROUTINE set_ipg_io
+-- PURPOSE: set IPG laser controller I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+a:  STRING[4]
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1025,lasrcommtype,lsrct_slot,io_din,1,-24,gm_status)
+
+  SET_PORT_CMT(io_din,1025,'LaserAssigned',gm_status)
+  SET_PORT_CMT(io_din,1026,'Laser_is_ON',gm_status)
+  SET_PORT_CMT(io_din,1027,'LaserError',gm_status)
+  SET_PORT_CMT(io_din,1028,'Guide_Laser_is_ON',gm_status)
+  SET_PORT_CMT(io_din,1029,'ProgramActive',gm_status)
+  SET_PORT_CMT(io_din,1030,'Program Ended',gm_status)
+  SET_PORT_CMT(io_din,1031,'ProgramInterrupted',gm_status)
+  SET_PORT_CMT(io_din,1032,'AnalogContrlON',gm_status)
+  SET_PORT_CMT(io_din,1033,'LaserWarning',gm_status)
+  SET_PORT_CMT(io_din,1034,'LaserReady',gm_status)
+  SET_PORT_CMT(io_din,1035,'EmmissionON',gm_status)
+  SET_PORT_CMT(io_din,1036,'SynchroOutputOn',gm_status)
+  SET_PORT_CMT(io_din,1037,'ChillerWarning',gm_status)
+  SET_PORT_CMT(io_din,1038,'ChillerError',gm_status)
+  SET_PORT_CMT(io_din,1039,'BSGuideLaserOn',gm_status)
+  SET_PORT_CMT(io_din,1040,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1041,'Module is Active',gm_status)
+  SET_PORT_CMT(io_din,1042,'Reduced Active Modules',gm_status)
+  SET_PORT_CMT(io_din,1043,'Single Mode is Active',gm_status)
+  SET_PORT_CMT(io_din,1044,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1045,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1046,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1047,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1048,'Reserved',gm_status)
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,10,lasrcommtype,lsrct_slot,io_din,17,-16,gm_status)
+  SET_PORT_ASG(io_gpin,11,lasrcommtype,lsrct_slot,io_din,33,-8,gm_status)
+  SET_PORT_ASG(io_gpin,12,lasrcommtype,lsrct_slot,io_din,41,-8,gm_status)
+
+  SET_PORT_CMT(io_gpin,10,'Actual Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpin,11,'Actual Optic CH',gm_status)
+  SET_PORT_CMT(io_gpin,12,'Actual PRG # ',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1025,lasrcommtype,lsrct_slot,io_dout,1,-16,gm_status)
+
+  SET_PORT_CMT(io_dout,1025,'Request_Laser',gm_status)
+  SET_PORT_CMT(io_dout,1026,'Laser_On',gm_status)
+  SET_PORT_CMT(io_dout,1027,'Reset Errors',gm_status)
+  SET_PORT_CMT(io_dout,1028,'Guide_Laser_On',gm_status)
+  SET_PORT_CMT(io_dout,1029,'Program_Start',gm_status)
+  SET_PORT_CMT(io_dout,1030,'Prorgame_Stop',gm_status)
+  SET_PORT_CMT(io_dout,1031,'SetOpticalChannel',gm_status)
+  SET_PORT_CMT(io_dout,1032,'AnalogContrlON',gm_status)
+  SET_PORT_CMT(io_dout,1033,'ExternalEnable',gm_status)
+  SET_PORT_CMT(io_dout,1034,'SetRampUp',gm_status)
+  SET_PORT_CMT(io_dout,1035,'SetRampDown',gm_status)
+  SET_PORT_CMT(io_dout,1036,'SynchroOn',gm_status)
+  SET_PORT_CMT(io_dout,1037,'BSGuidelaserOn',gm_status)
+  SET_PORT_CMT(io_dout,1038,'SingleModuleMode',gm_status)
+  SET_PORT_CMT(io_dout,1039,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1040,'Reserved',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,10,lasrcommtype,lsrct_slot,io_dout,17,-16,gm_status)
+  SET_PORT_ASG(io_gpout,11,lasrcommtype,lsrct_slot,io_dout,33,-8,gm_status)
+  SET_PORT_ASG(io_gpout,12,lasrcommtype,lsrct_slot,io_dout,41,-8,gm_status)
+  SET_PORT_ASG(io_gpout,13,lasrcommtype,lsrct_slot,io_dout,49,-8,gm_status)
+
+  SET_PORT_CMT(io_gpout,10,'Cmd Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpout,11,'Cmd Optic CH',gm_status)
+  SET_PORT_CMT(io_gpout,12,'Cmd PRG # ',gm_status)
+  SET_PORT_CMT(io_gpout,13,'Cmd Ramp Time',gm_status)
+
+  --ENET settings
+  --Don't have settings, for now name the slot
+  CNV_INT_STR(lsrct_slot, 1, 0, a)
+  a = SUB_STR(a, 2, 3)
+  Set_S_Svar('$EIP_CONN['+ a +'].$DESC','Laser Gen')  
+
+  --Set  interupt monitoring welding is active input
+  di_lasr_wldn = 1029  -- Laser WLDN for Interrupt program
+  di_monsetio1 = 1027  -- Laser mon_set[1] IO num for Interrupt program
+  di_monsetio2 = 1030  -- Laser mon_set[2] IO num for interrupt program
+
+  Set_I_PVar('INTERUPT', 'LASR_WLDN_I', di_lasr_wldn)			
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_NUM', di_monsetio1)			
+  Set_I_PVar('INTERUPT', 'MON_SET[2].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[2].IO_NUM', di_monsetio2)
+			
+END set_ipg_io
+-----------------------------------------------------------------------------
+ROUTINE set_lsln_io
+-- PURPOSE: set laser line laser controller I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1025,lasrcommtype,lsrct_slot,io_din,1,-16,gm_status)
+
+  SET_PORT_CMT(io_din,1025,'Emission On',gm_status)
+  SET_PORT_CMT(io_din,1026,'Pilot Laser On',gm_status)
+  SET_PORT_CMT(io_din,1027,'Key Switch Pos 2',gm_status)
+  SET_PORT_CMT(io_din,1028,'Laser Allocated',gm_status)
+  SET_PORT_CMT(io_din,1029,'Laser Error',gm_status)
+  SET_PORT_CMT(io_din,1030,'Laser Warning',gm_status)
+  SET_PORT_CMT(io_din,1031,'Safety Door Open',gm_status)
+  SET_PORT_CMT(io_din,1032,'Set 3',gm_status)
+  SET_PORT_CMT(io_din,1033,'Set 2',gm_status)
+  SET_PORT_CMT(io_din,1034,'Set 1',gm_status)
+  SET_PORT_CMT(io_din,1035,'Program Aborted',gm_status)
+  SET_PORT_CMT(io_din,1036,'Program Complete',gm_status)
+  SET_PORT_CMT(io_din,1037,'Program Active',gm_status)
+  SET_PORT_CMT(io_din,1038,'Laser Is Ready (Standby)',gm_status)
+  SET_PORT_CMT(io_din,1039,'Laser Cntrl On',gm_status)
+  SET_PORT_CMT(io_din,1040,'Ext Cntrl Active',gm_status)
+
+  FOR i = 1041 TO 1056 DO
+    SET_PORT_CMT(io_din, i, 'Reserved',gm_status)
+  ENDFOR
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,10,lasrcommtype,lsrct_slot,io_din,97,-16,gm_status)
+  SET_PORT_ASG(io_gpin,11,lasrcommtype,lsrct_slot,io_din,25,-8,gm_status)
+  SET_PORT_ASG(io_gpin,12,lasrcommtype,lsrct_slot,io_din,17,-8,gm_status)
+  SET_PORT_ASG(io_gpin,13,lasrcommtype,lsrct_slot,io_din,33,-8,gm_status)
+  SET_PORT_ASG(io_gpin,14,lasrcommtype,lsrct_slot,io_din,41,-8,gm_status)
+  SET_PORT_ASG(io_gpin,15,lasrcommtype,lsrct_slot,io_din,49,-8,gm_status)
+  SET_PORT_ASG(io_gpin,16,lasrcommtype,lsrct_slot,io_din,121,-8,gm_status)
+
+  SET_PORT_CMT(io_gpin,10,'Actual Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpin,11,'Actual Optical Chn',gm_status)
+  SET_PORT_CMT(io_gpin,12,'Activ PRG # ',gm_status)
+  SET_PORT_CMT(io_gpin,13,'Activ Laser id',gm_status)
+  SET_PORT_CMT(io_gpin,14,'Programmed Beam Chn',gm_status)
+  SET_PORT_CMT(io_gpin,15,'ROB Fieldbus ID',gm_status)
+  SET_PORT_CMT(io_gpin,16,'Current Cell #',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1025,lasrcommtype,lsrct_slot,io_dout,1,-16,gm_status)
+
+  SET_PORT_CMT(io_dout,1025,'Laser Request',gm_status)
+  SET_PORT_CMT(io_dout,1026,'Pilot Laser On',gm_status)
+  SET_PORT_CMT(io_dout,1027,'Unsync Start',gm_status)
+  SET_PORT_CMT(io_dout,1028,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1029,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1030,'Wait 2',gm_status)
+  SET_PORT_CMT(io_dout,1031,'Wait 1',gm_status)
+  SET_PORT_CMT(io_dout,1032,'Error External',gm_status)
+  SET_PORT_CMT(io_dout,1033,'Error Reset',gm_status)
+  SET_PORT_CMT(io_dout,1034,'Program Abort',gm_status)
+  SET_PORT_CMT(io_dout,1035,'Dynamc Prg Start',gm_status)
+  SET_PORT_CMT(io_dout,1036,'Static Prg Start',gm_status)
+  SET_PORT_CMT(io_dout,1037,'Laser Rdy Stndby',gm_status)
+  SET_PORT_CMT(io_dout,1038,'Laser Cntrl On',gm_status)
+  SET_PORT_CMT(io_dout,1039,'Console Locked',gm_status)
+  SET_PORT_CMT(io_dout,1040,'External Control',gm_status)
+
+  FOR i = 1041 TO 1056 DO
+    SET_PORT_CMT(io_dout, i, 'Reserved',gm_status)
+  ENDFOR
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,10,lasrcommtype,lsrct_slot,io_dout,49,-16,gm_status)
+  SET_PORT_ASG(io_gpout,11,lasrcommtype,lsrct_slot,io_dout,25,-8,gm_status)
+  SET_PORT_ASG(io_gpout,12,lasrcommtype,lsrct_slot,io_dout,17,-8,gm_status)
+  SET_PORT_ASG(io_gpout,13,lasrcommtype,lsrct_slot,io_dout,33,-16,gm_status)
+  SET_PORT_ASG(io_gpout,14,lasrcommtype,lsrct_slot,io_dout,41,-8,gm_status)
+
+  SET_PORT_CMT(io_gpout,10,'Cmd Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpout,11,'Cmd Optic CH',gm_status)
+  SET_PORT_CMT(io_gpout,12,'Cmd PRG # ',gm_status)
+  SET_PORT_CMT(io_gpout,13,'Activ Laser id',gm_status)
+  SET_PORT_CMT(io_gpout,14,'Robot id',gm_status)
+
+  --setup ENET
+  lsrline_eip(lsrct_slot,'Laser Gen','')
+
+  --Set interupt monitoring welding is active input
+  di_lasr_wldn = 1037   -- Laser WLDN for Interrupt program
+  di_monsetio1 = 1029   -- Laser mon_set[1] IO num for Interrupt program
+
+  do_lslnlsrq = 1025 --Interupt LASER REQUEST
+  do_lslndypg = 1035 --Interupt DYNAMIC PROGRAM START
+  do_lslnstpg = 1036 --Interupt STATIC PROGRAM START
+  do_lslnlsrd = 1037 --Interupt LASER READY (STANDBY)
+  do_lslnlson = 1038 --Interupt LASER CONTROLLER ON
+  do_lslncnlk = 1039 --Interupt CONSOLE LOCKED
+  do_lslnexct = 1040 --Interupt EXTERNAL CONTROL
+
+  Set_I_PVar('INTERUPT', 'LASR_WLDN_I', di_lasr_wldn)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_NUM', di_monsetio1)
+
+  IF (laser_wire = wizans_yes) THEN --wire
+
+    pn_rmtarcenb = 65		--$AWEPRR[1].$RMT_ARC_ENA.$PORT_NUM
+    pn_weld_enbl = 65		--$AWEIOEX[1].$WELD_ENABLE.$PORT_NUM
+    pn_wstk_cmd = 1223		--$AWEPRR[1].$WSTK_CMD.$PORT_NUM
+    di_arcdetect = 1217		--$AWEPRR[1].$ARC_DETECT.$PORT_NUM
+    di_gasfault = 1218		--$AWEPRR[1].$GAS_FAULT.$PORT_NUM
+    di_pwrfault = 1221		--$AWEPRR[1].$PWR_FAULT.$PORT_NUM
+    di_wirefault = 1219		--$AWEPRR[1].$WIRE_FAULT.$PORT_NUM
+    di_wstkinp = 1223		--$AWEPRR[1].$WSTK_INPUT.$PORT_NUM
+    di_wtrfault = 1220		--$AWEPRR[1].$WATER_FAULT.$PORT_NUM 
+    do_feedbwd = 1223		--$AWEPRR[1].$FEED_BWD.$PORT_NUM 
+    do_feedfwd = 1222		--$AWEPRR[1].$FEED_FWD.$PORT_NUM 
+    do_gasstrt = 1218		--$AWEPRR[1].$GAS_START.$PORT_NUM
+    do_inchbwd = 1220		--$AWEPRR[1].$INCH_BWD.$PORT_NUM
+    do_inchfwd = 1219		--$AWEPRR[1].$INCH_FWD.$PORT_NUM
+    do_weldstrt = 1217		--$AWEPRR[1].$WELD_START.$PORT_NUM
+    do_wstkalm = 1224		--$AWEPRR[1].$WSTK_ALARM.$PORT_NUM
+
+    Set_I_sVar('$AWEPRR[1].$RMT_ARC_ENA.$PORT_NUM', pn_rmtarcenb)	--pn_rmtarcenb			 
+    Set_I_sVar('$AWEIOEX[1].$WELD_ENABLE.$PORT_NUM', pn_weld_enbl)	--pn_weld_enbl
+    Set_I_sVar('$AWEPRR[1].$WSTK_CMD.$PORT_NUM', pn_wstk_cmd)		--pn_wstk_cmd
+    Set_I_sVar('$AWEPRR[1].$ARC_DETECT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$ARC_DETECT.$PORT_NUM', di_arcdetect)	--di_arcdetect
+    Set_I_sVar('$AWEPRR[1].$GAS_FAULT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$GAS_FAULT.$PORT_NUM', di_gasfault)		--di_gasfault
+    Set_I_sVar('$AWEPRR[1].$PWR_FAULT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$PWR_FAULT.$PORT_NUM', di_pwrfault)		--di_pwrfault
+    Set_I_sVar('$AWEPRR[1].$WIRE_FAULT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$WIRE_FAULT.$PORT_NUM', di_wirefault)	--di_wirefault
+    Set_I_sVar('$AWEPRR[1].$WSTK_INPUT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$WSTK_INPUT.$PORT_NUM', di_wstkinp)		--di_wstkinp
+    Set_I_sVar('$AWEPRR[1].$WATER_FAULT.$PORT_TYPE', 1)
+    Set_I_sVar('$AWEPRR[1].$WATER_FAULT.$PORT_NUM', di_wtrfault)	--di_wtrfault
+    Set_I_sVar('$AWEPRR[1].$FEED_BWD.$PORT_TYPE', 2)
+    Set_I_sVar('$AWEPRR[1].$FEED_BWD.$PORT_NUM', do_feedbwd)		--do_feedbwd
+    Set_I_sVar('$AWEPRR[1].$FEED_FWD.$PORT_TYPE', 2)
+    Set_I_sVar('$AWEPRR[1].$FEED_FWD.$PORT_NUM', do_feedfwd)		--do_feedfwd
+    Set_I_sVar('$AWEPRR[1].$GAS_START.$PORT_TYPE', 2)
+    Set_I_sVar('$AWEPRR[1].$GAS_START.$PORT_NUM', do_gasstrt)		--do_gasstrt
+    Set_I_sVar('$AWEPRR[1].$INCH_BWD.$PORT_TYPE', 2)
+    Set_I_sVar('$AWEPRR[1].$INCH_BWD.$PORT_NUM', do_inchbwd)		--do_inchbwd
+    Set_I_sVar('$AWEPRR[1].$INCH_FWD.$PORT_TYPE', 2)
+    Set_I_sVar('$AWEPRR[1].$INCH_FWD.$PORT_NUM', do_inchfwd)		--do_inchfwd
+    Set_I_sVar('$AWEPRR[1].$WELD_START.$PORT_TYPE', 2)	
+    Set_I_sVar('$AWEPRR[1].$WELD_START.$PORT_NUM', do_weldstrt)		--do_weldstrt
+    Set_I_sVar('$AWEPRR[1].$WSTK_ALARM.$PORT_TYPE', 2) 
+    Set_I_sVar('$AWEPRR[1].$WSTK_ALARM.$PORT_NUM', do_wstkalm)		--do_wstkalm
+
+  ENDIF --wire
+
+END set_lsln_io
+-----------------------------------------------------------------------------
+ROUTINE set_trumf_io
+-- PURPOSE: set laser Trumpf controller I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1025,lasrcommtype,lsrct_slot,io_din,1,-16,gm_status)
+
+  SET_PORT_CMT(io_din,1025,'Laser Warning On',gm_status)
+  SET_PORT_CMT(io_din,1026,'Pilot Laser On',gm_status)
+  SET_PORT_CMT(io_din,1027,'Power Limit',gm_status)
+  SET_PORT_CMT(io_din,1028,'Laser Assigned',gm_status)
+  SET_PORT_CMT(io_din,1029,'Fault Laser',gm_status)
+  SET_PORT_CMT(io_din,1030,'Monitoring',gm_status)
+  SET_PORT_CMT(io_din,1031,'SIK Open',gm_status)
+  SET_PORT_CMT(io_din,1032,'Set 3',gm_status)
+  SET_PORT_CMT(io_din,1033,'Set 2',gm_status)
+  SET_PORT_CMT(io_din,1034,'Set 1',gm_status)
+  SET_PORT_CMT(io_din,1035,'Prog Cancelled',gm_status)
+  SET_PORT_CMT(io_din,1036,'Program Complete',gm_status)
+  SET_PORT_CMT(io_din,1037,'Program Active',gm_status)
+  SET_PORT_CMT(io_din,1038,'Laser Ready',gm_status)
+  SET_PORT_CMT(io_din,1039,'Laser is On',gm_status)
+  SET_PORT_CMT(io_din,1040,'Ext Activation Active',gm_status)
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,10,lasrcommtype,lsrct_slot,IO_DIN,97,-16,gm_status)
+  SET_PORT_ASG(io_gpin,11,lasrcommtype,lsrct_slot,IO_DIN,25,-8,gm_status)
+  SET_PORT_ASG(io_gpin,12,lasrcommtype,lsrct_slot,IO_DIN,17,-8,gm_status)
+
+  SET_PORT_CMT(io_gpin,10,'Actual Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpin,11,'Actual Optic CH',gm_status)
+  SET_PORT_CMT(io_gpin,12,'Activ PRG # ',gm_status)
+ 
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1025,lasrcommtype,lsrct_slot,io_dout,1,-16,gm_status)
+
+  SET_PORT_CMT(io_dout,1025,'Request Laser',gm_status)
+  SET_PORT_CMT(io_dout,1026,'Pilot Laser On',gm_status)
+  SET_PORT_CMT(io_dout,1027,'Unsync Pstart',gm_status)
+  SET_PORT_CMT(io_dout,1028,'Simulation',gm_status)
+  SET_PORT_CMT(io_dout,1029,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1030,'Inquiry 2',gm_status)
+  SET_PORT_CMT(io_dout,1031,'Inquiry 1',gm_status)
+  SET_PORT_CMT(io_dout,1032,'Fault Ext',gm_status)
+  SET_PORT_CMT(io_dout,1033,'Reset',gm_status)
+  SET_PORT_CMT(io_dout,1034,'Prog Stop',gm_status)
+  SET_PORT_CMT(io_dout,1035,'Pstart Dyn',gm_status)
+  SET_PORT_CMT(io_dout,1036,'Pstart Statical',gm_status)
+  SET_PORT_CMT(io_dout,1037,'Laser Standby',gm_status)
+  SET_PORT_CMT(io_dout,1038,'Laser On',gm_status)
+  SET_PORT_CMT(io_dout,1039,'Lock Operating Panel',gm_status)
+  SET_PORT_CMT(io_dout,1040,'Ext Activation',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,10,lasrcommtype,lsrct_slot,io_dout,49,-16,gm_status)
+  SET_PORT_ASG(io_gpout,11,lasrcommtype,lsrct_slot,io_dout,25,-8,gm_status)
+  SET_PORT_ASG(io_gpout,12,lasrcommtype,lsrct_slot,io_dout,17,-8,gm_status)
+  SET_PORT_ASG(io_gpout,13,lasrcommtype,lsrct_slot,io_dout,65,-16,gm_status)
+
+  SET_PORT_CMT(io_gpout,10,'Cmd Laser Pwr',gm_status)
+  SET_PORT_CMT(io_gpout,11,'Cmd Optic CH',gm_status)
+  SET_PORT_CMT(io_gpout,12,'Cmd PRG # ',gm_status)
+  SET_PORT_CMT(io_gpout,13,'Wld Time #',gm_status)
+
+  --ENET settings
+  trumpf_eip(lsrct_slot,'Laser Gen','')
+
+   --Set  interupt monitoring welding is active input
+  di_lasr_wldn = 1037  -- Laser WLDN for Interrupt program
+  di_monsetio1 = 1029  -- Laser mon_set[1] IO num for Interrupt program
+  di_monsetio2 = 1035  -- Laser mon_set[2] IO num for interrupt program
+
+  do_tmpfreqls = 1025 -- Interupt REQUEST_LASER
+  do_tmpfstdyn = 1035 -- Interupt PSTART_DYN
+  do_tmpfstat  = 1036 -- Interupt PSTART_STATITCAL
+  do_tmpflstnd = 1037 -- Interupt LASER_STANDBY
+  do_tmpflsron = 1038 -- Interupt LASER_ON
+  do_tmpfoppan = 1039 -- Interupt LOCK_OPERATING PANEL
+  do_tmpfexact = 1040 -- Interupt EXT_ACTIVATION
+
+  Set_I_PVar('INTERUPT', 'LASR_WLDN_I', di_lasr_wldn)			
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].IO_NUM', di_monsetio1)			
+  Set_I_PVar('INTERUPT', 'MON_SET[2].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[2].IO_NUM', di_monsetio2)
+
+END set_trumf_io
+-----------------------------------------------------------------------------
+ROUTINE set_rlsk_io
+-- PURPOSE: set laser RLSK Head I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+a: STRING[4]
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1089,lasrcommtype,lsrhd_slot,io_din,9,-24,gm_status)
+
+  SET_PORT_CMT(io_din,1089,'Scanner Available',gm_status)
+  SET_PORT_CMT(io_din,1090,'Scanner Ready',gm_status)
+  SET_PORT_CMT(io_din,1091,'Scanner Monitoring',gm_status)
+  SET_PORT_CMT(io_din,1092,'No General Error',gm_status)
+  SET_PORT_CMT(io_din,1093,'No Structur Error',gm_status)
+  SET_PORT_CMT(io_din,1094,'Scanner at Work',gm_status)
+  SET_PORT_CMT(io_din,1095,'Laser On/off',gm_status)
+  SET_PORT_CMT(io_din,1096,'No CSM Holder',gm_status)
+  SET_PORT_CMT(io_din,1097,'No CSM Warning',gm_status)
+  SET_PORT_CMT(io_din,1098,'No CSM Error',gm_status)
+  SET_PORT_CMT(io_din,1099,'No Position Error',gm_status)
+  SET_PORT_CMT(io_din,1100,'No Temp Error',gm_status)
+  SET_PORT_CMT(io_din,1101,'No Crossjet Error',gm_status)
+  SET_PORT_CMT(io_din,1102,'No Welding Error',gm_status)
+  SET_PORT_CMT(io_din,1103,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1104,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1105,'Reserved' ,gm_status)
+  SET_PORT_CMT(io_din,1106,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1107,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1108,'Check Crsh Snsr',gm_status)
+  SET_PORT_CMT(io_din,1109,'Pressure Crsh Snsr',gm_status)
+  SET_PORT_CMT(io_din,1110,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1111,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1112,'Reserved',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1089,lasrcommtype,lsrhd_slot,io_dout,1,-24,gm_status)
+
+  SET_PORT_CMT(io_dout,1089,'Reset Scanner',gm_status)
+  SET_PORT_CMT(io_dout,1090,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1091,'Process Error',gm_status)
+  SET_PORT_CMT(io_dout,1092,'Laser Error',gm_status)
+  SET_PORT_CMT(io_dout,1093,'Preselect Part',gm_status)
+  SET_PORT_CMT(io_dout,1094,'PreSelectTrack',gm_status)
+  SET_PORT_CMT(io_dout,1095,'PreSelectTrackPoint',gm_status)
+  SET_PORT_CMT(io_dout,1096,'Preselect Seam',gm_status)
+  SET_PORT_CMT(io_dout,1097,'In Recovery',gm_status)
+  SET_PORT_CMT(io_dout,1098,'Mode sel BIT 0',gm_status)
+  SET_PORT_CMT(io_dout,1099,'Mode sel BIT 1',gm_status)
+  SET_PORT_CMT(io_dout,1100,'Mode sel BIT 2',gm_status)
+  SET_PORT_CMT(io_dout,1101,'Trigger BitA',gm_status)
+  SET_PORT_CMT(io_dout,1102,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1103,'CrossJet ON',gm_status)
+  SET_PORT_CMT(io_dout,1104,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1105,'NumSelBit 0',gm_status)
+  SET_PORT_CMT(io_dout,1106,'NumSelBit 1',gm_status)
+  SET_PORT_CMT(io_dout,1107,'NumSelBit 2',gm_status)
+  SET_PORT_CMT(io_dout,1108,'NumSelBit 3',gm_status)
+  SET_PORT_CMT(io_dout,1109,'NumSelBit 4',gm_status)
+  SET_PORT_CMT(io_dout,1110,'NumSelBit 5',gm_status)
+  SET_PORT_CMT(io_dout,1111,'NumSelBit 6',gm_status)
+  SET_PORT_CMT(io_dout,1112,'NumSelBit 7',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,27,lasrcommtype,lsrhd_slot,io_dout,17,-8,gm_status)
+  SET_PORT_ASG(io_gpout,28,lasrcommtype,lsrhd_slot,io_dout,17,-8,gm_status)
+
+  SET_PORT_CMT(io_gpout,27,'Program Number',gm_status)
+  SET_PORT_CMT(io_gpout,28,'Highyag Mode',gm_status)
+
+  --ENET settings
+  --Don't have settings, for now name the slot
+  CNV_INT_STR(lsrhd_slot, 1, 0, a)
+  a = SUB_STR(a, 2, 3)
+  Set_S_Svar('$EIP_CONN['+ a +'].$DESC','Laser Head')
+
+END set_rlsk_io
+-----------------------------------------------------------------------------
+ROUTINE set_rsk_io
+-- PURPOSE: set laser RSK Head I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+a: STRING[4]
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1089,lasrcommtype,lsrhd_slot,io_din,9,-8,gm_status)
+  SET_PORT_ASG(io_din,1097,lasrcommtype,lsrhd_slot,io_din,17,-8,gm_status)
+
+  SET_PORT_CMT(io_din,1089,'Unit Top Position',gm_status)
+  SET_PORT_CMT(io_din,1090,'Unit Bottom Position',gm_status)
+  SET_PORT_CMT(io_din,1091,'Unit In Working Range',gm_status)
+  SET_PORT_CMT(io_din,1092,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1093,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1094,'CSM NO Error',gm_status)
+  SET_PORT_CMT(io_din,1095,'CSM NO Warning',gm_status)
+  SET_PORT_CMT(io_din,1096,'CSM Drawer OK',gm_status)
+  SET_PORT_CMT(io_din,1097,'CrossJet Pres MAX',gm_status)
+  SET_PORT_CMT(io_din,1098,'CrossJet Pres MIN',gm_status)
+  SET_PORT_CMT(io_din,1099,'Gas Flow OK',gm_status)
+  SET_PORT_CMT(io_din,1100,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1101,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1102,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1103,'Reserve',gm_status)
+  SET_PORT_CMT(io_din,1104,'Reserve',gm_status)
+
+  --Analog Inputs
+  SET_PORT_ASG(io_anin, 3,lasrcommtype,lsrhd_slot,io_anin,3,-1,gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1089,lasrcommtype,lsrhd_slot,io_dout,1,-8,gm_status)
+  SET_PORT_ASG(io_dout,1097,lasrcommtype,lsrhd_slot,io_dout,9,-8,gm_status)
+
+  SET_PORT_CMT(io_dout,1089,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1090,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1091,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1092,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1093,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1094,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1095,'Unit Counter Pres ON',gm_status)
+  SET_PORT_CMT(io_dout,1096,'Unit Contact Pres ON',gm_status)
+  SET_PORT_CMT(io_dout,1097,'CrossJet ON',gm_status)
+  SET_PORT_CMT(io_dout,1098,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1099,'Gas ON',gm_status)
+  SET_PORT_CMT(io_dout,1100,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1101,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1102,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1103,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1104,'Reserved',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,27,lasrcommtype,lsrhd_slot,io_dout,17,-16,gm_status)
+
+  --Analog Outputs
+  SET_PORT_ASG(io_anout, 3,lasrcommtype,lsrhd_slot,io_anout,3,-1,gm_status)
+
+  --ENET settings
+  --Don't have settings, for now name the slot
+  CNV_INT_STR(lsrhd_slot, 1, 0, a)
+  a = SUB_STR(a, 2, 3)
+  Set_S_Svar('$EIP_CONN['+ a +'].$DESC','Laser Head')
+
+   --Set  interupt monitoring welding is active input
+  di_monsetio6 = 1089  -- Laser mon_set[6] IO num for Interrupt program
+  di_monsetio7 = 1090   -- Laser mon_set[7] IO num for interrupt program
+
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_NUM', di_monsetio6)
+  Set_I_PVar('INTERUPT', 'MON_SET[7].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[7].IO_NUM', di_monsetio7)
+
+END set_rsk_io
+-----------------------------------------------------------------------------
+ROUTINE set_scsn_io
+-- PURPOSE: set laser Scan Sonic Head I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i:  INTEGER
+
+BEGIN
+
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1089,lasrcommtype,lsrhd_slot,io_din,1,-32,gm_status)
+
+  SET_PORT_CMT(io_din,1089,'Operation Valid',gm_status)
+  SET_PORT_CMT(io_din,1090,'Data Acknowledgement',gm_status)
+  SET_PORT_CMT(io_din,1091,'Mux Acknowledgement',gm_status)
+  SET_PORT_CMT(io_din,1092,'Active',gm_status)
+  SET_PORT_CMT(io_din,1093,'NO Warning',gm_status)
+  SET_PORT_CMT(io_din,1094,'NO Fail',gm_status)
+  SET_PORT_CMT(io_din,1095,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1096,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1097,'SA In Position 1',gm_status)
+  SET_PORT_CMT(io_din,1098,'SA In Position 2',gm_status)
+  SET_PORT_CMT(io_din,1099,'SA In Position 3',gm_status)
+  SET_PORT_CMT(io_din,1100,'SA In Position 4',gm_status)
+  SET_PORT_CMT(io_din,1101,'SA In Position 0',gm_status)
+  SET_PORT_CMT(io_din,1102,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1103,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1104,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1105,'SA Range 1',gm_status)
+  SET_PORT_CMT(io_din,1106,'SA Range 2',gm_status)
+  SET_PORT_CMT(io_din,1107,'SA Range 3',gm_status)
+  SET_PORT_CMT(io_din,1108,'SA Range 4',gm_status)
+  SET_PORT_CMT(io_din,1109,'SA Range 0',gm_status)
+  SET_PORT_CMT(io_din,1110,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1111,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1112,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1113,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1114,'Not Used',gm_status)
+  SET_PORT_CMT(io_din,1115,'TA In Range 1',gm_status)
+  SET_PORT_CMT(io_din,1116,'TA In Range 2',gm_status)
+  SET_PORT_CMT(io_din,1117,'TA Brake ON',gm_status)
+  SET_PORT_CMT(io_din,1118,'Temperatures in Range',gm_status)
+  SET_PORT_CMT(io_din,1119,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1120,'SGSW Drawer IN',gm_status)
+
+  FOR i = 1121 TO 1136 DO
+    SET_PORT_CMT(io_din, i, 'Reserved', gm_status)
+  ENDFOR
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,27,lasrcommtype,lsrhd_slot,io_din,33,-16,gm_status)
+  SET_PORT_ASG(io_gpin,28,lasrcommtype,lsrhd_slot,io_din,49,-16,gm_status)
+  SET_PORT_ASG(io_gpin,29,lasrcommtype,lsrhd_slot,io_din,65,-16,gm_status)
+  SET_PORT_ASG(io_gpin,30,lasrcommtype,lsrhd_slot,io_din,81,-16,gm_status)
+
+  SET_PORT_CMT(io_gpin,27,'Config Data 1',gm_status)
+  SET_PORT_CMT(io_gpin,28,'LA Pos',gm_status)
+  SET_PORT_CMT(io_gpin,29,'TA Pos',gm_status)
+  SET_PORT_CMT(io_gpin,30,'SA Pos',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1089,lasrcommtype,lsrhd_slot,io_dout,1,-32,gm_status)
+
+  SET_PORT_CMT(io_dout,1089,'Write',gm_status)
+  SET_PORT_CMT(io_dout,1090,'Data Ready',gm_status)
+  SET_PORT_CMT(io_dout,1091,'Mux Request',gm_status)
+  SET_PORT_CMT(io_dout,1092,'Enable',gm_status)
+  SET_PORT_CMT(io_dout,1093,'Quit',gm_status)
+  SET_PORT_CMT(io_dout,1094,'Not Used',gm_status)
+  SET_PORT_CMT(io_dout,1095,'Not Used',gm_status)
+  SET_PORT_CMT(io_dout,1096,'Not Used',gm_status)
+  SET_PORT_CMT(io_dout,1097,'SA Position 1',gm_status)
+  SET_PORT_CMT(io_dout,1098,'SA Position 2',gm_status)
+  SET_PORT_CMT(io_dout,1099,'SA Position 3',gm_status)
+  SET_PORT_CMT(io_dout,1100,'SA Position 4',gm_status)
+  SET_PORT_CMT(io_dout,1101,'SA Force 1',gm_status)
+  SET_PORT_CMT(io_dout,1102,'SA Force 2',gm_status)
+  SET_PORT_CMT(io_dout,1103,'SA Force 3',gm_status)
+  SET_PORT_CMT(io_dout,1104,'SA Force 4',gm_status)
+  SET_PORT_CMT(io_dout,1105,'SA Range 1',gm_status)
+  SET_PORT_CMT(io_dout,1106,'SA Range 2',gm_status)
+  SET_PORT_CMT(io_dout,1107,'SA Range 3',gm_status)
+  SET_PORT_CMT(io_dout,1108,'SA Range 4',gm_status)
+  SET_PORT_CMT(io_dout,1109,'LA Auto 1',gm_status)
+  SET_PORT_CMT(io_dout,1110,'LA Auto 2',gm_status)
+  SET_PORT_CMT(io_dout,1111,'LA Auto 3',gm_status)
+  SET_PORT_CMT(io_dout,1112,'LA Auto 4',gm_status)
+  SET_PORT_CMT(io_dout,1113,'LA Position 1',gm_status)
+  SET_PORT_CMT(io_dout,1114,'LA Position 2',gm_status)
+  SET_PORT_CMT(io_dout,1115,'TA Range 1',gm_status)
+  SET_PORT_CMT(io_dout,1116,'TA Range 2',gm_status)
+  SET_PORT_CMT(io_dout,1117,'TA Brake',gm_status)
+  SET_PORT_CMT(io_dout,1118,'TA Retract',gm_status)
+  SET_PORT_CMT(io_dout,1119,'TA Force 1',gm_status)
+  SET_PORT_CMT(io_dout,1120,'TA Force 2',gm_status)
+
+  FOR i = 1121 TO 1136 DO
+    SET_PORT_CMT(io_dout, i, 'Reserved', gm_status)
+  ENDFOR
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,27,lasrcommtype,lsrhd_slot,io_dout,33,-16,gm_status)
+  SET_PORT_ASG(io_gpout,28,lasrcommtype,lsrhd_slot,io_dout,49,-16,gm_status)
+  SET_PORT_ASG(io_gpout,29,lasrcommtype,lsrhd_slot,io_dout,65,-16,gm_status)
+  SET_PORT_ASG(io_gpout,30,lasrcommtype,lsrhd_slot,io_dout,81,-16,gm_status)
+
+  SET_PORT_CMT(io_gpout,27,'Config Data 1',gm_status)
+  SET_PORT_CMT(io_gpout,28,'Config Data 2',gm_status)
+  SET_PORT_CMT(io_gpout,29,'Config Data 3',gm_status)
+  SET_PORT_CMT(io_gpout,30,'Config Data 4',gm_status)
+
+  --ENET settings
+  scansonc_eip(lsrhd_slot,'Laser Head','192.168.1.112')
+
+  --Set  interupt monitoring welding is active input
+  di_monsetio6 = 1094  -- Laser mon_set[6] IO num for Interrupt program
+
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_NUM', di_monsetio6)
+
+END set_scsn_io
+-----------------------------------------------------------------------------
+ROUTINE set_ipfo_io
+-- PURPOSE: set laser IPFO Head I/O
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i: INTEGER
+
+BEGIN
+
+  --Digital Inputs
+  --use laser controller slot for mapping
+  SET_PORT_ASG(io_din,1041,lasrcommtype,lsrct_slot,io_din,41,-8,gm_status)
+  SET_PORT_ASG(io_din,1049,lasrcommtype,lsrct_slot,io_din,49,-8,gm_status)
+
+  SET_PORT_CMT(io_din,1041,'Fault Slot',gm_status)
+  SET_PORT_CMT(io_din,1042,'Monitoring Slot',gm_status)
+  SET_PORT_CMT(io_din,1043,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1044,'PFO Available',gm_status)
+  SET_PORT_CMT(io_din,1045,'PFO Ready',gm_status)
+  SET_PORT_CMT(io_din,1046,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1047,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1048,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1049,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1050,'Maintenance Required',gm_status)
+  SET_PORT_CMT(io_din,1051,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1052,'Self-Test Active',gm_status)
+  SET_PORT_CMT(io_din,1053,'Alive Tick (Heartbeat)',gm_status)
+  SET_PORT_CMT(io_din,1054,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1055,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1056,'Reserved',gm_status)
+
+  --Group Inputs
+
+  SET_PORT_ASG(io_gpin,14,lasrcommtype,lsrct_slot,io_din,65,-8,gm_status)
+  SET_PORT_ASG(io_gpin,15,lasrcommtype,lsrct_slot,io_din,73,-8,gm_status)
+  SET_PORT_ASG(io_gpin,16,lasrcommtype,lsrct_slot,io_din,81,-16,gm_status)
+  SET_PORT_ASG(io_gpin,17,lasrcommtype,lsrct_slot,io_din,129,-16,gm_status)
+
+  SET_PORT_CMT(io_gpin,14,'Message #',gm_status)
+  SET_PORT_CMT(io_gpin,15,'Message ID',gm_status)
+  SET_PORT_CMT(io_gpin,16,'Message Code',gm_status)
+  SET_PORT_CMT(io_gpin,17,'PCP MeasuredPower',gm_status)
+
+  IF (rsi_optn = TRUE) THEN --RSI application
+
+    SET_PORT_ASG(io_din,1057,lasrcommtype,lsrct_slot,io_din,225,-16,gm_status)
+    SET_PORT_ASG(io_din,1073,lasrcommtype,lsrct_slot,io_din,257,-16,gm_status)
+   
+    FOR i = 1057 TO 1059 DO
+      SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+    ENDFOR
+
+    SET_PORT_CMT(io_din,1060,'Fault Process',gm_status) 
+    SET_PORT_CMT(io_din,1061,'Monitoring Process',gm_status)
+
+    FOR i = 1062 TO 1072 DO
+      SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+    ENDFOR
+
+    SET_PORT_CMT(io_din,1073,'Workpiece is Active',gm_status) 
+    SET_PORT_CMT(io_din,1074,'Result OK',gm_status)
+    SET_PORT_CMT(io_din,1075,'Result NOK',gm_status)
+
+    FOR i = 1076 TO 1088 DO
+      SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+    ENDFOR
+
+    --Group Inputs
+    SET_PORT_ASG(io_gpin,18,lasrcommtype,lsrct_slot,IO_DIN,273,-16,gm_status)
+    SET_PORT_ASG(io_gpin,19,lasrcommtype,lsrct_slot,IO_DIN,289,-16,gm_status)
+    SET_PORT_ASG(io_gpin,20,lasrcommtype,lsrct_slot,IO_DIN,305,-16,gm_status)
+    SET_PORT_ASG(io_gpin,21,lasrcommtype,lsrct_slot,IO_DIN,321,-16,gm_status)
+    SET_PORT_ASG(io_gpin,22,lasrcommtype,lsrct_slot,IO_DIN,337,-16,gm_status)
+    SET_PORT_ASG(io_gpin,23,lasrcommtype,lsrct_slot,IO_DIN,353,-16,gm_status)
+    SET_PORT_ASG(io_gpin,24,lasrcommtype,lsrct_slot,IO_DIN,369,-16,gm_status)
+
+    SET_PORT_CMT(io_gpin,18,'SLR Result 1-16',gm_status)
+    SET_PORT_CMT(io_gpin,19,'SLR Result 17-32',gm_status)
+    SET_PORT_CMT(io_gpin,20,'SLR Result 33-48',gm_status)
+    SET_PORT_CMT(io_gpin,21,'SLR Result 49-64',gm_status)
+    SET_PORT_CMT(io_gpin,22,'SLR Result 65-80',gm_status)
+    SET_PORT_CMT(io_gpin,23,'SLR Result 81-96',gm_status)
+    SET_PORT_CMT(io_gpin,24,'SLR Result 97-112',gm_status)
+
+  ENDIF --RSI application
+
+  --Digital Outputs
+  --user laser controller slot for mapping
+  SET_PORT_ASG(io_dout,1041,lasrcommtype,lsrct_slot,io_dout,49,-15,gm_status)
+  SET_PORT_ASG(io_dout,1056,lasrcommtype,lsrct_slot,io_dout,64,-1,gm_status)
+
+  FOR i = 1041 TO 1055 DO
+    SET_PORT_CMT(io_dout,i,'IPFO Job# Select',gm_status)
+  ENDFOR
+
+  SET_PORT_CMT(io_dout,1056,'IPFO Skip-Retry Flag',gm_status)
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,15,lasrcommtype,lsrct_slot,io_dout,65,-15,gm_status)
+
+  SET_PORT_CMT(io_gpout,15,'Job # Select',gm_status)
+
+  IF (rsi_optn = TRUE) THEN --RSI Application
+
+    SET_PORT_ASG(io_dout,1057,lasrcommtype,lsrct_slot,io_dout,257,-32,gm_status)
+
+    SET_PORT_CMT(io_dout,1057,'Reserved',gm_status)
+    SET_PORT_CMT(io_dout,1058,'PFO 2 Line Lasers',gm_status)
+    SET_PORT_CMT(io_dout,1059,'PFO 3 Line Lasers',gm_status)
+    SET_PORT_CMT(io_dout,1060,'PFO 4 Line Lasers',gm_status)
+
+    FOR i = 1061 TO 1072 DO
+      SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+    ENDFOR
+
+    SET_PORT_CMT(io_dout,1073,'SLR WP Start',gm_status)
+
+    FOR i = 1074 TO 1075 DO
+      SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+    ENDFOR
+
+    SET_PORT_CMT(io_dout,1076,'Measure Run',gm_status)
+    SET_PORT_CMT(io_dout,1077,'Check Run',gm_status)
+    SET_PORT_CMT(io_dout,1078,'Correction',gm_status)
+
+    FOR i = 1079 TO 1088 DO
+      SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+    ENDFOR
+
+    --Group Outputs
+    SET_PORT_ASG(io_gpout,16,lasrcommtype,lsrct_slot,io_dout,129,-16,gm_status)
+    SET_PORT_ASG(io_gpout,17,lasrcommtype,lsrct_slot,io_dout,161,-16,gm_status)
+    SET_PORT_ASG(io_gpout,18,lasrcommtype,lsrct_slot,io_dout,193,-16,gm_status)
+    SET_PORT_ASG(io_gpout,19,lasrcommtype,lsrct_slot,io_dout,209,-16,gm_status)
+
+    SET_PORT_ASG(io_gpout,27,lasrcommtype,lsrct_slot,io_dout,273,-8,gm_status)
+    SET_PORT_ASG(io_gpout,28,lasrcommtype,lsrct_slot,io_dout,281,-8,gm_status)
+    SET_PORT_ASG(io_gpout,29,lasrcommtype,lsrct_slot,io_dout,289,-8,gm_status)
+    SET_PORT_ASG(io_gpout,30,lasrcommtype,lsrct_slot,io_dout,297,-8,gm_status)
+    SET_PORT_ASG(io_gpout,31,lasrcommtype,lsrct_slot,io_dout,305,-8,gm_status)
+    SET_PORT_ASG(io_gpout,32,lasrcommtype,lsrct_slot,io_dout,313,-8,gm_status)
+    SET_PORT_ASG(io_gpout,33,lasrcommtype,lsrct_slot,io_dout,321,-8,gm_status)
+    SET_PORT_ASG(io_gpout,34,lasrcommtype,lsrct_slot,io_dout,329,-8,gm_status)
+    SET_PORT_ASG(io_gpout,35,lasrcommtype,lsrct_slot,io_dout,337,-8,gm_status)
+    SET_PORT_ASG(io_gpout,36,lasrcommtype,lsrct_slot,io_dout,345,-8,gm_status)
+    SET_PORT_ASG(io_gpout,37,lasrcommtype,lsrct_slot,io_dout,353,-8,gm_status)
+    SET_PORT_ASG(io_gpout,38,lasrcommtype,lsrct_slot,io_dout,361,-8,gm_status)
+
+    SET_PORT_ASG(io_gpout,44,lasrcommtype,lsrct_slot,io_dout,369,-8,gm_status)
+    SET_PORT_ASG(io_gpout,45,lasrcommtype,lsrct_slot,io_dout,377,-8,gm_status)
+    SET_PORT_ASG(io_gpout,46,lasrcommtype,lsrct_slot,io_dout,385,-8,gm_status)
+    SET_PORT_ASG(io_gpout,47,lasrcommtype,lsrct_slot,io_dout,393,-8,gm_status)
+    SET_PORT_ASG(io_gpout,48,lasrcommtype,lsrct_slot,io_dout,401,-8,gm_status)
+    SET_PORT_ASG(io_gpout,49,lasrcommtype,lsrct_slot,io_dout,409,-8,gm_status)
+    SET_PORT_ASG(io_gpout,50,lasrcommtype,lsrct_slot,io_dout,417,-8,gm_status)
+    SET_PORT_ASG(io_gpout,51,lasrcommtype,lsrct_slot,io_dout,425,-8,gm_status)
+    SET_PORT_ASG(io_gpout,52,lasrcommtype,lsrct_slot,io_dout,433,-8,gm_status)
+    SET_PORT_ASG(io_gpout,53,lasrcommtype,lsrct_slot,io_dout,441,-8,gm_status)
+    SET_PORT_ASG(io_gpout,54,lasrcommtype,lsrct_slot,io_dout,449,-8,gm_status)
+    SET_PORT_ASG(io_gpout,55,lasrcommtype,lsrct_slot,io_dout,457,-8,gm_status)
+
+    SET_PORT_CMT(io_gpout,16,'SLR Feed Spd',gm_status)
+    SET_PORT_CMT(io_gpout,17,'PFO Prog Num',gm_status)
+    SET_PORT_CMT(io_gpout,18,'SLR Config',gm_status)
+    SET_PORT_CMT(io_gpout,19,'SLR Seam Num',gm_status)
+
+    SET_PORT_CMT(io_gpout,27,'SLR CompID 01',gm_status)
+    SET_PORT_CMT(io_gpout,28,'SLR CompID 02',gm_status)
+    SET_PORT_CMT(io_gpout,29,'SLR CompID 03',gm_status)
+    SET_PORT_CMT(io_gpout,30,'SLR CompID 04',gm_status)
+    SET_PORT_CMT(io_gpout,31,'SLR CompID 05',gm_status)
+    SET_PORT_CMT(io_gpout,32,'SLR CompID 06',gm_status)
+    SET_PORT_CMT(io_gpout,33,'SLR CompID 07',gm_status)
+    SET_PORT_CMT(io_gpout,34,'SLR CompID 08',gm_status)
+    SET_PORT_CMT(io_gpout,35,'SLR CompID 09',gm_status)
+    SET_PORT_CMT(io_gpout,36,'SLR CompID 10',gm_status)
+    SET_PORT_CMT(io_gpout,37,'SLR CompID 11',gm_status)
+    SET_PORT_CMT(io_gpout,38,'SLR CompID 12',gm_status)
+
+    SET_PORT_CMT(io_gpout,44,'SLR CompSN 01',gm_status)
+    SET_PORT_CMT(io_gpout,45,'SLR CompSN 02',gm_status)
+    SET_PORT_CMT(io_gpout,46,'SLR CompSN 03',gm_status)
+    SET_PORT_CMT(io_gpout,47,'SLR CompSN 04',gm_status)
+    SET_PORT_CMT(io_gpout,48,'SLR CompSN 05',gm_status)
+    SET_PORT_CMT(io_gpout,49,'SLR CompSN 06',gm_status)
+    SET_PORT_CMT(io_gpout,50,'SLR CompSN 07',gm_status)
+    SET_PORT_CMT(io_gpout,51,'SLR CompSN 08',gm_status)
+    SET_PORT_CMT(io_gpout,52,'SLR CompSN 09',gm_status)
+    SET_PORT_CMT(io_gpout,53,'SLR CompSN 10',gm_status)
+    SET_PORT_CMT(io_gpout,54,'SLR CompSN 11',gm_status)
+    SET_PORT_CMT(io_gpout,55,'SLR CompSN 12',gm_status)
+
+  ENDIF --RSI Application
+
+  --ENET settings
+  IF (rsi_optn = FALSE) THEN
+    ipfo_eip(lsrct_slot,'Laser Gen','')
+  ELSE --RSI appliction
+    ipfo_rsi_eip(lsrct_slot,'Laser Gen','') 
+  ENDIF
+
+  --Set  interupt monitoring welding is active input
+  di_monsetio6 = 1041  -- Laser mon_set[6] IO num for Interrupt program
+
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[6].IO_NUM', di_monsetio6)
+
+  IF (rsi_optn = TRUE) THEN --RSI application
+  
+    --Flag comments
+   SET_PORT_CMT(io_flag,280,'SLR Simulation Run',gm_status)
+   SET_PORT_CMT(io_flag,281,'SLR Measure Run',gm_status) 
+   SET_PORT_CMT(io_flag,282,'SLR Check Run',gm_status)
+   SET_PORT_CMT(io_flag,283,'SLR Correction Run',gm_status)
+
+  ENDIF --RSI application
+
+END set_ipfo_io
+-----------------------------------------------------------------------------
+ROUTINE set_wire_io
+-- PURPOSE: sets I/O for all laser applications that use wire
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i: INTEGER
+
+BEGIN
+
+  --Binzel settings
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1057,lasrcommtype,lsrwireslot,io_din,49,-16,gm_status)
+
+  SET_PORT_CMT(io_din,1057,'Wire Present',gm_status)
+  SET_PORT_CMT(io_din,1058,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1059,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1060,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1061,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1062,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1063,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1064,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1065,'General Fault',gm_status)
+  SET_PORT_CMT(io_din,1066,'Slave Fault',gm_status)
+  SET_PORT_CMT(io_din,1067,'Master Fault',gm_status)
+  SET_PORT_CMT(io_din,1068,'Gas Pressure Fault',gm_status)
+  SET_PORT_CMT(io_din,1069,'Hood MDrv Clsd manual',gm_status)
+  SET_PORT_CMT(io_din,1070,'Hood MDrv Open Auto',gm_status)
+  SET_PORT_CMT(io_din,1071,'WF Fault 10Pct',gm_status)
+  SET_PORT_CMT(io_din,1072,'WF Fault 20 Pct',gm_status)
+
+  FOR i = 1073 TO 1088 DO
+    SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+  ENDFOR
+
+  --Group Inputs
+  SET_PORT_ASG(io_gpin,18,lasrcommtype,lsrwireslot,io_din,33,-10,gm_status)
+  SET_PORT_ASG(io_gpin,19,lasrcommtype,lsrwireslot,io_din, 1,-16,gm_status)
+  SET_PORT_ASG(io_gpin,20,lasrcommtype,lsrwireslot,io_din,17,-16,gm_status)
+
+  SET_PORT_CMT(io_gpin,18,'Actu Wire Feed',gm_status)
+  SET_PORT_CMT(io_gpin,19,'Slv Mtr Crnt',gm_status)
+  SET_PORT_CMT(io_gpin,20,'Mstr Mtr Crnt',gm_status)
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1057,lasrcommtype,lsrwireslot,io_dout,1,-8,gm_status)
+
+  SET_PORT_CMT(io_dout,1057,'Start Wire Feed',gm_status)
+  SET_PORT_CMT(io_dout,1058,'Wire Feed Reverse',gm_status)
+  SET_PORT_CMT(io_dout,1059,'Initialize',gm_status)
+  SET_PORT_CMT(io_dout,1060,'Inch Forward',gm_status)
+  SET_PORT_CMT(io_dout,1061,'Inch Backward',gm_status)
+  SET_PORT_CMT(io_dout,1062,'Gas Valve On',gm_status)
+  SET_PORT_CMT(io_dout,1063,'Air Blast On',gm_status)
+  SET_PORT_CMT(io_dout,1064,'Reserved',gm_status)
+
+  FOR i = 1065 TO 1088 DO
+    SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+  ENDFOR
+
+  --Group Outputs
+  SET_PORT_ASG(io_gpout,18,lasrcommtype,lsrwireslot,io_dout,17,-10,gm_status)
+  --SET_PORT_ASG(io_gpout,19,lasrcommtype,lsrwireslot,io_dout,33,-16,gm_status)
+
+  SET_PORT_CMT(io_gpout,18,'Cmd Wire Feed',gm_status)
+  SET_PORT_CMT(io_gpout,19,'Cmd Hot Wire',gm_status)
+
+  --ENET settings
+  bwirfeed_eip(lsrwireslot,'Wire Feeder','')
+
+  --Set  interupt monitoring welding is active input
+  dimonsetio11 = 1065  -- Laser mon_set[11] IO num for Interrupt program
+
+  Set_I_PVar('INTERUPT', 'MON_SET[11].IO_TYPE', 1)
+  Set_I_PVar('INTERUPT', 'MON_SET[11].IO_NUM', dimonsetio11)
+
+  --Wire cutter
+  --Digital Inputs
+  SET_PORT_ASG(io_din,1185,lasrcommtype,wirecut_slot,io_din,17,-8,gm_status)
+
+  SET_PORT_CMT(io_din,1185,'Cutter Advanced',gm_status)
+  SET_PORT_CMT(io_din,1186,'Cutter Retracted',gm_status)
+  SET_PORT_CMT(io_din,1187,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1188,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1189,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1190,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1191,'Reserved',gm_status)
+  SET_PORT_CMT(io_din,1192,'Reserved',gm_status)
+
+  FOR i = 1193 TO 1202 DO
+    SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+  ENDFOR  
+  FOR i = 1203 TO 1216 DO
+    SET_PORT_CMT(io_din,i,'Reserved',gm_status)
+  ENDFOR
+
+  --Digital Outputs
+  SET_PORT_ASG(io_dout,1185,lasrcommtype,wirecut_slot,io_dout,17,-8,gm_status)
+
+  SET_PORT_CMT(io_dout,1185,'Cutter Advance',gm_status)
+  SET_PORT_CMT(io_dout,1186,'Cutter Retract',gm_status)
+  SET_PORT_CMT(io_dout,1187,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1188,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1189,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1190,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1191,'Reserved',gm_status)
+  SET_PORT_CMT(io_dout,1192,'Reserved',gm_status)
+
+  FOR i = 1193 TO 1202 DO
+    SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+  ENDFOR  
+  FOR i = 1203 TO 1216 DO
+    SET_PORT_CMT(io_dout,i,'Reserved',gm_status)
+  ENDFOR
+
+  --Setup ENET
+  TURK_IO_EIP(wirecut_slot,'Wire Cutter')
+
+  --Set Laser I/O Variables
+  do_lcfg_bw  = 1061     -- P: $AWLASER_CFG.$BW_DO_IDX
+  do_lcfg_fw  = 1060     -- P: $AWLASER_CFG.$FW_DO_IDX
+  do_lcfg_fbw = 1058     -- P: $AWLASER_CFG.$FBW_DO_IDX
+  do_lcmd_on1 = 1036     -- P: $AWLASER[1].$CMD.$ON_IDX
+  do_lcmd_on2 = 1057     -- P: $AWLASER[2].$CMD.$ON_IDX
+  do_lcmd_va1 = 10       -- P: $AWLASER[1].$CMD.$VA_IDX
+  do_lcmd_va2 = 18       -- P: $AWLASER[2].$CMD.$VA_IDX
+  do_lfbk_on1 = 1037     -- P: $AWLASER[1].$FBK.$ON_IDX
+  do_lfbk_on2 = 0        -- P: $AWLASER[2].$FBK.$ON_IDX
+  do_lfbk_va1 = 10       -- P: $AWLASER[1].$FBK.$VA_IDX
+  do_lfbk_va2 = 18       -- P: $AWLASER[2].$FBK.$VA_IDX
+ 
+  Set_I_sVar('$AWLASER_CFG.$FW_DO_IDX', do_lcfg_fw)		              
+  Set_I_sVar('$AWLASER_CFG.$BW_DO_IDX', do_lcfg_bw)		               
+  Set_I_sVar('$AWLASER_CFG.$FBW_DO_IDX', do_lcfg_fbw)	
+  Set_I_sVar('$AWLASER[1].$CMD.$ON_IDX', do_lcmd_on1)		            
+  Set_I_sVar('$AWLASER[1].$CMD.$VA_IDX', do_lcmd_va1)	
+  Set_I_sVar('$AWLASER[1].$FBK.$ON_IDX', do_lfbk_on1)	             
+  Set_I_sVar('$AWLASER[1].$FBK.$VA_IDX', do_lfbk_va1) 
+  Set_I_sVar('$AWLASER[2].$CMD.$ON_IDX', do_lcmd_on2)		             
+  Set_I_sVar('$AWLASER[2].$CMD.$VA_IDX', do_lcmd_va2) 
+  Set_I_sVar('$AWLASER[2].$FBK.$ON_IDX', do_lfbk_on2)  		             
+  Set_I_sVar('$AWLASER[2].$FBK.$VA_IDX', do_lfbk_va2)		 				 	 	         
+
+END set_wire_io
+-----------------------------------------------------------------------------
+ROUTINE laser_io
+-- PURPOSE: sets I/O for all laser applications
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SET_PORT_CMT(io_din,67,'Proc Mon Bypass',gm_status)
+  SET_PORT_CMT(io_din,94,'PLC Mismatch Heartbeat',gm_status)
+
+  SET_PORT_CMT(io_dout,73,'Binz Gen Flt',gm_status)
+  SET_PORT_CMT(io_dout,74,'Binz WF Flt 20%',gm_status)
+  SET_PORT_CMT(io_dout,75,'Binz No Wire',gm_status)
+  SET_PORT_CMT(io_dout,76,'Binz Spare',gm_status)
+  SET_PORT_CMT(io_dout,77,'LM OptiCheck 1',gm_status)
+  SET_PORT_CMT(io_dout,78,'LM OptiCheck 2',gm_status)
+  SET_PORT_CMT(io_dout,79,'LM Proc Flt',gm_status)
+  SET_PORT_CMT(io_dout,80,'LM Proc Warn',gm_status)
+  SET_PORT_CMT(io_dout,81,'LM System Flt',gm_status)
+  SET_PORT_CMT(io_dout,82,'LM Spare',gm_status)
+  SET_PORT_CMT(io_dout,83,'LM Spare',gm_status)
+  SET_PORT_CMT(io_dout,84,'Laser Faulted',gm_status)
+  SET_PORT_CMT(io_dout,85,'Laser Warn',gm_status)
+  SET_PORT_CMT(io_dout,86,'Key Swtch 2',gm_status)
+  SET_PORT_CMT(io_dout,87,'Reduced ActMod',gm_status)
+  SET_PORT_CMT(io_dout,88,'Laser Rdy',gm_status)
+  SET_PORT_CMT(io_dout,89,'Gas NOT Ok',gm_status)
+  SET_PORT_CMT(io_dout,90,'Head Warn',gm_status)
+  SET_PORT_CMT(io_dout,91,'Head Flt',gm_status)
+  SET_PORT_CMT(io_dout,92,'Head Spare',gm_status)
+  SET_PORT_CMT(io_dout,93,'Head Spare',gm_status)
+  SET_PORT_CMT(io_dout,94,'MismatchHbt',gm_status)
+  SET_PORT_CMT(io_dout,95,'EchoPrgStrt',gm_status)
+  SET_PORT_CMT(io_dout,96,'EchoPrgAct',gm_status)
+
+  --Config MOCK Din
+  SET_PORT_ASG(io_din,1217,0,0,io_mem_boo,1,-8,gm_status)
+
+  --Config MOCK Dout
+  SET_PORT_ASG(io_dout,1217,0,0,io_mem_boo,1,-8,gm_status)
+
+  --Mock Din
+  SET_PORT_CMT(io_din,1217,'Mock Arc Detect',gm_status)
+  SET_PORT_CMT(io_din,1218,'Mock Gas Fault',gm_status)
+  SET_PORT_CMT(io_din,1219,'Mock Wire Fault',gm_status)
+  SET_PORT_CMT(io_din,1220,'Mock Water Fault',gm_status)
+  SET_PORT_CMT(io_din,1221,'Mock Power Fault',gm_status)
+  SET_PORT_CMT(io_din,1222,'Mock Arc Enable',gm_status)
+  SET_PORT_CMT(io_din,1223,'Mock Wire Stick',gm_status)
+  SET_PORT_CMT(io_din,1224,'Mock Spare',gm_status)
+
+  --Mock Dout
+  SET_PORT_CMT(io_dout,1217,'Mock Weld Start',gm_status)
+  SET_PORT_CMT(io_dout,1218,'Mock Gas Start',gm_status)
+  SET_PORT_CMT(io_dout,1219,'Mock Inch Forward',gm_status)
+  SET_PORT_CMT(io_dout,1220,'Mock Inch Backward',gm_status)
+  SET_PORT_CMT(io_dout,1221,'Mock Wire Stick',gm_status)
+  SET_PORT_CMT(io_dout,1222,'Mock Feed Forward',gm_status)
+  SET_PORT_CMT(io_dout,1223,'Mock Feed Reverse',gm_status)
+  SET_PORT_CMT(io_dout,1224,'Mock Wire Stick Cmd',gm_status)
+
+  --I/O Karel variable
+  di_intrprcon = 65
+    
+  --I/O system/Karel program variables
+  Set_I_PVar('INTERUPT', 'PROC_ON_I', 65)
+
+  --Laser Controller I/O
+  SELECT laser_ctrl OF
+    CASE(lasctrl_lsln): --LaserLine controller
+      set_lsln_io
+    CASE(lasctrl_trmp): --Trumpf controller
+      set_trumf_io
+    --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+      --set_ipg_io
+    ELSE:
+  ENDSELECT
+
+  --Laser Head I/O
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+      set_scsn_io
+    CASE(lashd_ipfo):
+      set_ipfo_io
+    --CASE(lashd_rlsk):  --NOT SUPPORTED ON G4 YET
+      --set_rlsk_io
+    --CASE(lashd_rsk):  --NOT SUPPORTED ON G4 YET
+      --set_rsk_io
+    ELSE:
+  ENDSELECT
+
+  IF (laser_wire = wizans_yes) THEN --application has a wire
+    set_wire_io
+  ENDIF --application has a wire
+
+  --Gasbox I/O
+  SELECT gasboxtype OF
+    CASE(gasbox_gmstd):
+      gas_gmstd_io
+    ELSE:
+  ENDSELECT
+
+END laser_io
+
+-----------------------------------------------------------------------------
+ROUTINE setLAS_intc
+-- PURPOSE: call at cold start, since parameters can only be set after a powerdown 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Laser Weld Heartbeat
+  Set_B_sVar('$thrsditable[1].$thr_enb', TRUE)                        
+  Set_I_sVar('$thrsditable[1].$di_no', 102) 		     
+  Set_I_sVar('$thrsditable[1].$do_no', 73)
+  
+END setLAS_intc
+-----------------------------------------------------------------------------
+ROUTINE set_las_io
+-- PURPOSE: set lsr i/o
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(LasIO_Setup) OR (Reset_Cell) THEN
+    LasIO_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser Program GMLASIO', FALSE)
+
+  IF (LasIO_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Laser I/O') THEN -- ask user if they want to setup again
+      LasIO_Setup = FALSE
+    ELSE
+      WriteLog('  Laser I/O already Complete', FALSE)
+      WriteLog('  GMLASIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_las_io
+  laser_io
+  setLAS_intc
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Laser I/O Setup GMlasIO had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser I/O Setup completed', FALSE)
+    LasIO_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_las_io
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlasio

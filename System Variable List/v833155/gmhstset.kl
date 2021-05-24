@@ -1,0 +1,481 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMHSTSET.KL
+--   TITLE:          GMHSTSET PROGRAM
+--
+--
+--   WRITTEN BY:     Bill Kroll
+--   REVISION DATE:  2017/03/8				
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Paint Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--   DESCRIPTION:
+--         This program sets all the host communication tags and access levels for 
+--         Global3&4 Fanuc Robots. It utilizes hostcom settings set as result of obtaining
+--         network configuration from maintenance from F1 F5 powerup.  It utilizes 
+--         information provided in a file udcinfo.dt provided by PFS engineer on the TFTP 
+--         server.  V4.0 modified hostset.pc to set password from default "guest" to "Guest123". 
+--
+--
+--
+--
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE        BY               COMMENTS
+--         --------   ----------  ---------------  --------------------
+--         1	      3/8/2017	  Bill Kroll	   Added ftp server setup & revised lines 211-214 	
+--	   2	      3/20/2017	  Bill Kroll	   Added truncate to trim leading and following spaces and clear data array	
+--         4          2019/10/17  Kristin Marchand Remove fsac settings per GM's request.  Need other settings before these can be applied.
+--         3          11/1/2019   schoensm         removed FTP 2, 3, and 4 FTP connections and added timeout = 4 for FTP[1]
+--         5          2020/03/23  Kristin Marchand Updated comment for v8.33p09 releae that limits FTP connections to 1.
+--
+--------------------------------------------------------------------------
+PROGRAM GMHSTSET 
+ 
+%COMMENT='SetHostCom V4.5' 
+%NOLOCKGROUP 
+%ENVIRONMENT tmidef
+%ENVIRONMENT hostdef
+%ENVIRONMENT ftpdef
+%INCLUDE KLEVCCDF -- Used for the TPPERROR builtin
+
+
+VAR 
+  rb_name  : STRING[20]
+  serve_nm : STRING[20]
+  serve_ad : STRING[20]
+  user_nam : STRING[20]
+  pth_name : STRING[50] 
+  entry:	INTEGER
+  array_size : INTEGER
+  ans        : INTEGER
+  prog_nam   : STRING[12]
+  data		 : STRING[50] 
+  C1		 : STRING[50]
+  C2		 : STRING[50]
+  C3		 : STRING[50]
+  C4		 : STRING[50]
+  FTP_Uname  : STRING[16]
+  FTP_pwd	 : STRING[16]
+  data_array : ARRAY[50] OF STRING[50]
+  sub_data   : STRING[50]
+  status     : INTEGER
+  i          : INTEGER
+  ErrorCount : INTEGER
+  file_var   : FILE
+  C1Found	 : BOOLEAN
+  C2Found	 : BOOLEAN
+  C3Found	 : BOOLEAN
+  C4Found	 : BOOLEAN
+  SrvIpFnd	 : BOOLEAN
+  SrvNmFnd	 : BOOLEAN
+  FtpPwFnd	 : BOOLEAN
+  FtpUnFnd	 : BOOLEAN
+-------------------------------------------------------------------------
+ROUTINE int2str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+--------------------------------------------------------------------------
+VAR
+  l_string: STRING[6]
+
+BEGIN
+  l_string = ''
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+
+END int2str
+--------------------------------------------------------------------------
+ROUTINE TruncStr(temp_str : STRING)
+-- ABSTRACT: Removes leading and trailing spaces from a string
+--
+-- PARAMETERS:  In/out : string to be truncated
+--------------------------------------------------------------------------
+VAR
+Done: BOOLEAN
+
+BEGIN
+
+--Delete spaces to Left
+  REPEAT
+    IF STR_LEN(temp_str) > 0 THEN
+      IF (SUB_STR(temp_str,1,1) = ' ') THEN
+        temp_str = SUB_STR(temp_str,2, (STR_LEN(temp_str) - 1))
+      ELSE
+        Done = TRUE
+      ENDIF
+    ELSE
+      Done = TRUE
+    ENDIF
+  UNTIL Done
+
+  --Delete spaces to Right
+  REPEAT
+    IF STR_LEN(temp_str) > 0 THEN
+      IF (SUB_STR(temp_str,STR_LEN(temp_str),1) = ' ') THEN
+        temp_str = SUB_STR(temp_str,1, (STR_LEN(temp_str) - 1))
+      ELSE
+        Done = TRUE
+      ENDIF
+    ELSE
+      Done = TRUE
+    ENDIF
+  UNTIL Done
+
+END TruncStr
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN 
+
+  WRITE TPERROR(CHR(cc_clear_win),'Starting HostSet')  -- post start 
+  DELAY 1000
+  array_size = 50
+  C1Found = FALSE
+  C2Found = FALSE
+  C3Found = FALSE
+  C4Found = FALSE
+  SrvIpFnd = FALSE
+  SrvNmFnd = FALSE
+  FtpPwFnd = FALSE
+  FtpUnFnd = FALSE
+
+ --Clear data array before reading in case of rerun
+ FOR i = 1 TO array_size DO
+   data_array[i]=''
+ ENDFOR	 
+
+  --Get udcinfo from udcinfo.dt
+  OPEN FILE file_var ('RO', 'FRS:udcinfo.dt')         -- OPEN the File udcinfo.dt
+  status = IO_STATUS(file_var)                        -- check the status of OPEN
+  IF (status = 0) THEN 	-- if status is okay then continue
+  WRITE TPERROR(CHR(cc_clear_win),'Reading udcinfo.dt')  -- post start 
+  DELAY 1000
+    For i = 1 TO array_size DO
+      READ file_var(data_array[i])                    -- read one line into "data" string
+      status = IO_STATUS(file_var)  		      -- check status of READ	
+      -- check status of READ
+      IF (STATUS = 0) THEN 	  -- if status is okay then continue  
+	TruncStr(data_array[i])			      --trim strings of preceeding and trailing spaces
+        sub_data = SUB_STR(data_array[i], 1, 4)       -- get sub string length of 4 characters
+    	IF (sub_data <> 'C1:/') THEN                  -- If sub_data does not equal 'C1 : ' then do something
+	  -- post C1 not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'C1 not found')  -- post error 
+	  --DELAY 500
+	ELSE                                          
+	  sub_data = SUB_STR(data_array[i], 4, 50)
+	  C1 = Sub_data
+	  C1Found = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'C1: found on line '+int2str(i))  -- post C1 path found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 4)       -- get sub string length of 4 characters
+	IF (sub_data <> 'C2:/') THEN                  -- If sub_data does not equal 'C2 : ' then do something
+	  -- post C2 not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'C2 not found')  -- post error
+	  --DELAY 5
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 4, 50)
+	  C2 = Sub_data
+	  C2Found = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'C2: found on line '+int2str(i))  -- post C2 path found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 4)       -- get sub string length of 4 characters
+	IF (sub_data <> 'C3:/') THEN                -- If sub_data does not equal 'C3 : ' then do something
+	  -- post C3 not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'C4 not found')  -- post error 
+	  --DELAY 500
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 4, 50)
+	  C3 = Sub_data
+	  C3Found = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'C3:found on line '+int2str(i))  -- post C3 path found 
+	  delay 1000
+        ENDIF
+
+        sub_data = SUB_STR(data_array[i], 1, 4)     -- get sub string length of 4 characters
+	IF (sub_data <> 'C4:/') THEN                -- If sub_data does not equal 'C4 : ' then do something
+	  -- post C4 not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'C4 not found')  -- post error
+	  --DELAY 500
+ 	ELSE
+	  sub_data = SUB_STR(data_array[i], 4, 50)
+	  C4 = Sub_data
+	  C4Found = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'C4:found on line '+int2str(i))  -- post C4 path found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 6)       -- get sub string length of 6 characters
+	IF (sub_data <> 'SrvIp=') THEN                -- If sub_data does not equal 'SrvIP' then do something
+	  -- post SrvIp not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'SrvIp not found')  -- post error
+	  --DELAY 500   
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 7, 16)
+	  serve_ad = Sub_data
+	  SrvIpFnd = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'Server address found line '+int2str(i))  -- post FTP Pwd found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 6)       -- get sub string length of 6 characters
+	IF (sub_data <> 'SrvNm=')  THEN               -- If sub_data does not equal 'SrvNm' then do something
+	  -- post SrvNm not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'SrvNm not found')  -- post error
+	  --DELAY 500
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 7, 16)
+	  serve_nm = Sub_data
+	  SrvNmFnd = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'Server name found line '+int2str(i))  -- post FTP Pwd found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 13)       -- get sub string length of 13 characters
+	IF (sub_data <> 'FTP_username=') THEN          -- If sub_data does not equal 'FTP_U' then do something
+	  -- post FTP_username not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'FTP_username not found')  -- post error
+	  -- DELAY 500   
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 14, 16)
+	  FTP_Uname = Sub_data
+	  FtpUnFnd = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'Ftp username found line '+int2str(i))  -- post FTP Pwd found 
+	  delay 1000
+        ENDIF
+
+	sub_data = SUB_STR(data_array[i], 1, 13)       -- get sub string length of 6 characters
+	IF (sub_data <> 'FTP_password=') THEN          -- If sub_data does not equal 'FTP_p' then do something
+	  -- post FTP_password not found error
+	  WRITE TPERROR(CHR(cc_clear_win),'FTP_password not found')  -- post error 
+	  -- DELAY 500    
+	ELSE
+	  sub_data = SUB_STR(data_array[i], 14, 16)
+	  FTP_pwd = Sub_data
+	  FtpPwFnd = TRUE
+	  WRITE TPERROR(CHR(cc_clear_win),'Ftp password found line '+int2str(i))  -- post FTP Pwd found 
+	  delay 1000
+	ENDIF
+		
+      ELSE
+	IF (status = 2021) THEN
+	  WRITE TPERROR(CHR(cc_clear_win),'udcinfo.dt end of file read ')  -- Post error of status from READ
+	  DELAY 500
+	ELSE
+          WRITE TPERROR(CHR(cc_clear_win),'udcinfo.dt not read error '+int2str(STATUS))  -- Post error of status from READ
+          DELAY 500-- Post error of status from READ
+        ENDIF
+      
+      ENDIF
+    ENDFOR
+  
+  ELSE
+    WRITE TPERROR(CHR(cc_clear_win),'udcinfo.dt not opened/found on FRS')  -- Post error of status from Open
+    WRITE TPERROR(CHR(cc_clear_win),'Ensure udcserver has been setup and')
+    WRITE TPERROR(CHR(cc_clear_win),'obtain network information has been performed')
+    DELAY 1000
+  ENDIF
+  
+  WRITE TPERROR(CHR(cc_clear_win),'End udcindo.dt parse')  -- post start 
+  DELAY 1000  
+  ErrorCount = 0 
+  IF (C1Found = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "C1:/"', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (C2Found = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "C2:/"', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (C3Found = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "C3:/"', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (C4Found = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "C4:/"', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (SrvIpFnd = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "SrvIp="', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (SrvNmFnd = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "SrvNm="', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (FtpUnFnd = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "FTP_password="', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF (FtpPwFnd = FALSE) THEN
+    POST_ERR(38000, 'Failed to find "FTP_username="', 0,0)
+    ErrorCount =ErrorCount + 1
+  ENDIF
+  IF ErrorCount>0 THEN
+    POST_ERR(38000, 'Aborting Host Setup, all items not found', 0,0)
+    ABORT
+  ENDIF
+	
+  --$FSAC_ENABLE=1 -- Enable FTP Servers access list 
+  --$FSAC_DEF_LV=0 -- Set level for the servers NOT on the list to OPERATOR level 
+
+  rb_name  = $HOSTNAME                      -- Get Robot Network Name Hostcom Obtain network config 
+  $HOSTENT[1].$H_NAME = serve_nm            -- Remote Server Name
+  $FSAC_LIST[1].$IP_ADDRESS = serve_ad      -- Remote Server Address
+  $HOSTC_CFG[1].$USERNAME = FTP_Uname       -- FTP User Name
+
+ -- Setup 4 FTP File servers 
+  WRITE TPERROR(CHR(cc_clear_win),'Begin FSAC Server setup')  -- post start 
+  DELAY 1000 
+  USING $FSAC_LIST[1] DO --for LNCDUDC1 to INSTALL level 
+    $IP_ADDRESS=serve_ad 
+    $ACCESS_LVL=3 
+  ENDUSING
+ 
+  USING $FSAC_LIST[2] DO --for LNCDUDC1 to INSTALL level 
+    $IP_ADDRESS=serve_ad 
+    $ACCESS_LVL=3 
+  ENDUSING
+  
+  USING $FSAC_LIST[3] DO --for LNCDUDC1 to INSTALL level 
+    $IP_ADDRESS=serve_ad 
+    $ACCESS_LVL=3 
+  ENDUSING 
+    
+  USING $FSAC_LIST[2] DO --for LNCDUDC1 to INSTALL level 
+    $IP_ADDRESS=serve_ad 
+    $ACCESS_LVL=3 
+  ENDUSING 
+  
+  WRITE TPERROR(CHR(cc_clear_win),'Begin Host tag1 setup')  -- post start 
+  DELAY 1000
+   
+  USING $HOSTENT[1] DO 
+    $H_NAME = serve_nm 
+    $H_ADDR = serve_ad 
+  ENDUSING
+ 
+  WRITE TPERROR(CHR(cc_clear_win),'Begin server tag setup')  -- post start 
+  DELAY 1000
+  
+  --Start 4 server tags for 4 simultaneous servers 
+  USING $HOSTS_CFG[1] DO  
+    $PROTOCOL='FTP' 
+    $OPER=3 
+    $STATE=3
+    $TIMEOUT = 4 --schoensm added 11-1-2019 
+  ENDUSING
+
+  USING $HOSTS_CFG[2] DO 
+    $PROTOCOL='********' 
+    $OPER=0 
+    $STATE=1 
+    $TIMEOUT = 15
+  ENDUSING
+   
+  USING $HOSTS_CFG[3] DO 
+    $PROTOCOL='********' 
+    $OPER=0
+    $STATE=1
+    $TIMEOUT = 15 
+  ENDUSING
+   
+  USING $HOSTS_CFG[4] DO 
+    $PROTOCOL='********' 
+    $OPER=0 
+    $STATE=1
+    $TIMEOUT = 15 
+  ENDUSING   
+
+  WRITE TPERROR(CHR(cc_clear_win),'End server tag setup')  -- post start 
+
+  --Set Client tags 
+  WRITE TPERROR(CHR(cc_clear_win),'Begin Client tag setup')  -- post start
+  DELAY 1000
+
+  USING $HOSTC_CFG[1] DO --for temporary file backup 
+    $COMMENT='File Backup Area' 
+    $OPER=2 
+    $STATE=2 
+    $REMOTE=serve_nm 
+    $PATH=C1 + 'md_COLON_/' 
+    $STRT_PATH=C1 + 'md_COLON_/'  
+    $STRT_REMOTE=serve_nm 
+    $USERNAME=FTP_Uname 
+    $PROTOCOL='FTP'  
+  ENDUSING 
+
+  SET_VAR(entry,'*SYSTEM*','$host_pwrd[1]',FTP_pwd,status)
+	
+  USING $HOSTC_CFG[2] DO  --for controller backup/restore 
+    $COMMENT='Controller Backup/Image' 
+    $OPER=2 
+    $STATE=2 
+    $REMOTE=serve_nm 
+    $PATH=C2 
+    $STRT_PATH=C2 
+    $STRT_REMOTE=serve_nm 
+    $USERNAME=FTP_Uname 
+    $PROTOCOL='FTP'  
+  ENDUSING 
+
+  SET_VAR(entry,'*SYSTEM*','$host_pwrd[2]',FTP_pwd,status)
+	
+  USING $HOSTC_CFG[3] DO -- for standard robot programs(macros) 
+    $COMMENT='Standard Files' 
+    $OPER=2 
+    $STATE=2 
+    $REMOTE=serve_nm 
+    $PATH=C3 
+    $STRT_PATH=C3  
+    $STRT_REMOTE=serve_nm 
+    $USERNAME=FTP_Uname
+    $PROTOCOL='FTP'  
+  ENDUSING 
+
+  SET_VAR(entry,'*SYSTEM*','$host_pwrd[3]',FTP_pwd,status)
+	
+  USING $HOSTC_CFG[4] DO -- for prodoc general download area 
+    $COMMENT='Scratch Pad Area' 
+    $OPER=2 
+    $STATE=2 
+    $REMOTE=serve_nm 
+    $PATH=C4 
+    $STRT_PATH=C4  
+    $STRT_REMOTE=serve_nm 
+    $USERNAME=FTP_Uname 
+    $PROTOCOL='FTP'  
+  ENDUSING 
+
+  SET_VAR(entry,'*SYSTEM*','$host_pwrd[4]',FTP_pwd,status)
+  WRITE TPERROR(CHR(cc_clear_win),'End Client tag setup')  -- post start
+  DELAY 500 
+  WRITE TPERROR(CHR(cc_clear_win),'End Host set')  -- post start 
+  DELAY 500
+  WRITE TPERROR(CHR(cc_clear_win),'Cycle Power to Enable Settings')  -- post start 	
+END GMHSTSET 
+

@@ -1,0 +1,25 @@
+-- Used for PaintShop specific variables need in GM configurations
+-- This is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+  -- Paint Application Variables
+  Use_Paint    IN SHADOW FROM GMCFGPNT : BOOLEAN -- When True using the Paint, MFG_AREA should also be set to 4
+  Use_Pnt_Log  IN SHADOW FROM GMCFGPNT : BOOLEAN -- When True using the Paint, MFG_AREA should also be set to 4
+  PntMcrsLoded IN SHADOW FROM GMCFGPNT : BOOLEAN -- Paint macros have already been Load before need to prompt operator
+
+  pnt_dsp_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- Is there a dispenser, or is this an opener/vision only?
+  
+  openers_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- If this robot has a dispenser, are there opener robots
+												 -- in this zone?
+												 
+  e1_num_guns  IN SHADOW FROM GMCFGPNT : INTEGER -- Number of guns for E1
+
+  appl_type    IN SHADOW FROM GMCFGPNT : INTEGER -- 0=Not Configured; 1=ISS/UBS Tool; 2=PVC Tool; 3=Hem Tool 
+                                                 -- 4=LASD Tool; 5=Roof Ditch; 
+												 -- 11=Opener; 12=Roof Ditch Vision Only
+												 
+  v_doors_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- Vision Camera Doors Used
+  v_3dmv_used  IN SHADOW FROM GMCFGPNT : BOOLEAN -- 3DMV Vision Used
+  v_3dl_used   IN SHADOW FROM GMCFGPNT : BOOLEAN -- 3DL Vision Used
+  v_erprf_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- Vision Error Proofing Used 
+  v_styid_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- Vision Style Id Used
+  v_torch_used IN SHADOW FROM GMCFGPNT : BOOLEAN -- iRTorchMate Used
+ 

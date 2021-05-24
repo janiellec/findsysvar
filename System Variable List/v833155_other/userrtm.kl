@@ -1,0 +1,54 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--     
+--             All Rights Reserved
+--             Copyright (C)   1991
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+-- 
+--  
+--   08-07-2008  Steedlj   Developed for GM to force user and runtime screen
+--                         call from a TP for iRVision.
+--    10-15-13 jja R30iB Development
+--------------------------------------------------------------------------
+PROGRAM userrtm
+--------------------------------------------------------------------------
+%nolockgroup
+%nobusylamp
+%COMMENT='iRVsn EdRtm v4.0'
+--%INVISIBLE
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+%STACKSIZE = 1024
+
+%ENVIRONMENT sldef
+
+%include kliouop
+%include klevkeys
+%include klevksp
+
+  
+BEGIN 
+  
+  --Force Dual Pane then set screens.
+  FORCE_MENU( tp_panel,  ky_shift )
+  delay 500
+  FORCE_MENU( tp_panel,  ky_disp_s)
+  delay 1000
+  FORCE_MENU( tp_panel,  ky_dn_arw)
+  delay 1000
+  FORCE_MENU( tp_panel,  ky_enter)
+  delay 1000
+  FORCE_SPMENU(tp2_panel,1422,1)   -- 1422 /STATUS <Type-Vision>
+  DELAY 1000
+  FORCE_SPMENU(tp_panel,SPI_TPTCH,1)
+  
+END userrtm

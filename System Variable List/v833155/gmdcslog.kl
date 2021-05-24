@@ -1,0 +1,2110 @@
+-----------------------------------------------------------------------------------------------
+--
+--   MODULE:         GMDCSLOG.KL
+--   TITLE:
+--
+--   REVISION DATE:  06-08-18
+--
+--
+--
+--
+--   FANUC Robotics America retains rights in any and all Software
+--   contained in the material attached hereto and said
+--   Software may not be copied or reproduced without the
+--   written permission of FANUC Robotics America.
+--
+--   All Software, (C) Copyright FANUC Robotics America Inc., 2007
+--
+--    DESCRIPTION: Captures the state of various parameters after a DCS fault.
+--                 Logs the data to a file created.
+--
+--
+--    USAGE:
+--       CALL LOGGER
+--
+--
+--    HISTORY OF CHANGES:
+--
+--    REV   DATE       BY               COMMENTS
+--    ---   ---------  ----------  -------------------------
+--     a    09-17-2019 R.Kosaski   Update typo with DSC to DCS in header reported by Jonathon Kroll
+--     b    10-18-2019 R.Kosaski   Updated was not saving VldtnFiles to card reported by Jonathon Kroll
+--     c    10-06-2020 R.Kosaski   Updated to have position name added into the CSV file by Jonathon Kroll
+-----------------------------------------------------------------------------------------------
+PROGRAM GMDCSLOG
+%ALPHABETIZE
+%RWACCESS
+%COMMENT = 'DCS Wall Data'
+%NOLOCKGROUP
+%STACKSIZE = 1000
+%NOBUSYLAMP
+--%NOABORT = ERROR + COMMAND
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%DEFGROUP = 1
+
+%INCLUDE KLEVCCDF
+%INCLUDE klevkmsk -- needed for KC_ITEM_CHNG
+%INCLUDE fxgmpteg -- the constants from the form
+
+%INCLUDE gm_ch_id -- need for the condition handler constant declarations
+
+CONST
+ VER          = 'RRK 10-08-2020'
+ ENABLE_LOG_R = 199
+ max_column  = 35
+ max_filename= 8
+ max_styles = 10
+ max_rows= 35
+
+-- below used for the log columns constants
+ProgNameClmn  = 1
+ProgLineClmn  = 2
+MoveNameClmn  = 3
+DateTimeClmn  = 4
+DistanceClmn  = 5
+UFrameClmn    = 6
+TFrameClmn    = 7
+DCSZoneClmn   = 8
+CommentClmn   = 9
+DCSTypeClmn   = 10  -- the ZOne Type CPC, JPC, etc
+DCSDsblClmn   = 11 -- DCS Disabling Input
+DCSDsbcClmn   = 12 -- DCS Disabling Input Comment
+DCSDsbsClmn   = 13 -- DCS Disabling Input State
+DCSStpTyClmn  = 14 -- DCS zone Stop Type
+DCSModelClmn  = 15
+
+X_ValueClmn   = 16
+Y_ValueClmn   = 17
+Z_ValueClmn   = 18
+W_ValueClmn   = 19
+P_ValueClmn   = 20
+R_ValueClmn   = 21
+
+J1_ValueClmn  = 22
+J2_ValueClmn  = 23
+J3_ValueClmn  = 24
+J4_ValueClmn  = 25
+J5_ValueClmn  = 26
+J6_ValueClmn  = 27
+J7_ValueClmn  = 28
+
+StrVarType  = 1
+IntVarType  = 2
+RealVarType = 3
+
+-- Below used for Method or (Safe side) in CPC setup
+Diag_In      = 1
+Diag_Out     = 2
+Lines_In     = 3
+Lines_Out    = 4
+OrntFixAll   = 5
+OrntFixUserZ = 6
+
+-- Below used for the Stop-Type
+PowerOffStop = 0
+ContrledStop = 1
+NoStopUsed   = 2
+
+-- Below is used for DCS zone Type
+DCS_JPC_Type = 1 -- Joint Position Check
+DCS_JSC_Type = 2 -- Joint Speed Check
+DCS_CPC_Type = 3 -- Cartestion Position Check
+DCS_CSC_Type = 4 -- Cartestion Speed Check
+
+
+-- Used for the Disabling Input
+DCS_SPI =  1   --Safe Position Input
+DCS_SPO =  2   --Safe Position Output
+DCS_SSI =  3   --Safe System Inputs
+DCS_SSO =  4   --Safe System Output
+DCS_SIR =  5   --Safe Internal Relay
+DCS_CPC =  6   --Cartesian Position Check Status
+DCS_CSC =  7   --Cartesian Speed Check Status
+DCS_JPC =  8   --Joint Position Check Status
+DCS_JSC =  9   --Joint Speed Check Status
+DCS_CSI = 10   --CIP Saftey Input
+DCS_CSO = 11   --CIP Saftey Outputs
+DCS_CCL = 12   --Configuration Change Latch
+DCS_CCR = 13   --Configuration Change Reset
+DCS_RPI = 14   --ROBOT POWER INPUT
+DCS_RPO = 15   --ROBOT POWER OUTPUT
+DCS_FSI = 16   --FL-NET SAFETY INPUT
+DCS_FSO = 17   --FL-net Safety Output
+DCS_SLI = 18   --
+DCS_SLO = 19   --
+
+prg_init = 1
+prg_prmtFile = 2
+prg_prmtName = 3
+prg_waitEvnt = 4
+prg_prmtdist = 5
+prg_prmtlctn = 6
+
+
+VAR
+
+  column_data   IN CMOS : ARRAY[max_column] OF STRING[20]  -- used for the column name
+  row_data      IN CMOS : ARRAY[max_rows] OF INTEGER  -- used for the position register to read
+--  file_names    IN CMOS :ARRAY[max_filename] OF STRING[8] -- used for the file name to log to
+  DCSFileNames  IN CMOS :ARRAY[max_filename] OF STRING[60] -- used for the file names return is FILELIST
+  StopTypeStr   IN CMOS : ARRAY[4] OF STRING[15] -- for displaying stoptype string
+
+  MaxDCSCPCZns, -- the number of avilable Cartesion Position Checks
+  MaxDCSCSCZns, -- the number of avilable Cartesion Speed Checks
+  MaxDCSJPCZns, -- the number of avilable Joint Position Checks
+  MaxDCSJSCZns IN SHADOW : INTEGER -- the number of avilable Joint Speed Checks
+
+  test_type,
+  uframe_num,
+  tool_num,
+  entry,
+  term_mask,
+  term_char,
+  N_skip,
+  user_answer,
+  FilUserSlctd,
+  fileactnslct,    -- how user wants to continue with logging, add to existing etc.
+  N_Files,i,       -- the number of files found by the FILE_LIST builtin
+  indx          : INTEGER
+  status        : INTEGER
+  datalog       : FILE   -- used for the OPEN FILE builtin to log data to
+  RobotModel    IN SHADOW : STRING[20] -- the robot model from system variable SCR_GRP[1].robot_model
+
+  UsrDeviceStr, -- used for the users selection to copy the Log to
+  LogFileLoc       IN CMOS : STRING[4] -- where the log will be placed, def. FR:
+  logFile      : FILE         -- log
+  log_name      IN CMOS :STRING[60] -- the name of the log to be created.
+ -- logFileName  IN CMOS : STRING[60]
+  check_Svar,temp_Svar : STRING[60]
+
+  DCS_DisInVar  : STRING[60] -- used for building a var name to look up disabling input
+  DCS_TempVar   : STRING[60] -- used for building a var name to look up
+  SVarRtrndStr  : STRING[40] -- Used for returned string in the GET_SVAR routine
+  SVarRtrndInt  : INTEGER -- Used for returned integer in the GET_SVAR routine
+  SVarRtrndRel  : REAL -- Used for returned real value in the GET_SVAR routine
+  SVarGetSuces  : BOOLEAN -- used to return if get system variable was successful
+  End_DCS_Log   : BOOLEAN -- used to loop until all done
+
+  enable_log    IN CMOS : BOOLEAN
+  F_number      IN CMOS : STRING[10]
+  last_blk      : STRING[8]      -- 99999999 blocks max
+  finished      IN CMOS : BOOLEAN
+  file_name     IN CMOS : STRING[60]
+  Canceldentry  : BOOLEAN -- Used for the user doesnt want to log
+  ZoneFound :BOOLEAN -- set to true when searching DCS status system variable and find one tripped
+
+  RobotName,
+  validatrname IN SHADOW : STRING[40] -- Used for the validators name
+tmpfilename:STRING[50]
+
+  curnt_pos,
+  temp_pos,
+  last_pos :XYZWPR -- temp position from registers
+  temp_frm :POSITION
+  Curnt_jPos :JOINTPOS
+
+  Cur_jpos_ary : ARRAY [9] of REAL -- REAL representation of Curnt_jPos
+
+  VldtnFiles IN SHADOW: ARRAY[10] OF STRING[32] -- validation support files
+
+  string_reg  : INTEGER -- Used for the register number to read string from
+  wrt_str  : STRING[128] -- Used for writing to pendant
+
+  temp_str : STRING[15]
+  FileNameSet,
+  new_data,
+  real_flag  : BOOLEAN
+
+  UsrDeviceTyp, -- the device type the user wants to use for copying
+  UserEntrMsr :INTEGER
+
+  UserModlFltd, -- Set to the value of the model that caused the DCS zone tripped
+  CurUMdlValue, -- Current User model value found in FOR Loop
+  LastEntrMsr, -- Last entered measurment
+  NumClmnsUsed, -- number of columns to log data to everytime, used in for loop
+  curdcszonTyp, -- the zone type to look into I.E. CPC,JPC,etc
+  zonedsblType, -- the current zone disable type
+  zonedsblindx,
+  curdcszone IN SHADOW :INTEGER -- the current DCS zone being measured or is violation
+  filactndsply,
+  Cur_LineNum, -- read from system variable shell work curr_line
+  int_value  : INTEGER
+  real_value : REAL
+  Cur_RoutName : STRING[20] -- the current routine name from shell_wrk.rout_name
+  strTimeStamp : STRING[20]
+  strMonthText : STRING[3]
+  strYear      : STRING[2]
+  strMonth     : STRING[2]
+  strDay,
+  strHour,
+  strMinutes   : STRING[2]
+
+  zonedsblcmnt :STRING[21] -- Zone disable comment
+
+  prgStaRegNum IN SHADOW : INTEGER -- the data register to have the program status set to (default R[480])
+  CurMoveCmnt : STRING[20] -- the comment read from the TP Raw Data
+  str_value  : STRING[15]
+  extString,  -- Used to store the extension type
+  curr_device: STRING[5]
+  fileavailstr:STRING[3] -- used to display IS or NOT in form for file creation
+
+  BaseFileName IN SHADOW : STRING[8] -- Used for BASE file name of the DCSValidation CSV file
+  FndFileNames : ARRAY[8] OF STRING[60] -- Used for file names that came from MD: read CSV files
+ -- curnt_pos : XYZWPR
+--  curnt_Jpos : JOINTPOS
+
+-- Below used for the DISCRTL_FORM builtin for displaying forms
+  device_stat: INTEGER  -- tp_panel or crt_panel etc
+ fileactn : ARRAY[6] OF STRING[20]
+--value_array: ARRAY [10] OF STRING [120]
+Last_array: ARRAY [10] OF STRING [120]
+inact_array: ARRAY [10] OF BOOLEAN
+change_array: ARRAY[10] OF BOOLEAN
+def_item: INTEGER
+all_done  : BOOLEAN --
+AbortEndLog, -- if function abort ended the log set this boolean otherwise FALSE
+CycEnded_Log  IN SHADOW : BOOLEAN -- A initiate style has started a Production cycle
+
+PromptUser : BOOLEAN -- used for if the user should be prompted to start Newfile or continue existing
+
+  title: array[1] of string[30]       -- used for the READ_DICT
+  prompt: array[1] of string[120]     -- used for the READ_DICT/ DB_PROMPT
+  cur_state,response: integer
+
+  scrn_mode,l_i,tp_act_spid,tp_act_id IN SHADOW :INTEGER
+
+  curscrn_spid,cursrcn_id IN SHADOW :ARRAY[8] OF INTEGER
+
+  scrn_url IN SHADOW :ARRAY[8] OF STRING[60]
+
+-- Vars added 10-6-2020
+OpenProg_id,
+line_dataNum : INTEGER-- set for which line data to use for comment based on move type (5 or 8)
+TP_comment : STRING[26]
+Line_data : ARRAY[32] OF BYTE
+
+--%INCLUDE common/def_misc
+%INCLUDE GMRDUTIL -- has GM Builtin routines
+------------------------------------------------------------------------------
+ROUTINE closeLog
+------------------------------------------------------------------------------
+VAR
+  l_status   : INTEGER
+
+BEGIN
+
+  CLOSE FILE logFile
+  status = IO_STATUS(logFile)
+  IF (status <> 0) THEN
+    POST_ERR(38000, 'Close log Failed ' + log_name, status, 0)
+  ENDIF
+
+END closeLog
+
+-------------------------------------------------------------------------------
+-- ROUTINE Trim
+-- Remove leading and trailing spaces
+-------------------------------------------------------------------------------
+ROUTINE Trim (strText : STRING) : STRING
+
+VAR
+  strChar      : STRING[1]
+  strTemp      : STRING[128]
+  intFront     : INTEGER
+  intBack      : INTEGER
+  intIndex     : INTEGER
+  intLength    : INTEGER
+
+BEGIN
+
+  strChar = ''
+  strTemp = ''
+
+  intLength = STR_LEN(strText)
+
+  IF intLength = 0 THEN RETURN(strText) ; ENDIF
+
+  intIndex = 1
+  intFront = intIndex
+
+  --find the front of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex + 1
+    IF intIndex <= intLength THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intFront = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+
+  ENDWHILE
+
+  intIndex = STR_LEN(strText)
+  intBack = intIndex
+
+  --find the back of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex - 1
+    IF intIndex >= 1 THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intBack = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+  ENDWHILE
+
+  -- using SUB_STR to extract the string between front and back doesn't work - so we do it the hard way
+  FOR intIndex=intFront TO intBack DO
+    strChar = SUB_STR(strText, intIndex, 1)
+    strTemp = strTemp + strChar
+  ENDFOR
+
+  RETURN(strTemp)
+
+END Trim
+-----------------------------------------------------------------------------
+ROUTINE FindAryLen(P_SVar:STRING;P_answr_Var:INTEGER)
+-- PURPOSE: to find the array lenght of passed system variable
+--
+--
+-- INPUT: System Varaiable to get the array lenght
+--        the variable to store the lenght in
+--            -
+--
+-----------------------------------------------------------------------------
+VAR
+ i,value : INTEGER
+
+BEGIN
+
+  FOR i = 1 TO 50 DO
+    GET_VAR(entry, '*SYSTEM*' , P_SVar+int2str(i)+']', value, status)
+      IF status <> 0 THEN -- bad status should mean
+        IF (Status = 16024) AND (i>1) THEN -- VARS-024 Bad variable or Index, and not 1st try
+          RETURN
+        ELSE
+          POST_ERR(38000,P_SVar+int2str(i)+'] Failed', status, 0) --
+        ENDIF
+      ELSE
+        P_answr_Var = i -- set to current value will be max if/when next fails
+      ENDIF
+  ENDFOR --
+
+END FindAryLen
+-----------------------------------------------------------------------------
+ROUTINE init_data
+-- PURPOSE:
+--
+-----------------------------------------------------------------------------
+VAR
+
+ i : INTEGER
+
+BEGIN
+-- setup where log is going to be
+  LogFileLoc = 'FR:'   --changed frpm FR: to MD: 10/7/2020
+
+-- Remove below remarks to allow log to be based on the selected device
+
+--  GET_VAR(entry,'*SYSTEM*','$DEVICE',LogFileLoc, status)
+--    IF (status=0) THEN
+--      IF (LogFileLoc <> 'UD1:') AND (LogFileLoc <> 'MC:') AND (LogFileLoc <> 'FR:') AND (LogFileLoc <> 'UT1:') THEN
+--        POST_ERR(38000, 'DEVICE MUST BE "UD1:" "UT1:" "MC:" OR "FR:"', 0, 2) --
+--        ABORT
+--      ENDIF
+--    ELSE
+--      POST_ERR(38000, 'Log $DEVICE could not be READ', status, 2) -- Abort need this to continue
+--    ENDIF
+
+FOR i = 1 TO array_len(DCSFileNames) DO
+  IF UNINIT(DCSFileNames[i]) THEN
+    DCSFileNames[i] = 'file_'+Int2Str(i)
+  ENDIF
+ENDFOR --
+
+FOR i = 1 TO ARRAY_LEN(column_data) DO
+  SELECT (i) OF --
+    CASE (ProgNameClmn): -- Initalize the Data Name --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Program Name'
+              ENDIF
+    CASE (ProgLineClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Prog Line Num'
+              ENDIF
+    CASE (MoveNameClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Move Comment'
+              ENDIF
+    CASE (DateTimeClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Date and Time'
+              ENDIF
+    CASE (DistanceClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Distance to Object'
+              ENDIF
+    CASE (UFrameClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'User Frame'
+              ENDIF
+    CASE (TFrameClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Tool Frame'
+              ENDIF
+    CASE (CommentClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'DCS Comment'
+              ENDIF
+    CASE (DCSZoneClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'DCS Zone'
+              ENDIF
+    CASE (DCSTypeClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Zone Type'
+              ENDIF
+    CASE (DCSDsblClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Disabling Input'
+              ENDIF
+    CASE (DCSDsbcClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Disable Comment'
+              ENDIF
+    CASE (DCSDsbsClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Disable State'
+              ENDIF
+     CASE (DCSStpTyClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Stop Type'
+              ENDIF
+    CASE (DCSModelClmn): -- Model Number
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'User Model'
+              ENDIF
+    CASE (X_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'X Value'
+              ENDIF
+    CASE (Y_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Y Value'
+              ENDIF
+    CASE (Z_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'Z Value'
+              ENDIF
+    CASE (W_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'W Value'
+              ENDIF
+    CASE (P_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'P Value'
+              ENDIF
+    CASE (R_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'R Value'
+              ENDIF
+    CASE (J1_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J1'
+              ENDIF
+    CASE (J2_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J2'
+              ENDIF
+    CASE (J3_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J3'
+              ENDIF
+    CASE (J4_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J4'
+              ENDIF
+    CASE (J5_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J5'
+              ENDIF
+    CASE (J6_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J6'
+              ENDIF
+    CASE (J7_ValueClmn):  --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = 'J7'
+              ENDIF
+
+  ELSE: --
+              IF UNINIT(column_data[i]) THEN
+                column_data[i] = ''
+              ENDIF
+  ENDSELECT --
+ENDFOR --
+
+FOR i = 1 TO ARRAY_LEN(StopTypeStr) DO
+  IF UNINIT(StopTypeStr[i]) THEN
+    SELECT (i) OF --
+    CASE (1): StopTypeStr[i] = 'Power-Off Stop' --
+    CASE (2): StopTypeStr[i] = 'Controlled Stop' -- --
+    CASE (3): StopTypeStr[i] = 'Not Stop' --
+    ELSE: --
+      StopTypeStr[i] = 'S.T.'+INT2STR(i-1)+' unknown' --
+    ENDSELECT --
+  ENDIF
+ENDFOR --
+
+FOR i = 1 TO array_len(row_data) DO
+  IF UNINIT(row_data[i]) THEN
+    row_data[i] = 0
+  ENDIF
+ENDFOR --
+
+IF UNINIT(BaseFileName) THEN
+  BaseFileName = 'DCSvLog'
+ENDIF
+
+IF UNINIT(extString) THEN
+  extString = '.CSV'
+ENDIF
+
+IF UNINIT(string_reg) THEN
+  string_reg  = 1
+ENDIF
+
+IF UNINIT(new_data) THEN
+  new_data = TRUE
+ENDIF
+
+IF UNINIT(PromptUser) THEN --used for if when the OPEN FILE is done the user should be prompted
+  PromptUser = TRUE
+ENDIF
+
+IF UNINIT(LastEntrMsr) THEN
+  LastEntrMsr = 0
+ENDIF
+IF UNINIT(Canceldentry) THEN
+  Canceldentry = FALSE
+ENDIF
+
+IF UNINIT(fileactnslct) THEN
+  fileactnslct = 1
+ENDIF
+-- setup     12345678901234567890
+fileactn[2]='Create New File'
+fileactn[3]='Append to existing'
+fileactn[4]='Delete & Create New'
+
+fileavailstr = ''
+filactndsply = 1
+
+NumClmnsUsed = 28 -- number of columns written to everytime
+
+IF UNINIT(curdcszonTyp) THEN
+  curdcszonTyp = 0
+ENDIF
+-- go find max array len of each type of zone
+IF UNINIT(MaxDCSCPCZns) THEN
+  FindAryLen('$DCSS_PSTAT.$STATUS_CPC[',MaxDCSCPCZns)
+ENDIF
+IF UNINIT(MaxDCSCSCZns) THEN
+  FindAryLen('$DCSS_PSTAT.$STATUS_CSC[',MaxDCSCSCZns)
+ENDIF
+IF UNINIT(MaxDCSJPCZns) THEN
+  FindAryLen('$DCSS_PSTAT.$STATUS_JPC[',MaxDCSJPCZns)
+ENDIF
+IF UNINIT(MaxDCSJSCZns) THEN
+  FindAryLen('$DCSS_PSTAT.$STATUS_JSC[',MaxDCSJSCZns)
+ENDIF
+IF UNINIT(DCS_DisInVar) THEN
+  DCS_DisInVar = ''
+ENDIF
+IF UNINIT(validatrname) THEN
+  validatrname = ''
+ENDIF
+
+AbortEndLog = FALSE
+
+FOR i = 1 TO ARRAY_LEN(VldtnFiles) DO
+  IF UNINIT(VldtnFiles[i]) THEN
+    VldtnFiles[i] = ''
+  ENDIF
+ENDFOR --
+
+IF (VldtnFiles[1]='') THEN
+  VldtnFiles[1] = 'DCSIOC.VA'
+ENDIF
+IF (VldtnFiles[2]='') THEN
+  VldtnFiles[2] = 'DCSPOS.VA'
+ENDIF
+IF (VldtnFiles[3]='') THEN
+  VldtnFiles[3] = 'SYSTEM.VA'
+ENDIF
+
+IF UNINIT(CurMoveCmnt) THEN
+  CurMoveCmnt = ''
+ENDIF
+
+END init_data
+-----------------------------------------------------------------------------
+ROUTINE get_tpscrn
+-----------------------------------------------------------------------------
+BEGIN
+
+
+  GET_VAR(entry,'*SYSTEM*','$UI_CONFIG.$MODE[1]',scrn_mode,status) --get the number of screens
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$UI_CONFIG.$MODE[1] FAILED in GMDCSLOG', status, 0) --
+    ENDIF
+
+  GET_VAR(entry,'*SYSTEM*','$TP_CURSCRN[1].$SP_ID',tp_act_spid,status) --get softpart id
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$TP_CURSCRN[1].$SP_ID FAILED in GMDCSLOG', status, 0) --
+    ENDIF
+
+  GET_VAR(entry,'*SYSTEM*','$TP_CURSCRN[1].$SCRN_ID',tp_act_id,status) --get the screen id
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$TP_CURSCRN[1].$SCRN_ID FAILED in GMDCSLOG', status, 0) --
+    ENDIF
+
+END get_tpscrn
+-----------------------------------------------------------------------------
+ROUTINE set_tpscrn
+-----------------------------------------------------------------------------
+VAR
+
+ screen        :STRING[4]
+
+BEGIN
+
+
+DELAY 1000
+
+IF NOT (UNINIT(scrn_mode)) THEN
+  SET_VAR(entry,'*SYSTEM*','$UI_CONFIG.$MODE[1]',scrn_mode,status) --get the number of screens
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$UI_CONFIG.$MODE[1] FAILED', status, 0) --
+    ENDIF
+ENDIF
+
+IF NOT (UNINIT(scrn_mode)) THEN
+  SET_VAR(entry,'*SYSTEM*','$TP_CURSCRN[1].$SP_ID',tp_act_spid,status) --get softpart id
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$TP_CURSCRN[1].$SP_ID FAILED', status, 0) --
+    ENDIF
+ENDIF
+
+IF NOT (UNINIT(scrn_mode)) THEN
+  SET_VAR(entry,'*SYSTEM*','$TP_CURSCRN[1].$SCRN_ID',tp_act_id,status) --get the screen id
+   IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$TP_CURSCRN[1].$SCRN_ID FAILED', status, 0) --
+    ENDIF
+ENDIF
+
+   FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+
+   FORCE_SPMENU(tp_panel,tp_act_spid,1) --SPI_TPTCH
+
+END set_tpscrn
+
+-----------------------------------------------------------------------------
+ROUTINE SetRegStatus(P_status:INTEGER)
+-- PURPOSE: to set the data register prgStaRegNum to the value of the program
+--          status
+--
+-- INPUT:   program status
+
+--  SetRegStatus(prg_init = 1
+--  SetRegStatus(prg_prmtFile = 2
+--  SetRegStatus(prg_prmtName = 3
+--  SetRegStatus(prg_waitEvnt = 4
+--  SetRegStatus(prg_prmtdist = 5
+--  SetRegStatus(prg_prmtlctn = 6
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+   SET_INT_REG(prgStaRegNum,P_Status,status)
+     IF (status<>0) THEN
+       POST_ERR(38000, 'Failed to set R['+int2str(prgStaRegNum)+'] ='+int2str(P_status), status, 0) --
+     ENDIF
+END SetRegStatus
+-------------------------------------------------------------------------------
+-- ROUTINE Timestamp
+--  Gets current time and retuns a string.
+-------------------------------------------------------------------------------
+ROUTINE TimeStamp  : STRING
+
+VAR
+   kareltime : INTEGER
+   humantime : STRING[20]
+
+BEGIN
+  GET_TIME(kareltime)
+  CNV_TIME_STR(kareltime, humantime)
+  humantime = Trim(humantime)
+
+  RETURN (humantime)
+
+END TimeStamp
+
+-------------------------------------------------------------------------------
+-- ROUTINE IsVirtualRobot
+-- Returns TRUE if this program is running on a virtual robot
+-------------------------------------------------------------------------------
+ROUTINE IsVirtual : BOOLEAN
+
+VAR
+  starttime : INTEGER
+
+BEGIN
+  GET_VAR (0, '*SYSTEM*','$VIRTUALTIME', starttime, status)
+  RETURN (status = 0)
+
+END IsVirtual
+-----------------------------------------------------------------------------
+ROUTINE Remov_Comma(p_string:STRING)
+-- PURPOSE: to check a string for having a comma in it,when found replaces with
+--          something else. this is needed due to modifying the fields occur
+--          when string with text occur. (Reported by Jonathon Kroll GM GPS)
+-- INPUT: P_string - String to be checked for commas
+--            -
+-----------------------------------------------------------------------------
+VAR
+confirmedstr : STRING[36]
+temp_str :STRING[1]
+
+BEGIN
+   confirmedstr = ''
+
+      -- validate name need to ensure no , entered
+        FOR i = 1 TO (STR_LEN(p_string)) DO
+          temp_str = SUB_STR(p_string,i,1)-- look 1 at a time for ","
+          IF temp_str =',' THEN
+             -- Fix the string
+            confirmedstr = confirmedstr + '_'
+            POST_ERR(38000, 'Replaced Comma in '+ p_string, 0, 0) --
+          ELSE
+            confirmedstr = confirmedstr + temp_str
+          ENDIF
+        ENDFOR --
+         -- set string back to corrected string
+           p_string = confirmedstr
+
+END Remov_Comma
+-------------------------------------------------------------------------------
+-- ROUTINE GetRegVal
+-- Returns a string of the value held in specified register.
+-------------------------------------------------------------------------------
+ROUTINE GetRegVal (intRegNum : INTEGER) : STRING
+
+BEGIN
+  GET_REG(intRegNum, real_flag, int_value, real_value, status)
+  IF status <> 0 THEN
+    RETURN('?')
+  ELSE
+    IF real_flag THEN
+      str_value = Real2Str(real_value)
+    ELSE
+      str_value = Int2Str(int_value)
+    ENDIF
+    RETURN(str_value)
+  ENDIF
+
+END GetRegVal
+-------------------------------------------------------------------------------
+-- ROUTINE FileName : STRING
+-- P0820102.CSV
+-------------------------------------------------------------------------------
+ROUTINE FileName : STRING
+
+VAR
+  strFileName  : STRING[40]
+                                --DY-Mth-Yr
+BEGIN                         --  12345678901234567
+   strTimeStamp = TimeStamp   -- "08-FEB-08 12:03"
+   strYear = SUB_STR(strTimeStamp, 8, 2)
+   strMonthText = SUB_STR(strTimeStamp, 4, 3)
+   strDay = SUB_STR(strTimeStamp, 1, 2)
+   strHour = SUB_STR(strTimeStamp, 11, 2)
+   strMinutes = SUB_STR(strTimeStamp, 14, 2)
+
+GET_VAR(entry, '*SYSTEM*' , '$FNO', F_number, status)
+  IF status <> 0 THEN
+    POST_ERR(38000, '[*SYSTEM*].$FNO FAILED', status, 0) --
+    F_number = 'F??????'
+  ELSE
+   F_number = Trim(F_number)
+  ENDIF
+         --+'_' +'20'+ strYear+'-' + strMonth +'-'+ strDay +'_'  +strHour+'_'+strMinutes
+   strFileName = BaseFileName +'_' + F_number + extString
+   RETURN(strFileName)
+
+END FileName
+-----------------------------------------------------------------------------
+ROUTINE GetUserMeasr
+-- PURPOSE:to prompt user for thier name and enter on the NEW form
+--
+--
+-----------------------------------------------------------------------------
+
+VAR
+
+value_array: ARRAY [10] OF STRING [120]
+BEGIN
+
+  SetRegStatus(prg_prmtdist)
+
+ get_tpscrn -- Go get active screen to return back to
+
+FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user 2 screen to display forms
+
+ IF UNINIT(curdcszone) THEN
+   curdcszone = 1
+ ENDIF
+
+UserEntrMsr = 0
+Canceldentry = FALSE
+REPEAT --
+Value_array[1]= 'curdcszone'
+Value_array[2]= '[*system*]$dcss_cpc['+int2str(curdcszone)+'].$comment'
+Value_array[3]= 'UserEntrMsr'--'LastEntrMsr'  -- used to display the measurement
+Last_array = value_array --  save to look at after routine ends in case form fails for debug
+
+all_done = FALSE
+-- kc_f1_type to handle the TYPE key processing with custommenu[x].$option = 31 will have TYPE work No FORCE USER!
+term_mask =  kc_item_chng + kc_f1_type + kc_func_key-- kc_f1_type + kc_func_key  --kc_other
+term_char = -1
+  def_item = 1  -- start with menu item 1
+
+  DISCTRL_FORM('GMPT', gettooldist, value_array, inact_array, change_array, term_mask, def_item, term_char, status)
+
+    IF status<>0 THEN
+      all_done = TRUE
+      POST_ERR(38000, 'DCS_LOG gettooldist Display Failed', status, 2) --
+    ENDIF
+
+  SELECT (term_char) OF -- select how the form was ended or which key Cell
+    CASE(ky_new_menu):
+
+    CASE(ky_f1): --
+
+    CASE(ky_f2,ky_f2_s):  -- DONE was selected
+         all_done = TRUE
+         LastEntrMsr = UserEntrMsr
+    CASE(ky_f3,ky_f3_s): -- Include SHIFT in Case user is teaching -- Selected NEW file.
+         -- User selected to CANCEL
+       all_done = TRUE
+      Canceldentry = TRUE
+
+    CASE(ky_f4,ky_f4_s):
+    CASE(ky_undef):
+    ELSE: --
+  ENDSELECT   --det_term_chr OF
+
+  IF (UserEntrMsr = 0) AND (status = 0) AND (Canceldentry = FALSE) THEN
+    POST_ERR(38000, 'Must enter a measured distance', 0, 0) --
+    all_done = FALSE
+  ENDIF
+
+UNTIL ((term_char = ky_new_menu) OR (status <>0) OR (all_done = TRUE)) -- New Screen selected
+
+ WRITE TPERROR(CHR(cc_clear_win))-- clear any messages left from operator warnings
+
+ Set_tpscrn -- Go get active screen to return back to
+
+END GetUserMeasr
+-----------------------------------------------------------------------------
+ROUTINE Set_UserName
+-- PURPOSE:to prompt user for thier name and enter on the NEW form
+--
+--
+-----------------------------------------------------------------------------
+VAR
+value_array: ARRAY [10] OF STRING [120]
+chk_str :STRING[1]
+BEGIN
+
+  SetRegStatus(prg_prmtName)
+
+FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user 2 screen to display forms
+
+REPEAT --
+Canceldentry = FALSE
+Value_array[1]= 'filactndsply' -- used to display Created or Appened in user form
+Value_array[2]= 'validatrname' -- used to display the current file name to be used displayed
+
+Last_array = value_array --  save to look at after routine ends in case form fails for debug
+
+all_done = FALSE
+-- kc_f1_type to handle the TYPE key processing with custommenu[x].$option = 31 will have TYPE work No FORCE USER!
+term_mask =  kc_item_chng + kc_f1_type + kc_func_key-- kc_f1_type + kc_func_key  --kc_other
+term_char = -1
+  def_item = 1  -- start with menu item 1
+
+  DISCTRL_FORM('GMPT', getUserName, value_array, inact_array, change_array, term_mask, def_item, term_char, status)
+
+    IF status<>0 THEN
+      all_done = TRUE
+      POST_ERR(38000, 'DCS_LOG getUserName Display Failed', status, 2) --
+    ENDIF
+
+  SELECT (term_char) OF -- select how the form was ended or which key Cell
+    CASE(ky_new_menu):
+
+    CASE(ky_f1): --
+
+    CASE(ky_f2,ky_f2_s):  -- DONE was selected
+         all_done = TRUE
+        -- validatrname need to ensure no , entered
+        FOR i = 1 TO (STR_LEN(validatrname)) DO
+          chk_str = SUB_STR(validatrname,i,1)-- look 1 at a time for ","
+          IF chk_str =',' THEN
+            POST_ERR(38000, 'NO COMMA`S allowed in User Name' , 0, 0) --
+            all_done = FALSE -- Set to false to allow user to redo it
+          ENDIF
+        ENDFOR --
+    CASE(ky_f3,ky_f3_s): --  -- Selected NEW file.
+        -- User selected to CANCEL
+       all_done = TRUE
+       Canceldentry = TRUE
+
+    CASE(ky_f4,ky_f4_s):
+    CASE(ky_undef):
+    ELSE: --
+  ENDSELECT   --det_term_chr OF
+
+UNTIL ((term_char = ky_new_menu) OR (status <>0) OR (all_done = TRUE)) -- New Screen selected
+
+END Set_UserName
+-----------------------------------------------------------------------------
+ROUTINE filecreation
+-- PURPOSE:to prompt user for NEW or append form
+--
+--
+-----------------------------------------------------------------------------
+VAR
+value_array: ARRAY [10] OF STRING [120]
+BEGIN
+
+  SetRegStatus(prg_prmtFile)
+
+FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user 2 screen to display forms
+
+IF (n_files>0) THEN
+  fileavailstr = 'IS'
+ELSE
+  fileavailstr = 'NOT'
+  fileactnslct = 1
+ENDIF
+
+REPEAT --
+Canceldentry = FALSE
+
+Value_array[1]= 'log_name' --
+Value_array[2]= 'logfileloc' --
+Value_array[3]= 'fileavailstr' --
+Value_array[4]= 'fileactnslct' -- used to display the current file operation going to happen, create,append, delete
+
+Last_array = value_array --  save to look at after routine ends in case form fails for debug
+
+all_done = FALSE
+-- kc_f1_type to handle the TYPE key processing with custommenu[x].$option = 31 will have TYPE work No FORCE USER!
+term_mask =  kc_item_chng + kc_f1_type + kc_func_key-- kc_f1_type + kc_func_key  --kc_other
+term_char = -1
+  def_item = 1  -- start with menu item 1
+
+  DISCTRL_FORM('GMPT', confrmfile, value_array, inact_array, change_array, term_mask, def_item, term_char, status)
+
+    IF status<>0 THEN
+      all_done = TRUE
+      POST_ERR(38000, 'DCS_LOG confrmfile Display Failed', status, 2) --
+      ABORT
+    ENDIF
+
+  SELECT (term_char) OF -- select how the form was ended or which key Cell
+    CASE(ky_new_menu):
+
+    CASE(ky_f1): --
+
+    CASE(ky_f2,ky_f2_s):  -- DONE was selected
+         all_done = TRUE
+    CASE(ky_f3,ky_f3_s): --  -- Selected NEW file.
+        -- User selected to CANCEL
+       all_done = TRUE
+       Canceldentry = TRUE
+
+    CASE(ky_f4,ky_f4_s):
+    CASE(ky_undef):
+    ELSE: --
+  ENDSELECT   --det_term_chr OF
+
+UNTIL ((term_char = ky_new_menu) OR (status <>0) OR (all_done = TRUE)) -- New Screen selected
+
+-- check if user wants a new file or append to existing
+SELECT (fileactnslct) OF --
+  CASE (1):  -- Create New File
+        new_data = TRUE -- set so new header info written
+        filactndsply = 1
+  CASE (2):  -- Append to existing
+        new_data = FALSE -- set so new header info written
+        filactndsply = 2
+  CASE (3):  -- Delete & Create New
+        new_data = TRUE -- set so new header info written
+        filactndsply = 1
+        IF (n_files>0) THEN
+          --log_name
+          tmpfilename = logfileloc+'\'+log_name
+          DELETE_FILE(tmpfilename, FALSE , status)
+            IF status <>0 THEN
+              POST_ERR(38000, 'Failed to DELETE '+logfileloc+log_name, status, 0) --
+            ELSE
+              WRITE TPERROR(CHR(cc_clear_win),logfileloc,log_name, ' Deleted')
+              DELAY 1000
+            ENDIF
+        ENDIF
+ELSE: --
+  POST_ERR(38000, 'Fileactnslct='+int2str(Fileactnslct)+' in [GMDCSLOG] filecreation routine unknown', 0, 2) --
+ENDSELECT --
+
+ delay 1000
+
+ PromptUser = FALSE
+
+END filecreation
+-----------------------------------------------------------------------------
+ROUTINE Get_Sys_Var(p_Svar_name:STRING;P_Svar_Type:INTEGER):BOOLEAN
+-- PURPOSE: to get system variable, and if return TRUE then the global answer can be used
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  SVarRtrndStr = ''
+  SVarRtrndInt = 0
+  SVarRtrndRel = 0.0
+  SVarGetSuces = FALSE
+
+SELECT (P_Svar_Type) OF --
+    CASE (StrVarType):  -- results is expect to be a string
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, SVarRtrndStr, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          SVarGetSuces=TRUE
+        ENDIF
+
+    CASE (IntVarType):  -- results is expect to be a integer
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, SVarRtrndInt, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          SVarGetSuces=TRUE
+        ENDIF
+
+    CASE (RealVarType): -- Results expected to be Real
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, SVarRtrndRel, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          SVarGetSuces=TRUE
+        ENDIF
+    ELSE: --
+      POST_ERR(38000,P_Svar_Name+'TYPE ' +int2str(P_Svar_Type)+' is UNKNOWN', 0, 0) --
+  ENDSELECT --
+
+  RETURN(SVarGetSuces)
+
+END Get_Sys_Var
+-----------------------------------------------------------------------------
+ROUTINE log_Sys_Var(P_Svar_Name:STRING;P_Svar_Type:INTEGER)
+-- PURPOSE: to read and log variable passed
+--
+--
+-- INPUT:      Variable to Read
+--            -Type of Variable so can log the same type
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+RetrndString : STRING[128]
+RetrndIntegr : INTEGER
+RetrndReal   : REAL
+
+BEGIN
+
+  SELECT (P_Svar_Type) OF --
+    CASE (StrVarType):  -- results is expect to be a string
+      RetrndString = 'Failed'
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, RetrndString, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          Remov_Comma(RetrndString)-- Call routine to remove any comma in string
+          WRITE datalog(Trim(RetrndString))
+        ENDIF
+
+    CASE (IntVarType):  -- results is expect to be a integer
+      RetrndIntegr = 0
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, RetrndIntegr, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          WRITE datalog(RetrndIntegr)
+        ENDIF
+
+    CASE (RealVarType): -- Results expected to be Real
+      RetrndReal = 0.0
+      GET_VAR(entry, '*SYSTEM*' , P_Svar_Name, RetrndReal, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*]'+P_Svar_name+' FAILED', status, 0) --
+        ELSE
+          CNV_REAL_STR(RetrndReal, 4, 3, RetrndString)
+          WRITE datalog(RetrndString)
+        ENDIF
+
+    ELSE: --
+      POST_ERR(38000,P_Svar_Name+'TYPE ' +int2str(P_Svar_Type)+' is UNKNOWN', 0, 0) --
+  ENDSELECT --
+
+--  WRITE datalog( ',') -- add comma to move to next cell
+
+END log_Sys_VAR
+
+-----------------------------------------------------------------------------
+ROUTINE SetupNewLog
+-- PURPOSE: to setup the header information for a newly created log
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i  : INTEGER -- Used for looping FOR loop
+
+BEGIN
+
+      WRITE datalog('Validation Info:',',',CR,CR)
+
+ -- Get User Name for Executing Validation.
+        Set_UserName
+       IF UNINIT(validatrname) THEN
+         WRITE datalog('User Name:',',','Unknown User',',',CR)
+         POST_ERR(38000, 'UNKNOWN Validator Name', 0, 0) --
+       ELSE
+         WRITE datalog('User Name:',',',validatrname,',',CR)
+       ENDIF
+-- Get the Robot Model Type
+      RobotModel = ''
+      GET_VAR(entry, '*SYSTEM*' , '$SCR_GRP[1].$ROBOT_ID', RobotModel, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*].$SCR_GRP[1].$ROBOT_MODEL FAILED', status, 0) --
+        ELSE
+          Remov_Comma(RobotModel)-- Call routine to remove any comma in string
+         WRITE datalog('Robot Model:',',',RobotModel,',',CR)
+        ENDIF
+-- set F#
+       IF UNINIT(F_number) THEN
+         WRITE datalog('Robot F#:',',','Unknown',',',CR)
+         POST_ERR(38000, 'UNKNOWN F# in DCS_LOG', 0, 0) --
+       ELSE
+         Remov_Comma(F_number)-- Call routine to remove any comma in string
+         WRITE datalog('Robot F#:',',',F_number,',',CR)
+       ENDIF
+
+-- Get/Set Robot Name
+        GET_VAR(entry, '*SYSTEM*' , '$HOSTNAME', RobotName, status)
+          IF status <> 0 THEN
+            POST_ERR(38000, '[*SYSTEM*].$HOSTNAME FAILED', status, 0) --
+            WRITE datalog('Robot Name:',',','Failed to get status=',status,',',CR)
+          ELSE -- log the program name
+            Remov_Comma(RobotName)-- Call routine to remove any comma in string
+            WRITE datalog('Robot Name:',',',RobotName,',',CR)
+          ENDIF
+
+-- Get the program name to log
+       GET_VAR(entry, '*SYSTEM*' , '$TP_DEFPROG', temp_str, status)
+          IF status <> 0 THEN
+            POST_ERR(38000, '[*SYSTEM*].$TP_DEFPROG FAILED', status, 0) --
+            WRITE datalog('Program Name:',',','Failed to get status=',status,',',CR)
+          ELSE -- log the program name
+            Remov_Comma(temp_str)-- Call routine to remove any comma in string
+            WRITE datalog('Program Name:',',',(Trim(temp_str)),',',CR)
+          ENDIF
+
+-- Log the Time file was created
+        WRITE datalog('Log Start Date/Time:',',',TimeStamp,CR)
+
+-- Log the DCS version the robot is currently using
+       GET_VAR(entry, '*SYSTEM*' , '$DCS_VERSION', temp_str, status)
+          IF status <> 0 THEN
+            POST_ERR(38000, '[*SYSTEM*].$DCS_VERSION FAILED', status, 0) --
+            WRITE datalog('DCS Version:',',','Failed to get status=',status,',',CR)
+          ELSE -- log the program name
+            WRITE datalog('DCS Version:',',',(Trim(temp_str)),',',CR)
+          ENDIF
+
+-- Log revision
+        WRITE datalog('DCS Logger Rev.:',',',VER,CR)
+
+-- End of Information section, add space in log
+        WRITE datalog(CR) -- add double carriage return for Start of form
+
+        -- write header info
+        FOR i = 1 TO ARRAY_LEN(column_data) DO -- put all the data in
+          WRITE datalog (column_data[i],',')
+        ENDFOR --
+        WRITE datalog(CR,CR) -- add the carriage return
+        new_data = FALSE
+  RETURN
+END SetupNewLog
+------------------------------------------------------------------------------
+ROUTINE openLog: BOOLEAN
+------------------------------------------------------------------------------
+VAR
+  l_status   : INTEGER
+  ary_name   : ARRAY[1] OF STRING[40]
+
+BEGIN
+
+  n_files = 0
+-- check if new file
+  FILE_LIST(log_name,0, 3, ary_name, n_files, status)
+-- if file comes back greater than 0 and NEW_DATA = FALSE then prompt to add to existing
+  IF Status <> 0  THEN
+    POST_ERR(38000, 'FileList for '+log_name + ' Failed', status, 2) --
+  ENDIF
+  IF n_files>0 THEN
+    fileactnslct = 2 -- set user selection to APPEND by default for [CHOICE] so they can just add to existing
+  ENDIF
+
+  IF PromptUser = TRUE THEN --  when OPEN file occurs, user is prompted for Log Methods
+    filecreation -- Go get how user wants to continue?
+  ENDIF
+
+-- Open File, if file does not exist, it will be created
+  OPEN FILE datalog ('AP', log_name) -- AP indicates append to
+    status = IO_STATUS(datalog)
+    IF status = 0 THEN
+      IF (new_data = TRUE) THEN
+        SetupNewLog -- setup the intial lines of the form
+        finished = TRUE
+      ELSE -- use existing
+        WRITE datalog(CR) -- add the carriage return
+        Set_UserName -- go confirm new name or used last
+        WRITE datalog('Log Resume by:',',', validatrname,CR)
+      ENDIF
+      RETURN(TRUE)
+    ELSE
+      POST_ERR(38000, 'OPENFILE '+log_name+' failed', status, 2) --
+      ABORT -- 10-20-2020 didnt seem to abort when posting the alarm
+      RETURN(FALSE)
+    ENDIF
+
+END openLog
+------------------------------------------------------------------------------
+ROUTINE openFile: BOOLEAN
+------------------------------------------------------------------------------
+BEGIN
+
+
+-- Open File, if file does not exist, it will be created
+  OPEN FILE datalog ('AP', log_name) -- AP indicates append to
+    status = IO_STATUS(datalog)
+    IF status = 0 THEN
+      RETURN(TRUE)
+    ELSE
+      POST_ERR(38000, 'RE-OPENFILE '+log_name+' failed', status, 2) --
+      ABORT -- 10-20-2020 didnt seem to abort when posting the alarm
+      RETURN(FALSE)
+    ENDIF
+
+END openFile
+-----------------------------------------------------------------------------
+ROUTINE get_cur_pos
+-- PURPOSE: to check robot is not moving, then grab FACEPLATE value and Joint angles
+--
+-----------------------------------------------------------------------------
+VAR
+axs_lim_mask, ovr_trv_mask : INTEGER
+RobotStopped :BOOLEAN
+BEGIN
+-- Wait for no motion
+RobotStopped = FALSE
+WHILE (RobotStopped = FALSE) DO --
+   GET_VAR(entry, '*SYSTEM*' , '$MOR_GRP[1].$FILTER_EMPT', RobotStopped, status)
+     IF status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$MOR_GRP[1].$FILTER_EMPT FAILED', status, 0) --
+       DELAY 1000
+       RobotStopped = TRUE
+     ENDIF
+   IF RobotStopped = FALSE THEN ; DELAY 50;ENDIF
+ENDWHILE --
+RobotStopped = FALSE
+WHILE (RobotStopped = FALSE) DO --
+   GET_VAR(entry, '*SYSTEM*' , '$MOR_GRP[1].$FLTR_NC_EMP', RobotStopped, status)
+     IF status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$MOR_GRP[1].$FLTR_NC_EMP FAILED', status, 0) --
+       DELAY 1000
+       RobotStopped = TRUE
+     ENDIF
+   IF RobotStopped = FALSE THEN ; DELAY 50;ENDIF
+ENDWHILE --
+
+SET_VAR(entry, '*SYSTEM*' , '$GROUP[1].$UTOOL', $MOR_GRP[1].$NILPOS, status)
+  IF status <> 0 THEN
+    POST_ERR(38000, '[*SYSTEM*].Program Variable FAILED', status, 0) --
+  ENDIF
+SET_VAR(entry, '*SYSTEM*' , '$GROUP[1].$UFRAME', $MOR_GRP[1].$NILPOS, status)
+  IF status <> 0 THEN
+    POST_ERR(38000, '[*SYSTEM*].Program Variable FAILED', status, 0) --
+  ENDIF
+
+curnt_pos = CURPOS(axs_lim_mask, ovr_trv_mask ,1)
+curnt_jpos = CURJPOS(axs_lim_mask, ovr_trv_mask ,1)
+CNV_JPOS_REL(curnt_jpos, Cur_jpos_ary, status)
+
+
+END get_cur_pos
+-----------------------------------------------------------------------------
+ROUTINE CfgDCSVars
+-- PURPOSE: to set the DCS variable name to look up vars to be logged
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+    DCS_TempVar = '$DCSS_'
+    SELECT (curdcszonTyp) OF --
+      CASE (DCS_JPC_Type): DCS_TempVar = DCS_TempVar+'JPC['+int2str(curdcszone)+'].' -- Joint Position Check
+      CASE (DCS_JSC_Type): DCS_TempVar = DCS_TempVar+'JSC['+int2str(curdcszone)+'].' -- Joint Speed Check
+      CASE (DCS_CPC_Type): DCS_TempVar = DCS_TempVar+'CPC['+int2str(curdcszone)+'].' -- Cartestion Position Check
+      CASE (DCS_CSC_Type): DCS_TempVar = DCS_TempVar+'CSC['+int2str(curdcszone)+'].' -- Cartestion Speed Check
+    ELSE: --
+      POST_ERR(38000, 'CURDCSZONTYPE='+int2str(curdcszonTyp) +' Unknown in CfgDCSVars', 0, 0) --
+    ENDSELECT --
+
+END CfgDCSVars
+-----------------------------------------------------------------------------
+ROUTINE copyusrfiles
+-- PURPOSE: to copy the user files to the media
+-----------------------------------------------------------------------------
+BEGIN
+
+  FOR i = 1 TO ARRAY_LEN(VldtnFiles) DO
+    FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+    WRITE (CR,CR,CR,CR,CR,CR,'Saving User Files...',CR)
+    IF (VldtnFiles[i]<>'') THEN
+      WRITE (CR, 'Copying MD:'+VldtnFiles[i],' to ', usrdevicestr+VldtnFiles[i])
+      COPY_FILE('MD:'+VldtnFiles[i], usrdevicestr+VldtnFiles[i], TRUE, FALSE , status)
+        IF status <>0 THEN
+          POST_ERR(38000, 'Copy FAILED MD:'+VldtnFiles[i]+' to ' +usrdevicestr, status, 0) --
+        ELSE -- able to copy first file
+          POST_ERR(38000, 'MD:'+VldtnFiles[i]+' copied to ' +usrdevicestr, 0, 0) --
+        ENDIF
+      WRITE (CR, 'Copied MD:'+VldtnFiles[i],' to ', usrdevicestr+VldtnFiles[i],CR)
+    ENDIF
+  ENDFOR --
+
+  WRITE (CR, 'Copied User files from MD: to ', usrdevicestr)
+
+END copyusrfiles
+-----------------------------------------------------------------------------
+ROUTINE PrmptToSave
+-- PURPOSE: prpmpt user if required to save the file
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+VAR
+value_array: ARRAY [10] OF STRING [120]
+
+BEGIN
+
+  SetRegStatus(prg_prmtlctn) -- set status to prmpting user for save location
+
+IF (LogFileLoc = 'FR:') THEN
+
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER2,1) -- force the user 2 screen to display forms
+
+  IF UNINIT(usrdevicetyp) THEN
+    usrdevicetyp = 2 -- Make UD1: default device to copy to
+    usrdevicestr = 'UD1:'
+  ENDIF
+
+  REPEAT --
+  Canceldentry = FALSE
+
+  Value_array[1]= 'log_name' --
+  Value_array[2]= 'logfileloc' --
+  Value_array[3]= 'usrdevicetyp' --
+
+  Last_array = value_array --  save to look at after routine ends in case form fails for debug
+
+  all_done = FALSE
+  -- kc_f1_type to handle the TYPE key processing with custommenu[x].$option = 31 will have TYPE work No FORCE USER!
+  term_mask =  kc_item_chng + kc_f1_type + kc_func_key-- kc_f1_type + kc_func_key  --kc_other
+  term_char = -1
+    def_item = 1  -- start with menu item 1
+
+    DISCTRL_FORM('GMPT', copylogfile, value_array, inact_array, change_array, term_mask, def_item, term_char, status)
+
+      IF status<>0 THEN
+        all_done = TRUE
+        POST_ERR(38000, 'DCS_LOG copyfile Display Failed', status, 2) --
+        ABORT
+      ENDIF
+
+    SELECT (term_char) OF -- select how the form was ended or which key Cell
+      CASE(ky_new_menu):
+
+      CASE(ky_f1): --
+
+      CASE(ky_f2,ky_f2_s):  -- DONE was selected
+          SELECT (usrdevicetyp) OF --
+            CASE (1):  -- Mem Card(MC:)
+                  usrdevicestr = 'MC:'
+            CASE (2):  -- USB Disk(UD1:)
+                  usrdevicestr = 'UD1:'
+            CASE (3):  -- USB on TP (UT1:)
+                  usrdevicestr = 'UT1:'
+          ELSE: --
+            POST_ERR(38000, 'usrdevicetyp='+int2str(usrdevicetyp)+' in [GMDCSLOG] PrmptToSave routine unknown', 0, 2) --
+          ENDSELECT --
+
+          PromptUser = TRUE
+          COPY_FILE(logfileloc+log_name, usrdevicestr+log_name, TRUE, FALSE , status)
+            IF status <>0 THEN
+              POST_ERR(38000, 'Copy FAILED '+logfileloc+log_name+' to ' +usrdevicestr, status, 0) --
+              IF status = 2075 THEN -- FILE-075 No Media inserted or Detected
+                POST_ERR(38000, 'CHECK '+ usrdevicestr +' for MEDIA', status, 0) --
+              ENDIF
+              status =0-- make status 0 so will stay in display so user can address
+            ELSE -- able to copy first file
+              POST_ERR(38000, logfileloc+log_name+' copied to ' +usrdevicestr, 0, 0) --
+              -- Call routine to save all the files needed.
+              copyusrfiles -- copy user files to the device
+              all_done = TRUE
+            ENDIF
+
+      CASE(ky_f3,ky_f3_s): ---- User selected to CANCEL
+
+        all_done = TRUE
+           POST_ERR(38000, 'User Skipped Copy files to Media', 0, 0) --
+      CASE(ky_f4,ky_f4_s):
+      CASE(ky_undef):
+      ELSE: --
+    ENDSELECT   --det_term_chr OF
+
+  UNTIL ((term_char = ky_new_menu) OR (status <>0) OR (all_done = TRUE)) -- New Screen selected
+
+ENDIF -- device is not FR, so no need to copy it???
+  RETURN
+
+END PrmptToSave
+-----------------------------------------------------------------------------
+ROUTINE Get_PosName(P_Program:STRING;P_ProgLine:INTEGER):STRING
+-- PURPOSE: to find the position comment of a passed program on the passed line number
+--
+--
+-- INPUT:  Program name to open find position information
+--         Program Line number to look into to determine if a move
+--            -
+-- OUTPUT: Positional Comment, if not known, default UNKNOWN will be returned
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+TP_comment = 'UNKNOWN'
+Line_DataNum = 5 -- set default as if Linear or Joint move
+
+OPEN_TPE(P_Program, TPE_RDACC, TPE_NOREJ, OpenProg_id, status)
+  IF status<>0 THEN
+    POST_ERR(38000, 'Failed to open '+P_Program, status, 0) --
+    RETURN(TP_comment)
+  ENDIF
+
+GET_RAW_INST(OpenProg_id,P_ProgLine,line_data,status)
+  IF status=0 THEN
+    IF ((line_data[1]>200) AND (line_data[1]<255)) THEN -- is a motion command
+      SELECT (line_data[2]) OF -- check for move type
+        CASE (1,2):  -- Joint or linear
+            Line_DataNum = Line_data[5]
+        CASE (3):  -- circular need to check LD 5 for via point,LD 8 has position
+            Line_DataNum = Line_data[8]
+        CASE (6): -- ARC move
+            Line_DataNum = Line_data[5]
+      ELSE: --
+        POST_ERR(38000, 'Get_PosName routine line data[2]='+ int2str((line_data[2]))+' NOT A MOVE', status, 0) --
+      ENDSELECT --
+    ELSE
+      POST_ERR(38000, 'Get_PosName routine line data[1]='+ int2str((line_data[1]))+' NOT A MOVE', status, 0) --
+      RETURN(TP_comment)
+    ENDIF
+  ELSE -- Get raw Instruction failed
+    POST_ERR(38000, 'Failed to get RAW INST '+P_Program, status, 0) --
+    RETURN(TP_comment)
+  ENDIF
+
+GET_TPE_CMT(OpenProg_id, Line_DataNum, TP_comment, status)
+  IF status <> 0 THEN
+    POST_ERR(38000, 'Get Pos Cmnt Failed '+ P_Program +' Line#'+ int2str(P_ProgLine), status, 0) --
+    TP_comment = 'UNKNOWN'
+  ENDIF
+
+-- check String has no comma in it, it screws up Krolls stuff.
+  Remov_Comma(TP_Comment)
+
+  RETURN(TP_comment)
+END Get_PosName
+-------------------------------------------------------------------------------
+-- ROUTINE SaveData
+-- Write raw data and results to a file.
+-------------------------------------------------------------------------------
+ROUTINE Save_it
+
+
+VAR
+task_no,value_int,i  : INTEGER -- Used for
+value_str  : STRING[32] -- Used for
+BEGIN
+ task_no = 0
+ get_cur_pos -- go get current position
+
+ CfgDCSVars  -- setup the DCS variable(s) to be logged based on error
+-- make sure log is open
+    status = IO_STATUS(datalog)
+
+IF status=0 THEN
+
+  FOR i = 1 TO NumClmnsUsed DO -- go do the log of common information
+    SELECT (i) OF --
+      CASE (ProgNameClmn): -- Get the program name to log
+          log_Sys_Var('$TP_DEFPROG',StrVarType)
+      CASE (ProgLineClmn): -- go get the line number in TP file that has move on it --
+          IF Get_Sys_Var('$TP_DEFPROG',StrVarType) THEN-- returns in SVarRtrndStr
+            GET_TSK_INFO(SVarRtrndStr, task_no, TSK_LINENUM, value_int, value_str, status)
+            IF status=0 THEN
+              WRITE datalog(value_int)
+              --  go get the TP Position Number, then get the name
+              CurMoveCmnt = Get_PosName(SVarRtrndStr,Value_Int)
+            ELSE
+              WRITE datalog('Unknown LineNum')
+            ENDIF
+          ELSE
+            WRITE datalog('Unknown $TP_DEFPROG')
+          ENDIF
+      CASE (MoveNameClmn):  -- Log the Move Comment from above case select
+            WRITE datalog(CurMoveCmnt)
+
+      CASE (DateTimeClmn):  -- Log the Time
+          WRITE datalog(TimeStamp)
+
+      CASE (DistanceClmn): -- Go Get the user measurement
+          GetUserMeasr
+          WRITE datalog(LastEntrMsr,' mm')--CR
+
+      CASE (UFrameClmn):  --
+        log_Sys_Var('$MNUFRAMENUM[1]',IntVarType)
+
+      CASE (TFrameClmn):  -- get the active frame
+        log_Sys_Var('$MNUTOOLNUM[1]',IntVarType)
+
+      CASE (DCSZoneClmn):  --  DCS Zone #
+            WRITE datalog(curdcszone)
+      CASE (CommentClmn):  --  DCS Zone Comment
+        log_Sys_Var(DCS_TempVar +'$COMMENT',StrVarType)
+
+      CASE (DCSTypeClmn):  --  DCS Zone Type CPC,JPC,
+          SELECT (curdcszonTyp) OF --
+              CASE (DCS_JPC_Type): WRITE datalog('JPC')-- Joint Position Check
+              CASE (DCS_JSC_Type): WRITE datalog('JSC')-- Joint Speed Check
+              CASE (DCS_CPC_Type): WRITE datalog('CPC')-- Cartestion Position Check
+              CASE (DCS_CSC_Type): WRITE datalog('CSC')-- Cartestion Speed Check
+            ELSE: --
+              POST_ERR(38000, 'CURDCSZONTYPE='+int2str(curdcszonTyp), 0, 0) --
+            ENDSELECT --
+      CASE (DCSDsblClmn):  --  DCS Disabling Input Column
+         IF Get_Sys_Var(DCS_TempVar +'$DSBIO_TYP',IntVarType) THEN -- Used for the Disabling Input
+           zonedsblType = SVarRtrndInt
+           IF zonedsblType >0 THEN -- go get the safe input number
+             IF Get_Sys_Var(DCS_TempVar +'$DSBIO_IDX',IntVarType) THEN -- will set SVARRtrndInt used below
+               SELECT (zonedsblType) OF --
+                  CASE (0):  -- None Used
+                    WRITE datalog('None Used')
+                  CASE (DCS_SPI):--   1  Safe Position Input
+                    DCS_DisInVar = '$DCS_C_' +'SPI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SPI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SPO):--   2  Safe Position Output
+                    DCS_DisInVar = '$DCS_C_' +'SPO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SPO[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SSI):--   3  Safe System Inputs
+                    DCS_DisInVar = '$DCS_C_' +'SSI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SSI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SSO):--   4  Safe System Output
+                    DCS_DisInVar = '$DCS_C_' +'SSO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SSO[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SIR):--   5  Safe Internal Relay
+                    DCS_DisInVar = '$DCS_C_' +'SIR['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SIR[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CPC):--   6  Cartesian Position Check Status
+                    DCS_DisInVar = '$DCS_C_' +'CPC['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CPC[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CSC):--   7  Cartesian Speed Check Status
+                    DCS_DisInVar = '$DCS_C_' +'CSC['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CSC[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_JPC):--   8  Joint Position Check Status
+                    DCS_DisInVar = '$DCS_C_' +'JPC['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('JPC[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_JSC):--   9  Joint Speed Check Status
+                    DCS_DisInVar = '$DCS_C_' +'JSC['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('JSC[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CSI):--   10 CIP Saftey Input
+                    DCS_DisInVar = '$DCS_C_' +'CSI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CSI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CSO):--   11 CIP Saftey Outputs
+                    DCS_DisInVar = '$DCS_C_' +'CSO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CSO[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CCL):--   12 Configuration Change Latch
+                    DCS_DisInVar = '$DCS_C_' +'CCL['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CCL[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_CCR):--   13 Configuration Change Reset
+                    DCS_DisInVar = '$DCS_C_' +'CCR['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('CCR[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_RPI):--   14 ROBOT POWER INPUT
+                    DCS_DisInVar = '$DCS_C_' +'RPI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('RPI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_RPO):--   15 ROBOT POWER OUTPUT
+                    DCS_DisInVar = '$DCS_C_' +'RPO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('RPO[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_FSI):--   16 FL-NET SAFETY INPUT
+                    DCS_DisInVar = 'DCS_C_' +'FSI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('FSI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_FSO):--   17 FL-net Safety Output
+                    DCS_DisInVar = '$DCS_C_' +'FSO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('FSO[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SLI):--   18
+                    DCS_DisInVar = '$DCS_C_' +'SLI['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SLI[',int2str(SVarRtrndInt),']')
+                  CASE (DCS_SLO):--   19
+                    DCS_DisInVar = '$DCS_C_' +'SLO['+int2str(SVarRtrndInt)+']'
+                    WRITE datalog('SLO[',int2str(SVarRtrndInt),']')
+                ELSE: --
+                  POST_ERR(38000, 'zonedsblType='+int2str(zonedsblType)+' is UNKNOWN', 0, 0) --
+                  WRITE datalog(int2str(zonedsblType),' UNKNOWN set=0')
+                  zonedsblType = 0
+                ENDSELECT --
+              ELSE -- getting '$DSBIO_IDX' Failed
+                WRITE datalog('$DSBIO_IDX Failed')
+                zonedsblType = 0
+              ENDIF
+            ELSE -- zonedsblType = 0
+              WRITE datalog('None Used')
+            ENDIF
+          ELSE -- getting '$DSBIO_TYP' failed
+            WRITE datalog('$DSBIO_TYP Failed')
+            zonedsblType = 0
+          ENDIF
+
+      CASE (DCSDsbcClmn):  --  DCS Disabling Input COMMENT Column
+        IF zonedsblType >0 THEN
+            log_Sys_Var(DCS_DisInVar,StrVarType)
+        ELSE
+          WRITE datalog('None Used')
+        ENDIF
+
+      CASE (DCSDsbsClmn):  --  DCS Disabling Input STATE Column
+  --      log_Sys_Var(DCS_TempVar +'$DSBIO_IDX',StrVarType)
+      CASE (DCSStpTyClmn): --  DCS Zone Stop Type.
+        log_Sys_Var(DCS_TempVar +'$STOP_TYP',IntVarType)
+
+      CASE (DCSModelClmn):
+           IF (UserModlFltd = 0) THEN
+             WRITE datalog('Robot Model')
+           ELSE
+             WRITE datalog(UserModlFltd)
+           ENDIF
+      CASE (X_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.x, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (Y_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.y, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (Z_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.z, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (W_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.w, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (P_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.p, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (R_ValueClmn):  --
+          CNV_REAL_STR(curnt_pos.r, 4, 3, temp_str)
+          WRITE datalog(temp_str)
+
+      CASE (J1_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[1], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J2_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[2], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J3_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[3], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J4_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[4], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J5_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[5], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J6_ValueClmn):  --
+          CNV_REAL_STR(Cur_jpos_ary[6], 4, 3, temp_str)
+          WRITE datalog(temp_str)
+      CASE (J7_ValueClmn):  --
+          IF NOT UNINIT(Cur_Jpos_ary[7]) THEN  -- if not set not needed
+            CNV_REAL_STR(Cur_jpos_ary[7], 4, 3, temp_str)
+            WRITE datalog(temp_str)
+          ENDIF
+    ELSE: --
+
+    ENDSELECT --
+
+    WRITE datalog(',') -- index with a comma
+
+  ENDFOR --
+     WRITE datalog(CR) -- add the carriage return for next data to start at top
+ELSE
+  POST_ERR(38000, log_name+' NOT Opened to LOG', 0, 0) --
+ENDIF
+
+
+
+    -- make sure the write finished - not aborted (by user) mid write
+    finished = TRUE
+
+END Save_it
+-----------------------------------------------------------------------------
+ROUTINE findmodel
+-- PURPOSE: to find the model that tripped the current DCS Zone.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+-- Prompt the user to ENTER the "Distance to Gaurding in MM" ONLY if a CPC zone
+   UserModlFltd = 0
+
+   FOR i = 1 TO 16 DO
+     GET_VAR(entry, '*SYSTEM*' , '$DCSS_PSTAT.$USER_MODEL['+int2str(i)+']', CurUMdlValue, status)
+       IF status <> 0 THEN
+         POST_ERR(38000, '[*SYSTEM*].$DCSS_PSTAT.$USER_MODEL['+int2str(i)+'] FAILED', status, 0) --
+       ELSE
+         IF (CurUMdlValue = 1) THEN
+           UserModlFltd = i
+           RETURN
+         ENDIF
+       ENDIF
+   ENDFOR --
+
+END findmodel
+-----------------------------------------------------------------------------
+ROUTINE Is_DCS_Alarm:BOOLEAN
+-- PURPOSE:  Check the alarm, if found then it will se the variables for
+--           curdcszonTyp,i i.e. CPC,JPC,etc
+--           curdcszone - the zone in the above zone type
+-- **NOTE** finds 1st one violated, and marks that, then returns.
+-- INPUT:
+--            -
+-- OUTPUT:   TRUE or FALSE
+--            -
+-----------------------------------------------------------------------------
+VAR
+temparylnght,h,i,state:INTEGER
+
+BEGIN
+ZoneFound = FALSE
+ FOR i = 1 TO 4 DO
+
+  temp_Svar = '$DCSS_PSTAT.$STATUS_'
+  temparylnght = 0
+  SELECT (i) OF --
+    CASE (DCS_JPC_Type): temp_Svar=temp_Svar+'JPC['-- Joint Position Check
+                         temparylnght = MaxDCSJPCZns
+    CASE (DCS_JSC_Type): temp_Svar=temp_Svar+'JSC['-- Joint Speed Check
+                         temparylnght = MaxDCSJSCZns
+    CASE (DCS_CPC_Type): temp_Svar=temp_Svar+'CPC['-- Cartestion Position Check
+                         temparylnght = MaxDCSCPCZns
+    CASE (DCS_CSC_Type): temp_Svar=temp_Svar+'CSC['-- Cartestion Speed Check
+                         temparylnght = MaxDCSCSCZns
+  ELSE: --
+    POST_ERR(38000, 'CurDCSZonType ='+int2str(curdcszontyp)+' invalid in Is_DCS_Alarm Rtn', 0, 0) --
+    DELAY 1000
+    RETURN(ZoneFound)
+  ENDSELECT --
+
+   FOR h = 1 TO temparylnght DO-- add array number then check it
+     check_Svar=temp_Svar+int2str(h)+']'
+      GET_VAR(entry, '*SYSTEM*' , check_Svar, state, status)
+        IF status <> 0 THEN
+          POST_ERR(38000, '[*SYSTEM*].'+check_Svar+' FAILED', status, 2) --
+        ELSE
+          IF state=1 THEN-- current zone is violated
+            curdcszonTyp = i
+            curdcszone = h
+            ZoneFound = TRUE
+-- go find the model that tripped the zone
+            findmodel
+            RETURN(ZoneFound)
+          ENDIF
+     ENDIF
+   ENDFOR --
+ ENDFOR --
+
+  RETURN(ZoneFound)
+END Is_DCS_Alarm
+-----------------------------------------------------------------------------
+ROUTINE SetPreCheck(P_state:INTEGER)
+-- PURPOSE: to set the DCS previolation check ON or OFF based on passed arguments
+--
+--
+-- INPUT:
+--
+-----------------------------------------------------------------------------
+VAR
+action_str : STRING[8]
+
+BEGIN
+ Get_tpscrn -- Go get active screen to return back to
+
+action_str =''
+
+   GET_VAR(entry, '*SYSTEM*' , '$DCS_PRE_CHK.$MODE', cur_state, status)
+     IF status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$DCS_PRE_CHK.$MODE FAILED', status, 0) --
+     ENDIF
+
+ IF UNINIT(cur_state) THEN
+   cur_state = -1
+ ENDIF
+
+  IF (cur_state <>P_State) THEN
+    SELECT (P_state) OF --
+      CASE (0):  --Disable
+        action_str = 'DISABLE'
+      CASE (1):  -- Enable
+        action_str = 'ENABLE'
+      ELSE: --
+    ENDSELECT --
+
+    -- Force user to answer the prompt
+    title[1]= 'Confirm Cycle Power'
+    Prompt[1]= 'The GMDCSLOG program needs to cycle power to '+action_str+' DCS Previolation Checking'
+    response = db_prompt(db_ps_yesno, title[1], prompt[1], db_rc_yes)
+
+    IF UNINIT(response) THEN
+      response = db_rc_yes
+    ENDIF
+
+    Set_I_sVar('$DCS_PRE_CHK.$MODE',P_state)
+    POST_ERR(38000, 'GMDCSLOG '+action_str+'D $DCS_PRE_CHK.$MODE', 0, 0) --
+    Set_tpscrn -- Go set active screen back
+
+    IF response = db_rc_yes THEN
+      POST_ERR(38000, 'GMDCSLOG is executing RE_POWER function', 0, 0) --
+      SPRUNCMD('RE_POWER', status)
+        IF status<>0 THEN
+          POST_ERR(38000, 'GMDCSLOG failed REPOWER process', status, 0) --
+        ENDIF
+    ELSE
+      POST_ERR(38000, 'USER to cycle power MANUALLY to '+action_str+' DCS Previolation Checking', 0, 0) --
+    ENDIF
+  ELSE
+    Set_tpscrn -- Go set active screen back
+    RETURN
+  ENDIF
+
+
+END SetPreCheck
+------------------------------------------------------------------------------------------------------------------
+                                                -- MAIN --
+------------------------------------------------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(prgStaRegNum) THEN
+  prgStaRegNum = 480
+ENDIF
+
+ get_tpscrn -- Go get active screen to return back to
+
+ SetRegStatus(prg_init) -- set status to initialzation
+
+init_data  --
+
+ SetPreCheck(0) -- set variable so PRE CHECK MODE is turned OFF
+
+LOG_NAME = FileName
+
+ End_DCS_Log = FALSE --
+ CycEnded_Log = FALSE -- the cycle was ended because the Initiate was transitioned
+
+
+PURGE CONDITION[CH_PROGABORT] --CH_PROGABORT = 690 -- Used when an abort occurs for cleanup
+CONDITION[CH_PROGABORT]: --
+  WHEN (ABORT) DO --
+    NOABORT
+    PromptUser = TRUE -- Set Variable so when OPEN file occurs, user is prompted for Log Methods
+    End_DCS_Log = TRUE
+    AbortEndLog = TRUE
+  WHEN DIN[35]- DO -- On trailing edge, if this is running abort
+    End_DCS_Log = TRUE
+    CycEnded_Log = TRUE  -- start of cycle forces this code to end
+ENDCONDITION --
+
+ENABLE CONDITION[CH_PROGABORT]
+
+PURGE CONDITION[688]-- delared as CH_DCS_TRPD  = 688 in GM_CH_ID
+
+CONDITION[688]: --
+  WHEN ERROR[11402] DO -- DCS Cart Pos.
+    curdcszonTyp=DCS_CPC_Type
+  WHEN ERROR[11403] DO -- DCS Cart Speed Limit.
+    curdcszonTyp=DCS_CSC_Type
+  WHEN ERROR[11404] DO -- DCS Joint Pos.
+    curdcszonTyp=DCS_JPC_Type
+  WHEN ERROR[11405] DO -- DCS Joint Speed Limit
+    curdcszonTyp=DCS_JSC_Type
+ENDCONDITION --
+
+PURGE CONDITION[CH_PROGABORT] --CH_PROGABORT = 690 -- Used when an abort occurs for cleanup
+CONDITION[CH_PROGABORT]: --
+  WHEN (ABORT) DO --
+    NOABORT
+    PromptUser = TRUE -- Set Variable so when OPEN file occurs, user is prompted for Log Methods
+    End_DCS_Log = TRUE
+    AbortEndLog = TRUE
+  WHEN DIN[35]- DO -- On trailing edge, if this is running abort
+    End_DCS_Log = TRUE
+    CycEnded_Log = TRUE  -- start of cycle forces this code to end
+ENDCONDITION --
+
+ENABLE CONDITION[CH_PROGABORT]
+
+  IF OpenLog THEN -- Have to open the file again
+    WRITE TPERROR(CHR(cc_clear_win),'Opened ',log_name)
+  ELSE
+    POST_ERR(38000, 'Failed to Open '+log_name, status, 2) --
+  ENDIF
+End_DCS_Log = FALSE
+
+ set_tpscrn -- Go set active screen back to orginal prior to user questions
+
+REPEAT --
+
+  curdcszonTyp=0
+  ENABLE CONDITION[688]
+  SetRegStatus(prg_waitEvnt)
+
+  WHILE (curdcszonTyp=0) AND (End_DCS_Log=FALSE) DO -- Wait for CH to set "curdcszontyp"
+    DELAY 500
+  ENDWHILE --
+
+  IF (End_DCS_Log = FALSE) THEN
+    IF Is_DCS_ALARM THEN
+      -- If NEW file, prompt user for thier Name to be logged into the begining of the log
+      status = IO_STATUS(datalog) -- check file is opened from Orginal 1st open
+        IF (status <> 0) THEN-- Open File, if file does not exist, it will be created
+          IF NOT OpenFile THEN -- Have to open the file again
+            POST_ERR(38000, 'Failed to Open '+log_name, status, 2) --
+         --   WRITE TPERROR(CHR(cc_clear_win),'Opened ',log_name)
+          ENDIF
+        ENDIF
+
+        Save_it
+  --      CLOSE FILE datalog
+        --RESET(status)
+
+       -- Need to ensure the active zone is cleared, then reenable the condition monitor
+      WHILE (curdcszone>0) AND (End_DCS_Log = FALSE) DO -- OR the user aborted and has to end before clearing
+        DELAY 500
+        IF Get_Sys_Var(check_Svar,IntVarType) THEN
+          curdcszone = SVarRtrndInt -- set the var = to above returned answer when 0 will restart
+        ENDIF
+      ENDWHILE --
+    ELSE -- Not a DCS alarm?? false trip??
+      DELAY 500
+    ENDIF
+  ENDIF
+
+UNTIL (End_DCS_Log) --
+
+-- check if file is open, if so close it, if just close will post file not found
+    status = IO_STATUS(datalog)
+    IF status = 0 THEN
+      CLOSE FILE datalog
+    ENDIF
+
+PromptUser = TRUE -- Set Variable so when OPEN file occurs, user is prompted for Log Methods
+
+-- When program ends by user command, prompt user to save to device of thier choice
+ IF (PromptUser=TRUE) AND (End_DCS_Log = TRUE) THEN
+   PrmptToSave -- prmpt user to save the file
+ ELSE
+   IF (CycEnded_Log = TRUE) THEN
+     POST_ERR(38000, 'A Style Start made DCS LOG end', 0, 0) --
+   ENDIF
+ ENDIF
+
+ SetPreCheck(1) -- set variable so PRE CHECK MODE is turned back ON
+
+ -- tell user that we had to end
+ IF (AbortEndLog = TRUE) THEN
+   POST_ERR(38000, 'GMDCSLOG ended when FNCT ABORTED by User', 0, 0) --
+ ENDIF
+
+ SetRegStatus(0)-- set status to not running
+
+ set_tpscrn -- Go set active screen back to orginal prior to user questions
+
+END GMDCSLOG
+

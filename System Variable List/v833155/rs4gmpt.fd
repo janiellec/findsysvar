@@ -1,0 +1,122 @@
+/*  This material is the joint property of GMFanuc Robotics Corporation  and
+ *  FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+ *  Corporation or FANUC LTD Japan immediately upon request.  This  material
+ *  and   the  information  illustrated  or  contained  herein  may  not  be
+ *  reproduced, copied, used, or transmitted in whole or in part in any  way
+ *  without the prior written consent of both GMFanuc Robotics and FANUC.
+ *
+ *           All Rights Reserved
+ *           Copyright (C)   1995
+ *           GMFanuc Robotics Corporation
+ *           FANUC LTD Japan
+ *  +
+ *  Feature: GM RS4 Customization
+ *
+ *  Description:  This file contains those elements of SpotTool+ which
+ *  are specific for GM RS 4 Powertrain. These are then copied to a separate folder.
+ *  the intent is to have GMPWRTRN as unique folder on the media.
+ *
+ *  Source File:  rs4gmpt.fd
+ *
+ *  Author: RRK  R30iB  Update01
+ *          FANUC Robotics Corporation
+ *          3900 West Hamlin Road
+ *          Rochester Hills, Michigan, 48309-3253
+ *
+ *  Modification history:
+ *  28-MAY-2016   RRK  R30iB Version GLOBAL 4 Powertrain Specific
+ *  07-June-2016   RRK Added program names and fixed names of tmp* to tmpt*
+ *  28-November-2016   RRK Added program names and templates
+ *   4-March-2017   RRK Added program names and templates
+ *   6-August-2019  RK added AECLEAR and AEFNDNOD for auto exit
+ *  04-November-2019  RK edited AECLEAR and AEFNDNOD to always load
+ *  03-November-2020 marchaka Removed aeclear and aefndnod.  Feature is now supported in the standard product.
+*/
+name GM G4 GMPT
+order gmpt
+require spotplus
+
+/* Setup Wizard Files */
+
+
+tpp shlerhne shlerhne NOLOAD /**/
+tpp shlerhns shlerhns NOLOAD /**/
+tpp shlexit shlexit NOLOAD   /**/
+tpp shlinit shlinit NOLOAD   /**/
+tpp shlpause shlpause NOLOAD /**/
+tpp shlprere shlprere NOLOAD /**/
+tpp shlprmpt shlprmpt NOLOAD /**/
+tpp shlreset shlreset NOLOAD /**/
+tpp shlresum shlresum NOLOAD /**/
+tpp shlsafe shlsafe NOLOAD   /**/
+tpp shlstart shlstart NOLOAD /**/
+tpp shlt1t2 shlt1t1 NOLOAD   /**/
+
+tpp tmptdrop1 tmptdrop1 NOLOAD /* template Drop programs*/
+tpp tmptdrop2 tmptdrop2 NOLOAD
+tpp tmptdrop3 tmptdrop3 NOLOAD
+tpp tmptdrop4 tmptdrop4 NOLOAD
+tpp tmptdrop5 tmptdrop5 NOLOAD
+tpp tmptdrop6 tmptdrop6 NOLOAD
+tpp tmptdrop7 tmptdrop7 NOLOAD
+tpp tmptdrop8 tmptdrop8 NOLOAD
+tpp tmptdrop9 tmptdrop9 NOLOAD
+tpp tmptdrop10 tmptdrop10 NOLOAD
+
+tpp tmptpick1 tmptpick1 NOLOAD /* template pick programs*/
+tpp tmptpick2 tmptpick2 NOLOAD
+tpp tmptpick3 tmptpick3 NOLOAD
+tpp tmptpick4 tmptpick4 NOLOAD
+tpp tmptpick5 tmptpick5 NOLOAD
+tpp tmptpick6 tmptpick6 NOLOAD
+tpp tmptpick7 tmptpick7 NOLOAD
+tpp tmptpick8 tmptpick8 NOLOAD
+tpp tmptpick9 tmptpick9 NOLOAD
+tpp tmptpick10 tmptpick10 NOLOAD
+
+tpp mov_rcvy mov_rcvy NOLOAD
+tpp set_rcvy set_rcvy NOLOAD
+tpp gm_tmp50 templa50 NOLOAD
+tpp gm_tmp51 templa51 NOLOAD
+tpp test_pounce test_pounce NOLOAD
+tpp tmadcddr tmadcddr NOLOAD
+tpp tmadcdpk tmadcdpk NOLOAD
+tpp tmadrop tmadrop NOLOAD
+tpp tmapick tmapick NOLOAD
+tpp tmawash tmawash NOLOAD
+
+tpp gripsrch gripsrch NOLOAD
+tpp calcpickofst calcpickofst NOLOAD
+tpp calcplacofst calcplacofst NOLOAD
+tpp tmptpltpick1 tmptpltpick1 NOLOAD
+tpp tmptpltdrop1 tmptpltdrop1 NOLOAD
+tpp proc_circle proc_circle NOLOAD
+tpp dispns_circle dispns_circle NOLOAD
+tpp tmdwstproc1 tmdwstproc1 NOLOAD
+
+tpp tmptfstnstyl tmptfstnstyl NOLOAD
+tpp tmptfstn_1 tmptfstn_1 NOLOAD
+tpp tmptfstn_2 tmptfstn_2 NOLOAD
+tpp tmptfstn_3 tmptfstn_3 NOLOAD
+tpp tmptfstn_4 tmptfstn_4 NOLOAD
+tpp tmptfstn_5 tmptfstn_5 NOLOAD
+tpp tmptfstn_6 tmptfstn_6 NOLOAD
+tpp tmptfstn_7 tmptfstn_7 NOLOAD
+tpp tmptfstn_8 tmptfstn_8 NOLOAD
+tpp tmptfstn_9 tmptfstn_9 NOLOAD
+tpp tmptfstn_10 tmptfstn_10 NOLOAD
+
+/*RK added 10-29-18 for DCS validation for PT */
+tpp tmptdcsvldtn tmptdcsvldtn NOLOAD
+/*RK added 11-05-18 for TCP validation for PT */
+tpp alignchk alignchk NOLOAD
+
+var menu504 NOLOAD
+
+/*RK added 10-29-18 for DCS validation for PT */
+karel gmdcslog NOLOAD
+karel gmdcslogend NOLOAD
+
+
+
+

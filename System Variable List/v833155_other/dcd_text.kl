@@ -1,0 +1,27 @@
+-- DCD Template
+-- Storage area for text lines
+
+
+
+PROGRAM DCD_TEXT
+%COMMENT= 'DCD Teach Text'
+
+TYPE
+
+  
+   DCDMENU = STRUCTURE
+     TITLE : STRING[40]
+     NUMOFCHOICES: INTEGER
+     TEXT: ARRAY[20] OF STRING[40]
+   ENDSTRUCTURE
+
+VAR
+
+   DCD_USER IN SHADOW	: ARRAY[70] OF DCDMENU
+--   DCDSYSTEM IN SHADOW : ARRAY[30] OF DCDTEXT
+
+BEGIN 
+
+-- no code needed
+
+END DCD_TEXT

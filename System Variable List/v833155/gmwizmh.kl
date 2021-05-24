@@ -1,0 +1,342 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMwizmh
+--
+--    Description:
+--
+--    SWWIZMH configure the robot and loads a specific I/O file based
+--    on answers to questions asked by the robot controller to the robot user.
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+--      mh_select	-- Questions for MH
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: GMwizmh.kls
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           01/12/16  KosaskiR Change I/O to reflect new G4 Standard
+--           06/14/16  Kosaski change to vacuum on decentralized vacuum for wizard
+--           12/04/16  Kosaski changed so no USERPAGE is used and replaced with
+--                     FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+--          V4.1      2018/17/02 R.Kosaski        Removed forceing fo the user page because causing forms
+--                                                to not display
+
+-------------------------------------------------------------------------------------------------------------
+PROGRAM GMWIZMH
+-------------------------------------------------------------------------------------------------------------
+-- Softpart built-ins
+%ALPHABETIZE
+
+%NOLOCKGROUP
+%INVISIBLE
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%RWACCESS
+%COMMENT='GM MHWizard G4.1'
+
+%INCLUDE gmevrlng -- Required for the language constants
+
+
+CONST
+Version = '02-17-18 R.K.'
+%INCLUDE gmcnstnt -- used for all of the constants for GM wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  ans,i,entry  : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+  is_LPT_Setup  : BOOLEAN -- Used for if robot is an LPT setup
+
+ --load ud1: MaxNumStnds IN SHADOW : INTEGER -- Maximum number of stands based on stand types
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+-- Variables declared for Applications
+%INCLUDE gmcfgmh   -- GM wizard variables for MH Applications
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil -- Required for the many GM builting created and used throughout wizard(s)
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+
+-----------------------------------------------------------------------------
+ROUTINE MHStat_Incr
+-- PURPOSE: to increment the particular shop and MH status, so the status can be
+--          used to trouble shoot or track wizard execution.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(mfg_area) THEN
+  POST_ERR(38000, 'Man_Area set=0 in GMWIZMH', 0, 0) --
+  mfg_area = 0
+ENDIF
+IF UNINIT(MH_Status.Cnfg_Status) THEN
+  MH_Status.Cnfg_Status = 0
+ENDIF
+IF UNINIT(Press_Status.Cnfg_Status) THEN
+  Press_Status.Cnfg_Status = 0
+ENDIF
+IF UNINIT(GMPT_Status.Cnfg_Status) THEN
+  GMPT_Status.Cnfg_Status = 0
+ENDIF
+
+-- Each shop should take care of their loading requirements
+  SELECT mfg_area OF -- Increment the status based on Shop
+    CASE(mfg_area_bs): -- Body Shop
+
+    CASE(mfg_area_ps): -- Press Shop
+      Press_Status.Cnfg_Status = Press_Status.Cnfg_Status + 1 -- user answered another question
+    CASE(mfg_area_pt): -- Powertrain Shop
+      GMPT_Status.Cnfg_Status = GMPT_Status.Cnfg_Status + 1  -- user answered another question
+    CASE(mfg_area_pn): -- Paint Shop
+  ELSE:
+    POST_ERR(38000, 'MFG_AREA '+int2str(mfg_area)+' INVALID in MHSTAT_Incr routine in GMWIZMH', 0, 0) --
+  ENDSELECT
+
+  MH_Status.Cnfg_Status = MH_Status.Cnfg_Status + 1  -- user answered another question
+
+END MHStat_Incr
+
+------------------------------------------------------------------
+ROUTINE mh_app_wiz
+-------------------------------------------------------------------
+-- Material Handling I/O block selection for pedestal type       --
+-------------------------------------------------------------------
+VAR
+
+  l_status     : INTEGER
+  l_i          : INTEGER
+  l_vmade_strt : INTEGER
+  l_psve       : INTEGER
+  l_dummy      : INTEGER
+  l_numcups    : INTEGER
+
+BEGIN
+
+$ap_selap[4] = TRUE  -- MH
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(EOATCommType) THEN --set hook for multiple communications
+  EOATCommType = Ethernet -- set it to 89
+ENDIF
+
+IF (UNINIT(NumEOATOtMan)) OR (RESET_CELL) THEN
+  NumEOATOtMan = 0
+ENDIF
+
+IF (UNINIT(NumEOATInBlk)) OR (RESET_CELL) THEN
+  NumEOATInBlk = 0
+ENDIF
+
+IF (UNINIT(Use_Vacuum)) OR (RESET_CELL) THEN
+  Use_Vacuum = FALSE
+ENDIF
+
+IF (UNINIT(Decnt_Vacuum)) OR (RESET_CELL) THEN
+  Decnt_Vacuum = FALSE
+ENDIF
+
+--**********************************************************************
+--- Prompt User for the Number of Valve Packs to be mapped by the robot
+--**********************************************************************
+  -- Check for Output valve pack
+
+ Use_MH_Tool = TRUE --- set so MH grip is avaialbe for installing variables
+
+ --set_english  -- set curent language
+
+ MH_Status.Cnfg_Status = 0 -- zero until start of MH questions
+
+-- 12-3-16 RK added for if ran and not on user screen, looks like code is hung
+-- RK 2-17-18  IF ($TP_INUSER=FALSE) THEN
+--    FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+--  ENDIF
+-- 12-3-16 end of RK changes
+
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+
+    WRITE(cr,mhq1_gmdata,'?',cr,cr)     --(cr,'Select Number of Material Handling',cr)
+    IF mfg_area = mfg_area_ps THEN -- Add special text for press users
+      WRITE('1.' ,m1vp_gmdata,'(Venturi Vac)' ,cr)
+    ELSE
+      WRITE('1.' ,m1vp_gmdata ,cr)        --('Output Valve Packs?',cr,cr)
+    ENDIF
+    WRITE('2.' ,m2vp_gmdata ,cr)        -- 1. 1 Valve Pack
+    WRITE('3.' ,m3vp_gmdata ,cr)        -- 2. 2 Valve Packs
+  --  IF wiz_add = FALSE THEN           -- 3. 3 Valve Packs
+      WRITE('4. ',nonegmdata , cr,cr)   -- 4. None
+  --  ELSE                              -- 4. No Additions
+  --    WRITE('4.',add12_gmdata,cr,cr)
+  --  ENDIF
+      WRITE(gdata_ans,': ')
+    READ(ans)
+
+  UNTIL (Verify_Answr(Ans,1,4))-- Verify Answer is between 1&3
+  IF (Ans<4) THEN
+    NumEOATOtMan = Ans  -- Answered Verified Saved to wizard
+  ENDIF
+
+  MH_Status.Cnfg_Is_Done = FALSE
+
+  MHStat_Incr -- Set stage to one
+
+--**********************************************************************
+--- Prompt User for the Number of Input Blocks to be mapped by the robot
+--**********************************************************************
+  -- Check for Input Blocks packs
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+
+    WRITE(cr,mhq2_gmdata,'?',cr,cr)    -- Select Number of MH Input Blocks?
+    WRITE('1.', m1ib_gmdata,cr)        -- 1. 1 Input Block
+    WRITE('2.', m2ib_gmdata,cr)        -- 2. 2 Input Blocks
+    WRITE('3.', m3ib_gmdata,cr)        -- 3. 3 Input Blocks
+    WRITE('4.', m4ib_gmdata,cr)        -- 4. 4 Input Blocks
+  --  IF wiz_add = FALSE THEN          -- 5. No Input Blocks
+      WRITE('5.',mnoibgmdata,cr,cr)    -- 5. No Additions
+  --  ELSE
+  --    WRITE('0.',add12_gmdata,cr,cr)
+  --  ENDIF
+    WRITE(gdata_ans,': ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,1,5))-- Verify Answer is between 0&4
+  IF Ans<5 THEN
+    NumEOATInBlk = Ans
+  ENDIF
+
+  MHStat_Incr -- increment stage of wizard
+
+--**********************************************************************
+--- Prompt User for the Vacuum Configuration to be mapped by the robot
+--**********************************************************************
+GET_VAR(entry, 'GMCFGPRS' , 'LPT', is_LPT_Setup, gm_status)-- go get variable value
+  IF ((gm_status <> 0) AND (gm_status<>12311)) THEN -- Uninitialized set to FALSE
+    POST_ERR(38000, '[GMCFGPRS]LPT FAILED', gm_status, 0) --
+  ENDIF
+
+IF UNINIT(is_LPT_Setup) THEN
+  is_LPT_Setup = FALSE
+  Set_B_PVar('GMCFGPRS','LPT',is_LPT_Setup)-- had to set it for other programs
+ENDIF
+
+IF (mfg_area <> mfg_area_ps) THEN -- LPT Lloyd Steed wants no Vacuum, it always gets it
+  -- Vacuum Configuration
+  REPEAT
+    CLR_STND_SCR(gm_status)
+
+    WRITE(cr,mhq3_gmdata,'?',cr,cr) -- Do you have Vacuum Pump
+    WRITE('1.',yes_gmdata,cr)       -- Option?
+    WRITE('2.',no_gmdata,cr,cr)     -- 1. Yes
+    WRITE(gdata_ans,'(1-2):')       -- 2. No
+    read(ans)                       -- Answer:
+  UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+
+ELSE -- is force vacuum per Lloyd for all press shop robots
+  ans = 1
+ENDIF
+
+  IF ans = 1 THEN
+    Use_Vacuum = TRUE
+  ELSE
+    Use_Vacuum = FALSE
+  ENDIF
+
+  MHStat_Incr -- increment stage of wizard
+
+  IF Use_Vacuum THEN
+    -- 6-30-16 R Kosaski Dont ask vacuum Questions for press shop
+
+    IF (mfg_area <> mfg_area_ps) THEN  -- Per L Steed NO need to ask this question on Press
+      REPEAT  -- user selected vacuum prompt
+        CLR_STND_SCR(gm_status)
+
+        WRITE(cr,mhq4_gmdata,'?',cr,cr)   -- Select Number of Vacuum Pumps?
+        WRITE('1.',m1vac_gmdata,cr)       -- 1. 1 Vacuum Pump
+        WRITE('2.',m2vac_gmdata,cr)       -- 2. 2 Vacuum Pumps
+        WRITE('3.',m3vac_gmdata,cr)       -- 3. No Vacuum Pump Decentralized
+    --    IF wiz_add = FALSE THEN         -- 4. No Additions
+          WRITE('4. ',nonegmdata,cr,cr)
+    --    ELSE
+    --      WRITE('4.',add12_gmdata,cr,cr)
+    --    ENDIF
+        WRITE(gdata_ans,': ')
+        READ(ans)
+      UNTIL (Verify_Answr(Ans,1,4))-- Verify Answer
+
+    ELSE -- Press shop
+      ans = 4
+      Decnt_Vacuum = FALSE
+      VacPumpType = 0
+    ENDIF -- endif for if press is mfg_area
+
+    -- IF Ans>2 THEN -- Said no Pumps after said had pumps????
+     --  Use_Vacuum = FALSE
+     --  VacPumpType = 3
+   --  ELSE
+       IF Ans=3 THEN -- set decentralized vacuum
+         Decnt_Vacuum = TRUE
+       ENDIF
+       IF Ans<4 THEN -- 4=no additions so save the current answer from before
+         VacPumpType = Ans  -- setup #pumps this is
+       ELSE
+         IF UNINIT(VacPumpType) THEN -- set to zero incase user says no additions on first run
+           VacPumpType = 0
+         ENDIF
+       ENDIF
+  --   ENDIF
+   ENDIF
+
+  MHStat_Incr -- increment stage of wizard
+
+  MH_Status.Cnfg_Status = 0
+  MH_Status.Cnfg_Is_Done = TRUE
+
+END mh_app_wiz
+-------------------------------------------------------------------
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+ mh_app_wiz
+
+END GMWIZMH
+
+

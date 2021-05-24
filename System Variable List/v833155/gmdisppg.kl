@@ -1,0 +1,285 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMDISPPG.KL
+--   TITLE:          GMDISPPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Dispense Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Program file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/09/01 marchaka Replaced define_macro commands with Setup_Macro
+--                             from gmutility, define_macro fails in FRVRC sometimes
+--         2016/09/23 marchaka Set $tp_defprog to a default TP program, will prevent
+--                             inability to load TP programs because it was active on 
+--			       the TP
+--         2016/11/15 marchaka Add paint dispense
+--         2016/11/28 marchaka Add new teach pendant programs.  Remove loading
+--                             gm_tmp18, 19, 27, and 28.
+--         2017/03/26 marchaka Remove RST_FLT15.tp from loading.  Add sxxdcds2.tp.
+--         2018/09/07 schoensm V8.33P06 updates
+--         2020/10/30 schoensm V8.33P10 update for areadata.tp, write protect issue.
+--
+--------------------------------------------------------------------------
+PROGRAM GMDISPPG
+
+%COMMENT = 'GM Dispense V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common to all shops
+%INCLUDE gmcfgbdy  -- GM body shop wizard variables
+%INCLUDE gmcfgpwr  -- has GM powertrain variable settings for configuration
+%INCLUDE gmcfgpnt  -- Contains GM PaintShop configuration settings.
+%INCLUDE gmcfgdsp  -- All dispense variables for wizard setup
+%INCLUDE gmcfgvis  -- All vision variables for wizard setup
+%INCLUDE gm_var    --GM variables
+
+CONST
+Version = '2020-10-30'
+%INCLUDE gmcnstnt  -- Used for all wizard constants
+
+VAR
+  gm_status:  INTEGER
+  Prog_nam : STRING[16]
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines 
+
+-----------------------------------------------------------------------------
+ROUTINE initDISPPRGS
+-- PURPOSE: to initialize Dispense Programs associated with Dispense setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_sVar('$TP_DEFPROG', 'PROMPTYN')
+  Set_S_sVar('$SHELL_WRK.$ROUT_NAME', '')
+
+END initDISPPRGS
+-----------------------------------------------------------------------------
+ROUTINE load_disp_pg
+-- PURPOSE: Load dispense programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  -- Set BG Logic programs to nothing
+  Set_S_sVar('$MIX_BG[2].$PROG_NAME', '')
+  Set_I_sVar('$Mix_BG[2].$STATUS',1)
+  Set_S_sVar('$MIX_BG[3].$PROG_NAME', '')
+  Set_I_sVar('$Mix_BG[3].$STATUS',1) 
+
+  -- load common dispense programs
+  Load_File('FRS:', 'templa04.tp',1)
+  Load_File('FRS:', 'templa12.tp',1)
+  Load_File('FRS:', 'templa13.tp',1)
+  Load_File('FRS:', 'templa14.tp',1)
+  Load_File('FRS:', 'templa15.tp',1)
+  Load_File('FRS:', 'templa22.tp',1)
+  Load_File('FRS:', 'templa31.tp',1)
+  Load_File('FRS:', 'area_dc.tp',1)
+  Load_File('FRS:', 'areadata.tp',1)
+  Load_File('FRS:', 'areastrt.tp',1)
+  Load_File('FRS:', 'chkrfill.tp',1)
+  Load_File('FRS:', 'part_id.tp',1)
+  Load_File('FRS:', 'qsquirt.tp',1)
+  Load_File('FRS:', 'totaldta.tp',1)
+  Load_File('FRS:', 'total_dc.tp',1)
+  Load_File('FRS:', 'sxx_show.tp',1)
+  Load_File('FRS:', 'sxxdropx.tp',1)
+  Load_File('FRS:', 'sxxdcds1.tp',1)
+  Load_File('FRS:', 'sxxdcdsx.tp',1)
+  Load_File('FRS:', 'sxxcamchk.tp',1)
+  Load_File('FRS:', 'sxxcamtop1.tp',1)
+  Load_File('FRS:', 'sxxcamxprx.tp',1)
+  Load_File('FRS:', 'sxxdcdeopik.tp',1)
+  Load_File('FRS:', 'log_err.pc',1)
+  Load_File('FRS:','quiksqrt.pc',1)
+  Load_File('FRS:','qsquirt.tp',1)
+
+IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND ((bshop_proc1 = dispappl) OR (Use_Dispense) OR (pnt_dsp_used)))) THEN
+  Load_File('FRS:', 'slcstm1.pc',1)   
+  Load_File('FRS:', 'post29.TP',1)  
+  Load_File('FRS:', 'purge_1.tp',1)
+  Load_File('FRS:', 'purge_e1.tp',1)  
+  Load_File('FRS:', 'rmtstrt1.tp',1) 
+  Load_File('FRS:', 'rs_prge1.tp',1)  
+  Load_File('FRS:', 'tmdproc1.tp',1)
+  Load_File('FRS:', 'tmdproc1_1vol.tp',1)
+  Load_File('FRS:', 'ltsprge1.tp',1) 
+  Load_File('FRS:', 'sxxrspr1.tp',1)
+  Load_File('FRS:', 'sxxbypproc1.tp',1)
+  Load_File('FRS:', 'sxxshow1.tp',1)
+  --If Eq1 is 2K, add for V8.33P06
+  IF DISPAPP[1].ispare1 = disp_2k THEN
+    Load_File('FRS:', 'purge_bkg1.tp',1)  
+    --BG tasks are normally set in GMDISPVR, had to move because it would not accept run mode
+    Set_S_sVar('$MIX_BG[2].$PROG_NAME', 'purge_bkg1')   
+    Set_I_sVar('$MIX_BG[2].$MODE', 2)   
+    Set_I_sVar('$MIX_BG[2].$STATUS', 2)   
+  ENDIF
+ENDIF
+ 
+IF ((numdispctrl = 2) OR ((numdispctrl = 1) AND (bshop_proc2 = dispappl))) THEN  
+  Load_File('FRS:', 'post30.TP',1)
+  Load_File('FRS:', 'purge_2.tp',1)
+  Load_File('FRS:', 'purge_e2.tp',1)  
+  Load_File('FRS:', 'rmtstrt2.tp',1) 
+  Load_File('FRS:', 'rs_prge2.tp',1)
+  Load_File('FRS:', 'tmdproc2.tp',1)
+  Load_File('FRS:', 'tmdproc2_1vol.tp',1)
+  Load_File('FRS:', 'ltsprge2.tp',1)
+  Load_File('FRS:', 'sxxrspr2.tp',1)
+  Load_File('FRS:', 'sxxdcds2.tp',1)
+  Load_File('FRS:', 'sxxbypproc2.tp',1)
+  Load_File('FRS:', 'sxxshow2.tp',1) 
+  --If Eq2 is 2K, add for V8.33P06  
+  IF (((numdispctrl = 2) AND (dispapp[2].ispare1 = disp_2k)) OR ((numdispctrl =1) AND (bshop_proc2 = dispappl) AND (dispapp[1].ispare1 = disp_2k))) THEN
+    Load_File('FRS:', 'purge_bkg2.tp',1)
+    --BG tasks are normally set in GMDISPVR, had to move because it would not accept run mode
+    Set_S_sVar('$MIX_BG[3].$PROG_NAME', 'purge_bkg2')   
+    Set_I_sVar('$MIX_BG[3].$MODE', 2)   
+    Set_I_sVar('$MIX_BG[3].$STATUS', 2) 
+  ENDIF 
+ENDIF
+
+END load_disp_pg
+-----------------------------------------------------------------------------
+ROUTINE disp_stytb
+-- PURPOSE: Setup style talbe for dispense application
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_sVar('$style_comnt[29]','PURGE_E1')
+  Set_S_sVar('$style_name[29]', 'PURGE_E1') 
+  Set_S_sVar('$style_comnt[30]','PURGE_E2')
+  Set_S_sVar('$style_name[30]','PURGE_E2')
+
+END disp_stytb
+-----------------------------------------------------------------------------
+ROUTINE set_dispmac
+-- PURPOSE: set_dispmac
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+ 
+  LOAD('FRS:total_dc.tp',1,gm_status)
+  Setup_Macro(11, 'TOTAL DISP COMP', 'total_dc', 1,0,TRUE)
+  LOAD('FRS:areastrt.tp',1,gm_status)
+  Setup_Macro(13, 'AREA START', 'areastrt', 1,0,TRUE)      
+  LOAD('FRS:area_dc.tp',1,gm_status)
+  Setup_Macro(14, 'AREA COMPLETE', 'area_dc', 1,0,TRUE)
+
+  --V833P10 10-30-2020 schoensm
+  prog_nam = 'areadata'
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+  CLEAR('AREADATA', gm_status)
+  Set_I_sVar('$MACROTABLE[15].$SYS_LEV_MSK', 0)
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+  Load_File('FRS:','AREADATA.TP',1) -- Must relaod standard macro
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 2, prog_nam, gm_status)
+  Setup_Macro(15,  'SEND DISP DATA' ,   'AREADATA', 1, 0,TRUE)
+  Set_I_sVar('$MACROTABLE[15].$SYS_LEV_MSK', 3)
+
+  LOAD('FRS:totaldta.tp',1,gm_status)
+  Setup_Macro(16, 'SEND DISP TOTAL', 'totaldta', 1,0,TRUE)
+  LOAD('FRS:qsquirt.tp',1,gm_status)
+  Setup_Macro(17, 'Quik Squirt Gun', 'qsquirt', 3,1,FALSE)
+
+
+END set_dispmac
+-----------------------------------------------------------------------------
+ROUTINE set_disp_pg
+-- PURPOSE: Setup and load dispense programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numdispctrl <> 0) THEN --application has dispense
+
+  initDISPPRGS
+  load_disp_pg
+  disp_stytb
+  set_dispmac
+
+  WRITE TPERROR(CHR(cc_clear_win),'GMDISPPG Setup Succesfully')
+  DELAY 600
+
+ENDIF
+
+END set_disp_pg
+-----------------------------------------------------------------------------
+BEGIN
+END GMDISPPG
+
+
+

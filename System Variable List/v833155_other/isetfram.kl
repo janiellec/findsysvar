@@ -1,0 +1,137 @@
+-- 
+--    This material is the joint property of GMFanuc Robotics Corporation  and 
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics 
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material 
+--    and   the  information  illustrated  or  contained  herein  may  not  be 
+--    reproduced, copied, used, or transmitted in whole or in part in any  way 
+--    without the prior written consent of both GMFanuc Robotics and FANUC. 
+--     
+--             All Rights Reserved 
+--             Copyright (C)  1994 
+--             GMFanuc Robotics Corporation 
+--             FANUC LTD Japan 
+--     
+--             Karel is a registered trademark of 
+--             GMFanuc Robotics Corporation 
+-- 
+--    Program:  ISETFRAME 
+--     
+--    Description: 
+-- 
+--    Language:  KAREL 
+--     
+--    Source File:  
+--     
+--    Author: David R. Friedeman 
+--            Fanuc Robotics Corporation
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan 48309-3253
+--     
+--    Modification history: 
+--
+--  04/27/18 FRIEDEMAN Created for GM G4.
+--
+-----------------------------------------------------------------------------
+
+PROGRAM isetfram 
+ 
+%RWACCESS 
+%ENVIRONMENT flbt 
+%ENVIRONMENT sysdef 
+%ENVIRONMENT regope 
+%ENVIRONMENT cvis
+%STACKSIZE = 1000
+%NOLOCKGROUP 
+--%COMMENT = 'Set Vision Frame'  -- 16 Characters max
+%COMMENT='ISETFRAM V833/03'
+
+%INCLUDE gmpntcon
+%INCLUDE etdccust
+
+VAR 
+%INCLUDE gmpntvar
+  cell_frame, 
+  offset        : POSITION 
+  cell_frm_num  : INTEGER 
+  reg_status    : INTEGER 
+  real_value    : REAL 
+  real_flag     : BOOLEAN 
+  vis_reg_num   : INTEGER
+  disabl_offst  : BOOLEAN
+  offset_xyz    : XYZWPR
+
+  ofst_tol_xyz : REAL
+  ofst_tol_wpr : REAL
+
+  vis_status IN CMOS FROM fpvisloc : INTEGER -- Vision status flag 
+
+  ROUTINE check_port( p_io_type, p_index : INTEGER): BOOLEAN FROM pntutils
+
+------------------------------------------------------------------------------
+ROUTINE get_real_reg(l_reg_num:INTEGER):REAL -- gets real values of registers
+------------------------------------------------------------------------------
+VAR
+  l_real_flag : BOOLEAN
+  l_int_val   : INTEGER
+  l_real_val  : REAL
+  l_status    : INTEGER
+
+BEGIN
+  GET_REG(l_reg_num, l_real_flag, l_int_val, l_real_val, l_status)
+  IF l_status <> 0 THEN
+    -- WRITE (CR,'BAD DATA FOR REG ',l_reg_num) 
+    RETURN(99999)
+  ENDIF
+  IF NOT l_real_flag THEN
+    l_real_val = l_int_val
+  ENDIF
+  RETURN(l_real_val)
+END get_real_reg
+
+
+
+BEGIN 
+
+  DELAY 75
+
+  disabl_offst = FALSE
+
+  IF check_port(di_ghost_t,di_ghost_i) THEN  
+    IF (DIN[di_ghost_i] = TRUE) THEN      
+      disabl_offst = TRUE
+      offset = $MOR_GRP[1].$NILPOS
+    ENDIF
+  ENDIF					    
+
+  IF (disabl_offst = FALSE) THEN
+    vis_reg_num = 1
+    vreg_offset(vis_reg_num,OFFSET_REG, reg_status)
+    -- Get the part offset from the position register.
+    offset = GET_POS_REG(OFFSET_REG, reg_status)
+  ENDIF
+
+  offset_xyz = offset
+
+  -- Get the Offset Tolerance register values and compare them to the
+  -- actual offsets. Data could be REAL or INTEGER.  Use Real data type.
+
+  ofst_tol_xyz = get_real_reg(V_XYZTOL_REG)
+  ofst_tol_wpr = get_real_reg(V_WPRTOL_REG)
+
+  IF (ABS(offset_xyz.x) > ofst_tol_xyz) OR
+     (ABS(offset_xyz.y) > ofst_tol_xyz) OR
+     (ABS(offset_xyz.z) > ofst_tol_xyz) OR
+     (ABS(offset_xyz.w) > ofst_tol_wpr) OR
+     (ABS(offset_xyz.p) > ofst_tol_wpr) OR
+     (ABS(offset_xyz.r) > ofst_tol_wpr) THEN
+    -- Don't adjust the frame if there was an offset tolerance error.
+    SET_INT_REG(VIS_PROC_OK,0,reg_status) -- Set the flag for the TP program    
+    POST_ERR(ER3DLOFSTTOL,'',0,ER_PAUSE)
+    DELAY 200
+  ELSE
+    -- Okay...
+    -- Adjust the UFRAME to include the vision offsets.
+    $MNUFRAME[1,1] = $MNUFRAME[1,2] : offset
+  ENDIF
+
+END isetfram

@@ -1,0 +1,193 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASR.KL
+--   TITLE:          GMLASR PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.1   2018/03/19 marchaka         Add call to second laser I/O setup program
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlasr
+
+%COMMENT = 'GM Laser V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgerr --GM wizard error logging
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfglas --GM laser wizard variables
+
+
+CONST
+
+  Version = '2018-03-19'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  ArcLs_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup arc tool at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE set_las_var FROM gmlasvr
+ROUTINE set_las_io FROM gmlasio
+ROUTINE set_las_pg FROM gmlaspg
+ROUTINE set_las_reg FROM gmlasrg
+ROUTINE set_las_io2 FROM gmlasio2
+-----------------------------------------------------------------------------
+ROUTINE init_lsr_set
+-- PURPOSE: to initialize variables for laser setup 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END init_lsr_set
+-----------------------------------------------------------------------------
+ROUTINE set_lasr_app
+-- PURPOSE: configure laser applications 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (chk_loaded('gmlaspg')) THEN --do programs before I/O and VAR due to I/O and VAR Karel variable setting in gm_interupt
+    set_las_pg  --laser app programs
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmlasvr')) THEN
+    set_las_var  --laser app variables
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmlasio')) THEN
+    set_las_io  --laser app I/O
+    set_las_io2 --laser app I/O setup program 2
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+  IF (chk_loaded('gmlasrg')) THEN
+    set_las_reg  --laser app registers
+  ELSE
+    ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms+1 
+  ENDIF
+
+END set_lasr_app
+-----------------------------------------------------------------------------
+ROUTINE set_lsr_cfg
+-- PURPOSE: setup laser robot
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (laser_app = wizans_yes) THEN --process has a laser applciation
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(ArcLs_Setup) OR (Reset_Cell) THEN
+    ArcLs_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser Program GMLASR', FALSE)
+
+  IF (ArcLs_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser Already Setup', FALSE)
+    IF ExecSetupAgn('Laser') THEN -- ask user if they want to setup again
+      ArcLs_Setup = FALSE
+    ELSE
+      WriteLog('  Laser already Complete', FALSE)
+      WriteLog('  GMLASR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_lsr_set
+  set_lasr_app
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Laser Setup GMLASR had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser Setup completed', FALSE)
+    ArcLs_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --laser application
+
+END set_lsr_cfg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlasr

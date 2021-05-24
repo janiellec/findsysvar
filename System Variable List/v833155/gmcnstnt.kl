@@ -1,0 +1,256 @@
+-- this file contains the constants for GM customization
+-- 10-7-16 (pgs) is created date please change the date if you make any changes
+%INCLUDE GM_CH_ID
+
+  SYS_VAR = '*system*'
+  TPFDEF  = 'tpfdef'
+
+  --Language
+  wiz_lang_eg = 1  --English
+  wiz_lang_sp = 2  --Spanish
+  wiz_lang_gm = 3  --German
+
+  --Wizard Main Menu
+  wiz_sel_lng  = 1 --Select Language
+  wiz_disp_cfg = 2 --Display Current Robot Configuration
+  wiz_run_set  = 3 --Run Robot Configuration Tool
+  wiz_load_cfg = 4 --Load Robot Configuration from File
+  wiz_misctool = 5 --Miscellaneous Tools
+  wiz_exit     = 6 --Exit the Wizard
+
+  --Miscellaneous Tools
+  wiz_idnsopt  = 1 --IDNS Safety Options
+  wiz_clr_cfg  = 2 --Clear Config
+  wiz_stndalne = 3 --Standalone Single Configuration
+  wiz_addprog  = 4 --Additional Programs and Templates
+  wiz_swgsetup = 5 --Additional Servo Gun App Setup
+
+  --IDNS Safety Menu
+  menu_extio = 1 --External I/O Interlock Hardware menu
+
+  --External I/O Interlock Hardware Relay
+  enb_extioinl = 1 --Enable external I/O interlock hardware
+  dsb_extioinl = 2 --Disable external I/O interlock hardware
+  extio_enbld  = 1 --External I/O interlock hardware is enabled
+  extio_dsbld  = 2 --External I/O interlock hardware is disabled
+
+  --Stand Alone Configs Menu
+  laser_grind  = 1 --PCorp Laser Grind
+  laser_clean  = 2 --PCorp Laser Clean
+  laser_debur  = 3 --PCorp Laser Debur
+  servo_brush  = 4 --Fanuc Servo Brush
+  spot_plasma  = 5 --SBI Spot Plasma
+  bodychasmarg = 6 --Body Chassis Marriage
+
+  --Additional Programs and Templates Menu
+  mh_seekfind  = 1 --MH Seek and Find
+  qck_clsgrp   = 2 --Quick Close Grip
+
+  --Additional Servo Gun Setup Menu
+  gunchng_set = 1 --Gun Change Setup
+  set_motor = 1 --Servo Gun Motor Setup
+  set_guntip = 2 --Gun and Tipdress Setup
+
+  --General
+  wizans_yes = 1   --Answer to question is yes
+  wizans_no  = 2   --Answer to question is no
+  menu_1     = 1
+  menu_2     = 2
+  menu_3     = 3
+
+  --Manufacturing Area
+  mfg_area_bs = 1  --Bodyshop
+  mfg_area_ps = 2  --Press shop
+  mfg_area_pt = 3  --Powertrain
+  mfg_area_pn = 4  --Paint shop
+
+  --Body Shop Applications
+  spotappl = 1     --Spotweld application
+  dispappl = 4	   --Dispense application
+  studappl = 3	   --Studweld application
+  projappl = 2	   --Project weld application
+  sprappl  = 5	   --Self-pierce rivet application
+  fdsappl  = 7     --Flow drill screw application
+  dimpappl = 6     -- dimpler
+
+  spot_spot  = 1    -- Dual Processes
+  spot_projw = 2
+  spot_stud  = 3
+  spot_disp  = 4
+  spot_spr   = 5
+  stud_disp  = 6
+  stud_spr   = 7
+  projw_stud  = 10
+  projw_disp  = 11
+  projw_dimp  = 12
+  disp_disp  = 13
+  disp_spr   = 14
+  spr_spr    = 15
+
+
+  --Spot Application
+  n_to_kgf   = 0.101971621  -- Newtons to Kgf
+  max_spot_eq = 2
+
+  --Weld controller 1 application
+  wld1app_cg    = 1  --Carried spot gun
+  wld1app_pg    = 2  --Single pedestal gun
+  wld1app_spdg  = 3  --Single pedestal dual gun
+  wld1app_dpsg  = 4  --Dual pedestal single gun each
+  wld1app_cgmh  = 5  --Robot held gun with material handler
+  wld1app_snut  = 6  --Robot Held Servo Nut Welder
+
+  --Air Gun
+  ag_eurovlv    = 1  --Air gun Euro Double Acting Valves
+  ag_NA_vlv     = 2  --Air gun North American Valves
+
+  --Weld controller 2 application
+  wld2app_spdg  = 1  --Single pedestal dual gun
+  wld2app_dpsg  = 2  --Dual pedestal single gun each
+  wld2app_cgpg  = 3  --Robot held gun and pedestal gun
+
+  --Servo Gun Motor Type
+  tol_sw44      = 1  --Tol SW44
+  tol_HT23      = 2  --Tol HT23
+  gswa_201_202  = 3  --GSWA 201/202-Aro 3G
+  gswa_101      = 4  --GSWA 101-Tol
+  gswa_ima44    = 5  --GSWA 102/103/202/IMA44-Tol
+  gswa_ima33    = 6  --GSWA 201/301/302/IMA33-Tol
+  fac_4000      = 7  --FANUC ACa8/4000iS-40A/80A
+
+  --FANUC Servo Gun Motor Types
+  fac_4000_40   = 1  --FANUC ACa8/4000iS-40A
+  fac_4000_80   = 2  --FANUC ACa8/4000iS-80A
+
+  --Servo Gun C or X Gun
+  srvo_cgun    = 1   --C gun
+  srvo_xgun    = 2   --X gun
+
+  --Spot application
+  --Cap changer
+  cap_rbtmov   = 1   --robot moving
+  cap_rbtstatn = 2   --robot stationary
+  cap_srvcombo = 3   --servo combo cap changer/dresser
+ 
+  --Dispense controller 1 application
+  disp1_rhn   = 1 --robot held nozzle
+  disp1_phn   = 2 --pedestal held nozzle
+  disp1_rhnmh = 3 --robot held nozzle w/ material handler
+
+  --Dispense controller 2 application
+  disp2_rhdn   = 1 --robot held dual nozzle
+  disp2_dptsn  = 2 --dual ped: two single nozzle
+  disp2_rhphn  = 3 --robot held & pedestal held nozzle
+
+ --Dispense controller 1 equipment type
+  disp_eq_hts  = 1  --HTS ASC5000
+  disp_eq_mts  = 2  --MTS SYS/300/6000/3000
+  disp_eq_lts  = 3  --LTS Gun ON/OFF
+
+  --Dispenser Type 1K/2K
+  disp_1K     = 1  --1K System
+  disp_2K     = 2  --2K System
+  disp_0K     = 0  --NoK System, shouldn't happen
+
+  --Dispense controller dozer type
+  disp_dzr80  = 1  --80cc dozer
+  disp_dzr160 = 2  --160cc dozer
+  disp_dzrnon = 3  --no settings
+  Max_disp_eq = 2  -- Used for how many dispensers are supported currently 2, 3-24-16
+
+  --(CR, 'One Stud Controller',cr,cr)
+  stud_rhg  = 1  --('1. Robot Held Gun',cr)
+  stud_phg  = 2  --('2. Pedestal Held Gun',cr)
+  stud_spdg = 3  --('3. Single Pedestal with Dual Guns',cr)
+  stud_3pg  = 4  --('4. Three Pedestal Guns',cr)
+  stud_4pg  = 5  --('5. Four Pedestal Guns ',cr,cr)
+
+  --Tool Nests for Stud
+  stud_1gunsld = 1 --Single Gun on Slide
+  stud_2gunsld = 2 --Two Guns on the Same Slide
+
+  --SPR Applicatin Constants
+  spr_rhg = 1 --Robot Held Gun
+  spr_phg = 2 --Pedestal Held Gun
+
+  --SPR Controller 2 Application Constants
+  spr_2phg = 1 --2 Pedestal Held Guns
+
+  --Projection Welding Application Constants
+  --application
+  pjw1app_cg    = 1  --Carried spot gun
+  pjw1app_pg    = 2  --Single pedestal gun
+  --controller type
+  pjw_wtc = 1 --WTC controller
+  pjw_none = 0 --No weld controller selected
+
+  --Dimpler Application Constants
+  --application
+  dimp1app_rh = 1  --Robot held
+  dimp1app_sp = 2  --Single pedestal
+
+
+
+-- Press Application constants
+  PresTandem    = 1 -- Tandem Press Line
+  PresDestack   = 2 -- Destack Press Line
+  PresTransfer  = 3 -- Transfer Press Line
+  PresRoboRack  = 4 -- Robo Racking Pres Metal Forming
+
+  PresManlTLCH = 1 -- Press Manual Tool Changer
+  PresAutoTLCH = 2 -- Press Automated Tool Changer
+
+-- Communications types to set CELLCOMMTYPE
+  Ethernet  = 89 -- used to set variable for EOATCommType
+  Devicenet = 82 -- used to set variable for EOATCommType for tooling
+
+-- Used for GMLANG1
+  english_lng = 1
+  spanish_lng = 2
+  german_lng  = 3
+
+ Contr_State = 1 -- read from $SYS_CONFIG.$STARTMD 1 = Controlled Start
+ Cold_State  = 2 -- read from $SYS_CONFIG.$STARTMD 2 = Cold Start
+
+-- used for MH gripper stuff in GMMHxyz
+  GM_Qty_Tool = 4
+  GM_Qty_grip = 16 -- Valves was 10
+  GM_Qty_clmp = 34 -- Clamps for 2 inputs
+  GM_Qty_pprs = 16
+  GM_Qty_vmad = 24
+
+  ClampTab    = 1
+  PartPrsTab  = 2
+  VacuumTab   = 3
+  ValveTab    = 4
+
+  Max_In_Blks = 4 -- Maximum number of input blocks used for array settings
+  Max_OutBlks = 3 -- Maximum number of Output Valve Packs used for array settings
+
+  Single = 1   -- Used for the Stand type
+  Dual = 2
+
+--used for Vision
+  vis_fss = 1 --Flexible Scanning (FSS) vision application
+  vis_fms = 2 --Flexible Measuring (FMS) vision application
+  vis_guid = 3 --Robog guidance vision application
+  vis_irvis = 4 --Fanuc iRVision vision application
+
+  --iRVision
+  fan_2d = 1 --iRVision 2d
+  fan_3dl = 2 --iRVision 3DL
+  fan_2d_3dl = 3 --iRVision 2D and 3DL
+
+  --iRVision lights
+  vis_remmount = 1 --Remote mounted
+  vis_robmount = 2 --Robot mounted
+  vis_rem_rob  = 3 --remote and robot mounted
+
+--Paint shop
+  --application type
+  iss_ubs = 1
+  antichip = 2
+  hemflange = 3
+  lasd = 4
+  roofditch = 5
+

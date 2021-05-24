@@ -1,0 +1,218 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   2000
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:   rpselect - 'Resume Program Select' program 
+--       
+--		 This program is called by a user defined macro.
+--               It simplifies Resume Program testing by aborting the current
+--               job and selcting the currently defined Resume Program.
+--
+--    Description:
+--          
+--    Language: KAREL
+--    
+--    Source File:   
+--    
+--    Author: David R. Friedeman                 
+--            Fanuc Robotics Corporation
+--            2000 South Adams Road
+--            Auburn Hills, Michigan    48326-2800
+--    
+--    Modification history:
+--
+--   18-AUG-15 FRIEDEMAN Created.
+--
+--
+------------------------------------------------------------------
+PROGRAM rpselect
+----------------------------------------------------------------------
+%ENVIRONMENT ioblt 
+%environment sysdef
+%environment regope
+%environment multi
+%ENVIRONMENT STRNG
+%environment errs
+%environment iosetup
+%environment sldef
+%environment uif
+%environment tpe
+
+%COMMENT='RsmProg Sel V4.0'
+%system
+%nopause = ERROR + COMMAND + TPENABLE
+%noabort = ERROR + COMMAND
+%nobusylamp
+%nolockgroup
+%include sledef
+
+CONST
+ 
+  ER_WARN      = 0
+  ER_PAUSE     = 1
+  ER_ABORT     = 2
+ 
+  PARM_INTEGER =  1
+  PARM_REAL    =  2
+  PARM_STRING  =  3
+  
+  TPO_FAULT    = 1    -- TP fault LED index number for TPOUT[FAULT] calls
+
+  CH_RP_TMOUT  = 801  -- Kill the prompt box if there is a timeout
+  
+%include klevkeys
+%include kliotyps
+
+VAR
+  status       : INTEGER
+  prmpt_stat   : INTEGER
+  data_type    : INTEGER
+  real_value   : REAL
+  prog_loaded  : BOOLEAN
+  dummy_bool   : BOOLEAN
+  string_value : STRING[16]
+  usr_info_str : STRING[30]
+
+  rpselect_tmr: INTEGER
+  rpselect_tmt: INTEGER 
+
+ %include klrdutil
+
+-----------------------------------------------------------------------------
+ROUTINE check_port(p_io_type, p_index:INTEGER): BOOLEAN
+--
+-- Checks if a logical port is assigned.
+--
+-- Inputs:
+--   INTEGER - p_index   - logical port number
+--   INTEGER - p_io_type - logical port type (ex: io_din,io_dout,etc.)
+-- Outputs:
+--   BOOLEAN - check_port- returned value, TRUE if port defined OK, else FALSE
+-- Called By:
+--   ROUTINE init_shell - To check many IO points
+-----------------------------------------------------------------------
+VAR
+  l_i         : INTEGER
+  l_status    : INTEGER
+
+BEGIN
+  IF NOT UNINIT(p_index) AND NOT UNINIT(p_io_type) THEN
+    IF (p_index <> 0) THEN     --Cut out early
+      GET_PORT_MOD(p_io_type, p_index, l_i, l_status)
+      IF (l_status = 0) THEN
+        RETURN(TRUE)           --Port assigned
+      ENDIF --GET_PORT_MOD status good?
+    ENDIF --Index not 0
+  ENDIF
+  RETURN(FALSE)                --Port not assigned
+END check_port
+
+-----------------------------------------------------------------------------
+ROUTINE exit_message(p_string :STRING)
+--
+-- Shows a prompt box indicating why Quick Squirt will abort.
+--
+-- Inputs:
+--   STRING - p_string - The reason for the abort.
+-----------------------------------------------------------------------
+VAR
+
+  l_mess_str    : STRING[128]
+
+BEGIN
+  l_mess_str = 'Unable to Select RESUME Program! \n \n' + p_string
+
+  -- Show the Prompt Box. 
+  -- Parameter 1 is the box type.  In this case no choice is available.
+  -- Parameter 2 is the box title.
+  -- Parameter 3 is the text message.
+  -- Parameter 4 is the auto-close time, in tenths of a second.  
+  status = DB_PROMPT(DB_PS_NONE, 'RESUME Program Select', l_mess_str, 40) 
+  RETURN
+END exit_message
+
+
+BEGIN -- Main program
+  rpselect_tmt = 5000
+  rpselect_tmr = 0
+
+  CONDITION[CH_RP_TMOUT]: WITH $SCAN_TIME = 40
+    WHEN (rpselect_tmr > rpselect_tmt) DO
+       ABORT
+      ENABLE CONDITION[CH_RP_TMOUT]
+    ENDCONDITION
+  ENABLE CONDITION[CH_RP_TMOUT]
+
+  IF NOT (TPIN[tpi_enable]) THEN
+    -- TP is not ON.
+    exit_message('Enable TP To Select RESUME Program')	
+    RETURN
+  ENDIF
+  -- Check for 'Not Faulted' and one (only one) deadman pressed.
+  IF (tpout[tpo_fault] = TRUE) THEN
+    exit_message('Reset Fault To Select Resume Program')	
+    RETURN
+  ENDIF
+  -- Deadman key stuff is backwards... FALSE is pressed.
+  IF (($MOR.$SAFETY_STAT AND 4) = 4) THEN  -- If Deadman Released
+    exit_message('Press Deadman To Select Resume Program')  
+    RETURN
+  ENDIF
+
+  IF UNINIT($RESUME_PROG) THEN  -- If RESUME_PROG is Uninitialized
+    exit_message('RESUME_PROG Is Uninitialized!')  
+    RETURN
+  ENDIF    
+  
+  IF ($RESUME_PROG = '') OR ($RESUME_PROG = ' ') THEN  -- If RESUME_PROG is Not Defined
+    exit_message('RESUME_PROG Is Not Defined!')  
+    RETURN
+  ENDIF    
+  
+  LOAD_STATUS($RESUME_PROG, prog_loaded, dummy_bool) 
+  IF NOT prog_loaded THEN                                             
+    exit_message('RESUME_PROG Does Not Exist!')  
+    RETURN
+  ENDIF
+  -- If we made it this far, everything is fine.  Inform the user
+  -- that we are about to select the RESUME Program
+
+  -- Start a timer, as a way to force RPSELECT to end if the user
+  -- doesn't make a choice within 5 seconds.
+
+  prmpt_stat = 0
+  CONNECT TIMER to rpselect_tmr  
+  
+  usr_info_str = (' Select RESUME Program' )
+  usr_info_str = usr_info_str + '? \n \n Timeout In 5 Seconds'
+  prmpt_stat = DB_PROMPT(DB_PS_OKCN,'RESUME Program Select', usr_info_str, 50)                
+
+  DISCONNECT TIMER rpselect_tmr
+  rpselect_tmr = 0
+
+  IF (prmpt_stat <> 1) THEN -- User canceled RPSELECT
+    RETURN -- Do nothing
+  ENDIF
+
+  -- If we're here, the user wants to select the RESUME Program.
+  -- Abort the current job so that $RESUME_PROG runs at the next SHIFT-FWD
+  SELECT_TPE($RESUME_PROG,status)
+  IF (status <> 0) THEN
+    POST_ERR(status,'',0,ER_ABORT)
+  ELSE	
+    status = DB_PROMPT(DB_PS_NONE, 'RESUME Program Select', 'SHIFT-FWD To Run $RESUME_PROG', 40)   
+    RETURN
+  ENDIF
+
+END rpselect

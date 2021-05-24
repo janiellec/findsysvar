@@ -1,0 +1,233 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         LOG_ERR.KL
+--   TITLE:          POSTNAME PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  07/24/08
+--
+--   LANGUAGE:       KAREL 7.4 RJ3
+--   CONTROL GROUP:  AUTOMATED SYSTEMS GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:
+--   PROJECT NAME:
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2000
+--         DESCRIPTION: ROBOT MAIN PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM LOG_ERR
+
+%NOLOCKGROUP
+%COMMENT = 'Log User Err'
+
+CONST
+INT_ARG = 1 -- Integer argument type
+REAL_ARG = 2 -- Real argument type
+STRING_ARG = 3 -- String argument type
+NO_ARG    = 4 -- no argument was found
+
+VAR
+
+tp_param : ARRAY[10] OF INTEGER
+
+error_sev,    -- the user passed severity codes.
+              --0 : WARNING, no change in task execution
+              --1 : PAUSE, all tasks and stop all motion
+              --2 : ABORT, all tasks and cancel
+i,
+status,
+prm_type,
+prm_int,
+int_value,
+register_no,
+entry :INTEGER
+
+real_value,
+PRM_REAL  : REAL -- Used for the GET_TPE_PRM builtin
+PRM_STRG  : STRING[16] -- Used for GET_TPE_PRM builtin
+cnvd_string   : STRING[11] -- used for the target in cnv_#_string builtin
+
+error_string  : STRING[128] -- Used for writing an erro message to the alarm Log
+real_flag,
+param_fault  : BOOLEAN -- Used for if the Paramter failed or is invalid
+------------------------------------------------------------------------------
+-- ROUTINE Trim
+-- Remove leading and trailing spaces
+-------------------------------------------------------------------------------
+ROUTINE Trim (strText : STRING) : STRING
+
+VAR
+  strChar      : STRING[1]
+  strTemp      : STRING[128]
+  intFront     : INTEGER
+  intBack      : INTEGER
+  intIndex     : INTEGER
+  intLength    : INTEGER
+
+BEGIN
+
+  strChar = ''
+  strTemp = ''
+
+  intLength = STR_LEN(strText)
+
+  IF intLength = 0 THEN RETURN(strText) ; ENDIF
+
+  intIndex = 1
+  intFront = intIndex
+
+  --find the front of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex + 1
+    IF intIndex <= intLength THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intFront = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+
+  ENDWHILE
+
+  intIndex = STR_LEN(strText)
+  intBack = intIndex
+
+  --find the back of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex - 1
+    IF intIndex >= 1 THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intBack = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+  ENDWHILE
+
+  -- using SUB_STR to extract the string between front and back doesn't work - so we do it the hard way
+  FOR intIndex=intFront TO intBack DO
+    strChar = SUB_STR(strText, intIndex, 1)
+    strTemp = strTemp + strChar
+  ENDFOR
+
+  RETURN(strTemp)
+
+END Trim
+-----------------------------------------------------------------------------
+ROUTINE get_param(req_number:INTEGER):INTEGER
+-- PURPOSE:  this routine get the parameters from a teach pendant called program
+--
+--
+-- INPUT:    the parameter number requested
+--            -
+-- OUTPUT:   the parameter type integer
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+  prm_type = 0
+  GET_TPE_PRM (req_number, prm_type, prm_int, prm_real,PRM_STRG, status)
+  IF (status = 17042) THEN -- no parameter
+    prm_type = NO_ARG
+  ENDIF
+
+  RETURN(prm_type)
+
+END get_param
+-----------------------------------------------------------------------------
+ROUTINE cnv_serv
+-- PURPOSE:  convert servity to register and read convert to string
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+   register_no = error_sev
+   error_sev = 0
+   GET_REG(register_no, real_flag, int_value, real_value, status)
+     IF status <>0 THEN
+       POST_ERR(38000, 'Get register built-in Failed', status, 0) --
+     ELSE -- Register value is good
+       IF real_flag THEN
+         CNV_REAL_STR(real_value,10,2,cnvd_string)
+       ELSE
+         CNV_INT_STR(int_value,10,0,cnvd_string)
+       ENDIF
+       cnvd_string = trim(cnvd_string)
+       error_string = error_string+' ' + cnvd_string +' ' -- add to string
+     ENDIF
+
+END cnv_serv
+-----------------------------------------------------------------------------
+
+BEGIN
+
+ error_string = ''
+ error_sev = 0
+ param_fault = FALSE
+
+
+FOR i = 1 TO ARRAY_LEN(tp_param) DO
+  tp_param[i] = get_param(i)
+  SELECT (tp_param[i]) OF --
+    CASE (INT_ARG):  -- Integer argument type
+       -- IF (prm_int>0) AND (prm_int<3) THEN -- check a valid serverity code 0-2
+          error_sev = prm_int
+      --  ENDIF
+    CASE (REAL_ARG):  -- Real argument type
+     POST_ERR(38000, 'POST_ERR AR NOT String/Integer', 0, 0) --
+     param_fault = TRUE
+    CASE (STRING_ARG):  -- String argument type
+         -- Check if Error serv is set, then folowed by string means register#
+         IF error_sev >0 THEN
+           cnv_serv                                     -- before adding text
+         ENDIF
+         error_string = error_string + PRM_STRG
+    CASE (NO_ARG):  -- No more argument type
+       -- Check if Error serv is set, then folowed by string means register#
+       IF error_sev >2 THEN -- last param was meant to be register
+         cnv_serv                                     -- before adding text
+       ENDIF
+       error_string = error_string + PRM_STRG
+       i =  ARRAY_LEN(tp_param)  -- no more parameters end for loop
+    ELSE: --
+  ENDSELECT --
+ENDFOR --
+
+ IF (error_sev <0) OR (error_sev >2) THEN
+   error_sev = 0
+ ENDIF
+
+ IF (param_fault = FALSE) AND (error_string <>'') THEN
+   POST_ERR(38000, error_string, 0, error_sev) --
+ ENDIF
+
+END LOG_ERR

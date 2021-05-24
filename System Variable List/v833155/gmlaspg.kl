@@ -1,0 +1,680 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASPG.KL
+--   TITLE:          GMLASPG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser Program Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             V4.1   2018/02/26 marchaka         Fix issue with loading preprocess_otf for Trumpf.
+--                                                Remove unsupported configs.  Added new TPs for laser apps.
+--             V4.1   2018/03/24 marchaka         Add new pounce templates for gas box that are laser generator
+--                                                specific
+--             V4.1   2018/04/30 marchaka	  Add wirefeedchk.tp for wire feeder apps
+--             V4.2   2019/09/16 marchaka         Add IPFO with RSI application programs
+--             V4.2   2019/10/17 marchaka         Add slr_setseam.tp for Trumpf+IPFO+RSI application
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlaspg
+
+%COMMENT = 'GM Laser PG V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas -- GM laser wizard variables
+
+
+CONST
+
+  Version = '2019-10-17'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn -- GM Arc Tool constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  LasPG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup laser program setup at least first time
+  rsi_optn		IN SHADOW FROM GMATVAR: BOOLEAN  --J802 RSI Interface software option
+  gm_status:  INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_las_pg
+-- PURPOSE: to initialize variables for laser program setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END init_las_pg
+-----------------------------------------------------------------------------
+ROUTINE ipg_prog
+-- PURPOSE: loads and sets up IPG laser programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'ipg_release.tp', 1)
+  Load_File('FRS:', 'ipg_request.tp', 1)
+
+END ipg_prog
+-----------------------------------------------------------------------------
+ROUTINE lsln_prog
+-- PURPOSE: loads and sets up Laser Line laser programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'coupon.tp', 1)
+  Load_File('FRS:', 'coupon_tmpl.tp', 1)
+  Load_File('FRS:', 'laser_release.tp', 1)
+  Load_File('FRS:', 'laser_request.tp', 1)
+  Load_File('FRS:', 'pwrmeter.tp', 1)
+  Load_File('FRS:', 'pwrmeter_tmpl.tp', 1)
+  Load_File('FRS:', 'handbrk.tp',1)
+
+END lsln_prog
+-----------------------------------------------------------------------------
+ROUTINE trumf_prog
+-- PURPOSE: loads and sets up Trumpf laser programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCFile('FRS:\laser_fnctn.tp', 'FR:\laser_function.tp')
+  Load_File('FR:','laser_function.tp',1)
+
+  SPRUNCFile('FRS:\tru_mvrep2tmp.tp', 'FR:\movrepr2_tmp.tp')
+  Load_File('FR:','movrepr2_tmp.tp',1)
+
+END trumf_prog
+-----------------------------------------------------------------------------
+ROUTINE rlsk_prog
+-- PURPOSE: loads and sets up RLSK laser programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'crossjet.tp', 1)
+  Load_File('FRS:', 'otf_weld_tmpl.tp', 1)
+  Load_File('FRS:', 'pos_coupon.tp', 0)
+  Load_File('FRS:', 'rlsk_chk.tp', 1)
+  Load_File('FRS:', 'rlsk_mode.tp', 1)
+  Load_File('FRS:', 'set_rlsk.tp', 1)
+
+  SPRUNCMD('COPY FRS:pos_cpn_tmpl.tp FR:\pos_coupon_tmpl.tp', gm_status) 
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy POS_COUPON_TMPL.TP to FR', 0,0)
+    ENDIF
+  Load_File('FR:', 'pos_coupon_tmpl.tp', 1)
+
+  SPRUNCMD('COPY FRS:prcsxx_tmpl.tp FR:\processxx_tmpl.tp', gm_status) 
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to copy PROCESSXX_TMPL.TP to FR', 0,0)
+    ENDIF
+  Load_File('FR:', 'processxx_tmpl.tp', 1)
+
+  --Laser Controller Specific Programs
+  SELECT laser_ctrl OF
+      
+    CASE(lasctrl_lsln): --LaserLine controller
+      
+    CASE(lasctrl_trmp): --Trumpf controller
+
+      SPRUNCMD('COPY FRS:tmf_pos_weld.tp FR:\pos_weld.tp', gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy POS_WELD.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'pos_weld.tp', 1)
+
+      SPRUNCMD('COPY FRS:tmf_pwrmrtt.tp FR:\power_meter_tmpl.tp',gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy POWER_METER_TMPL.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'power_meter_tmpl.tp', 1)
+
+      SPRUNCMD('COPY FRS:tmf_pmm_weld.tp FR:\pmm_weld.tp', gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy PMM_WELD.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'pmm_weld.tp', 1)
+
+      SPRUNCMD('COPY FRS:tmf_postprcs.tp FR:\post_process.tp',gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy POST_PROCESS.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'post_process.tp', 1)
+
+      SPRUNCMD('COPY FRS:tmf_pprcotf.tp FR:\preproces_otf.tp',gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy PREPROCES_OTF.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'preproces_otf.tp', 1)
+
+      SPRUNCMD('COPY FRS:tmf_pprcpos.tp FR:\preproces_pos.tp',gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy PREPROCES_POS.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'preproces_pos.tp', 1)
+
+      SPRUNCMD('COPY FRS:trlsk_pncetmp.tp FR:\pounce_tmpl.tp',gm_status) 
+        IF (gm_status <> 0) THEN
+          POST_ERR(38000, 'Failed to copy POUNCE_TMPL.TP to FR', 0,0)
+        ENDIF
+      Load_File('FR:', 'pounce_tmpl.tp', 1)
+
+    --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+
+      --SPRUNCMD('COPY FRS:ipg_pmm_weld.tp FR:\pmm_weld.tp', gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy PMM_WELD.TP to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'pmm_weld.tp', 1)
+
+      --SPRUNCMD('COPY FRS:ipg_pos_weld.tp FR:\pos_weld.tp', gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy POS_WELD.TP to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'pos_weld.tp', 1)
+
+      --SPRUNCMD('COPY FRS:ipg_postprcs.tp FR:\post_process.tp',gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy POST_PROCESS.TP to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'post_process.tp', 1)
+
+      --SPRUNCMD('COPY FRS:ipg_pwrmrtt.tp FR:\power_meter_tmpl.tp',gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy POWER_METER_TMPL.TP to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'power_meter_tmpl.tp', 1)
+
+      --SPRUNCMD('COPY FRS:ipg_pprcotf.tp FR:\preproces_otf.tp',gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy preproces_otf.tp to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'preproces_otf.tp', 1)
+
+      --SPRUNCMD('COPY FRS:ipg_pprcpos.tp FR:\preproces_pos.tp',gm_status) 
+        --IF (gm_status <> 0) THEN
+          --POST_ERR(38000, 'Failed to copy PREPROCES_POS.TP to FR', 0,0)
+        --ENDIF
+      --Load_File('FR:', 'preproces_pos.tp', 1)
+
+      --Load_File('FRS:', 'pounce_tpl.tp', 1)
+      
+    ELSE:
+  ENDSELECT --laser controller
+
+  --Setup Macrocs
+  Setup_Macro(33, 'CROSSJET', 'CROSSJET', 1, 0, FALSE)
+  Setup_Macro(34, 'POS_WELD', 'POS_WELD', 1, 0, FALSE)
+
+END rlsk_prog
+-----------------------------------------------------------------------------
+ROUTINE rsk_prog
+-- PURPOSE: loads and sets up RSK programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Load_File('FRS:', 'cros_jet_off.tp', 1)  --will need an RSK version
+  --Load_File('FRS:', 'cros_jet_on.tp', 1)  --will need an RSK version
+  Load_File('FRS:', 'dcd_weld.tp', 1)
+  --Load_File('FRS:', 'postprocess.tp', 1)  --will need an RSK version
+  --Load_File('FRS:', 'preprocess.tp', 1)  --will need an RSK version
+  Load_File('FRS:', 'readyrsk.tp', 1)
+  --Load_File('FRS:', 'style_tmpl.tp', 1) --will need an RSK version
+  Load_File('FRS:', 'weldoff.tp', 1)
+  Load_File('FRS:', 'weldon.tp', 1)
+
+END rsk_prog
+-----------------------------------------------------------------------------
+ROUTINE scsn_prog
+-- PURPOSE: loads and sets up Scan Sonic programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCFile('FRS:\sa_rng_flt.tp', 'FR:\sa_range_fault.tp')
+  Load_File('FR:','sa_range_fault.tp',1)
+  Load_File('FRS:', 'sa_range1.tp', 1)
+  Load_File('FRS:', 'sa_range2.tp', 1)
+  SPRUNCFile('FRS:\ss_iniat.tp','FR:\scansonic_iniat.tp')
+  Load_File('FR:','scansonic_iniat.tp',1) 
+  Load_File('FRS:', 'set_la_auto.tp', 1)
+  Load_File('FRS:', 'set_la_pos.tp', 1)
+  Load_File('FRS:', 'set_sa_force.tp', 1)
+  Load_File('FRS:', 'set_sa_pos.tp', 1)
+  Load_File('FRS:', 'set_sa_range.tp', 1)
+  Load_File('FRS:', 'set_ta_force.tp', 1)
+  Load_File('FRS:', 'set_ta_range.tp', 1)
+
+END scsn_prog
+-----------------------------------------------------------------------------
+ROUTINE ipfo_prog
+-- PURPOSE: loads and sets up IPFO programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCFile('FRS:\ipfo_cpntmpl.tp', 'FR:\coupon_tmpl.tp')
+  Load_File('FR:','coupon_tmpl.tp',1)
+  Load_File('FRS:','crossjets.tp',1)
+  Load_File('FRS:','focus_monitor.tp',1)
+  SPRUNCFile('FRS:\focus_mon_tmp.tp', 'FR:\focus_monitor_tmpl.tp')
+  Load_File('FR:','focus_monitor_tmpl.tp',1)
+  Load_File('FRS:','pos_wld.tp',1)
+  SPRUNCFile('FRS:\ipfo_postproc.tp', 'FR:\postprocess.tp')
+  Load_File('FR:','postprocess.tp',1)
+  SPRUNCFile('FRS:\postprc_otf.tp', 'FR:\postprocess_otf.tp')
+  Load_File('FR:', 'postprocess_otf.tp',1)
+  SPRUNCFile('FRS:\preprocesspos.tp','FR:\preprocess_pos.tp')
+  Load_File('FR:','preprocess_pos.tp',1)
+  SPRUNCFile('FRS:\procxxotf_tmp.tp', 'FR:\procxx_otf_tmpl.tp')
+  Load_File('FR:','procxx_otf_tmpl.tp',1)
+  Load_File('FRS:','procxx_tmpl.tp',1)
+  SPRUNCFile('FRS:\ipfo_pwrmtr.tp', 'FR:\pwrmeter.tp')
+  Load_File('FR:', 'pwrmeter.tp',1)
+  SPRUNCFile('FRS:\ipfo_pwmttmp.tp','FR:\pwrmeter_tmpl.tp')
+  Load_File('FR:', 'pwrmeter_tmpl.tp', 1)
+  SPRUNCFile('FRS:\stylexxotf_tm.tp','FR:\stylexx_otf_tmpl.tp')
+  Load_File('FR:', 'stylexx_otf_tmpl.tp',1)
+
+  IF (rsi_optn = TRUE) THEN -- RSI application
+
+    SPRUNCFile('FRS:\slr_postproc.tp', 'FR:\postprocess_slr.tp')
+    Load_File('FR:','postprocess_slr.tp',1)
+    Load_File('FRS:','preproces_slr.tp',1)
+    SPRUNCFile('FRS:\slr_cpn_path.tp', 'FR:\slr_coupon_path.tp')
+    Load_File('FR:','slr_coupon_path.tp',1)
+    SPRUNCFile('FRS:\slr_cpn_tmp.tp', 'FR:\slr_coupon_tmp.tp')
+    Load_File('FR:','slr_coupon_tmp.tp',1)
+    SPRUNCFile('FRS:\slr_fin_comp.tp', 'FR:\slr_finish_comp.tp')
+    Load_File('FR:','slr_finish_comp.tp',1)
+    Load_File('FRS:','slr_resetsigs.tp',1)
+    Load_File('FRS:','slr_setcompid.tp',1)
+    SPRUNCFile('FRS:\slrsetcompid2.tp', 'FR:\slr_setcompid2.tp')
+    Load_File('FR:','slr_setcompid2.tp',1)
+    SPRUNCFile('FRS:\slr_seam_wob.tp', 'FR:\slr_setseam_wob.tp')
+    Load_File('FR:','slr_setseam_wob.tp',1)
+    Load_File('FRS:','slr_setseam.tp',1)
+
+  ENDIF --RSI application
+
+END ipfo_prog
+-----------------------------------------------------------------------------
+ROUTINE wire_prog
+-- PURPOSE: loads and sets up wire feed programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Binzel Programs
+  Load_File('FRS:', 'e_box_iniat.tp', 1)
+  Load_File('FRS:', 'wire_trim.tp', 1)
+  SPRUNCfile('FRS:\wiretrimtmpl.tp', 'FR:\wire_trim_tmpl.tp')
+  Load_file('FR:','wire_trim_tmpl.tp',1)
+  Load_File('FRS:', 'wirecut.tp', 1)
+  Load_File('FRS:', 'retract.tp', 1)
+  SPRUNCfile('FRS:\wirefeedchk.tp','FR:\wire_feed_and_chk.tp')
+  Load_File('FR:', 'wire_feed_and_chk.tp',1)
+
+END wire_prog
+-----------------------------------------------------------------------------
+ROUTINE lesm_prog
+-- PURPOSE: loads and sets up Lesmuller process monitor programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'lesm_lasl_air.tp', 1)  
+  Load_File('FRS:', 'lessmul_capt.tp', 1)
+  Load_File('FRS:', 'opti_chk.tp', 0)
+  Load_File('FRS:', 'optit1.tp', 1)
+  Load_File('FRS:', 'optit2.tp', 1)
+
+  IF (laser_wire = wizans_yes) THEN --application has a wire
+    SPRUNCfile('FRS:\lesm_iniat.tp', 'FR:\lessmull_iniat.tp')
+    Load_File('FR:','lessmull_iniat.tp',1)    
+  ENDIF 
+
+END lesm_prog
+-----------------------------------------------------------------------------
+ROUTINE plwm_prog
+-- PURPOSE: loads and sets up Precitec process monitor programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCfile('FRS:\prec_start.tp', 'FR:\precitec_start.tp')
+  Load_File('FR:','precitec_start.tp',1) 
+  Load_File('FRS:','precitec_stop.tp',1) 
+
+END plwm_prog
+-----------------------------------------------------------------------------
+ROUTINE plasm_prog
+-- PURPOSE: loads and sets up Plasmo process monitor programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'plasmo_off.tp', 1)
+  Load_File('FRS:', 'plasmo_on.tp', 1)
+
+END plasm_prog
+-----------------------------------------------------------------------------
+ROUTINE gasgmstdprog
+-- PURPOSE: loads and sets up GM standard gas box programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Load_File('FRS:', 'cros_jet_off.tp', 1)
+  Load_File('FRS:', 'cros_jet_on.tp', 1)
+  Load_File('FRS:', 'gas_off_c.tp', 1)
+  Load_File('FRS:', 'gas_on_c.tp', 1)
+  Load_File('FRS:', 'rsthndbrk_c.tp', 1)
+  SPRUNCfile('FRS:\sethighclt.tp', 'FR:\set_high_clutch.tp')
+  Load_File('FR:', 'set_high_clutch.tp',1)
+  SPRUNCfile('FRS:\setlowclt.tp', 'FR:\set_low_clutch.tp')
+  Load_File('FR:', 'set_low_clutch.tp',1)
+  SPRUNCfile('FRS:\lsr_sxxprc1t.tp', 'FR:\sxxproc1_tmpl.tp')
+  Load_File('FR:','sxxproc1_tmpl.tp',1)
+  Load_File('FRS:','preprocess.tp',1)
+  Load_File('FRS:','style_tmpl.tp',1)
+
+  SELECT laser_ctrl OF
+    CASE(lasctrl_lsln):
+      SPRUNCfile('FRS:\lasln_pnctmpl.tp','FR:\pounce_tmpl.tp')
+      Load_File('FR:','pounce_tmpl.tp',1)
+    CASE(lasctrl_trmp):
+      SPRUNCfile('FRS:\trump_pnctmpl.tp','FR:\pounce_tmpl.tp')
+      Load_File('FR:','pounce_tmpl.tp',1)
+    ELSE:
+  ENDSELECT
+
+  --Setup Macrocs
+  Setup_Macro(32, 'RESET HAND BROKEN', 'RSTHNDBRK_C', 4, 62, FALSE)
+
+END gasgmstdprog
+-----------------------------------------------------------------------------
+ROUTINE laser_pg
+-- PURPOSE: loads and sets up laser programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --load argument display
+  CopyFile('FRS:\LASARGDISP.DT','MD:\argdispeg01.dt')
+
+  Load_File('FRS:','gm_interupt.pc',1)
+
+  --clear pounce.tp for lasers
+  CLEAR('pounce.tp',gm_status)
+    IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to clear pounce.tp', 0,0)
+    ENDIF
+
+  Load_File('FRS:','movrepr2_tmpl.tp',1)
+  Load_File('FRS:','dcd_maint.tp',1)
+  Load_File('FRS:','sub1.tp',1)
+
+  --Laser Controller Programs
+  SELECT laser_ctrl OF
+    CASE(lasctrl_lsln): --LaserLine controller
+      lsln_prog
+    CASE(lasctrl_trmp): --Trumpf controller
+      trumf_prog
+    --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+      --ipg_prog
+    ELSE:
+  ENDSELECT
+
+  --Laser Head Programs
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+      scsn_prog
+    CASE(lashd_ipfo):
+      ipfo_prog
+    --CASE(lashd_rlsk):  --NOT SUPPORTED ON G4 YET
+      --rlsk_prog
+    --CASE(lashd_rsk):  --NOT SUPPORTED ON G4 YET
+      --rsk_prog
+    ELSE:
+  ENDSELECT
+
+  IF (laser_wire = wizans_yes) THEN --application has a wire
+    wire_prog
+  ENDIF --application has a wire
+
+  --Process Monitor Programs
+  SELECT procmontype OF
+    CASE(procm_lesm):
+      lesm_prog
+    CASE(procm_plwm):
+      plwm_prog
+    --CASE(procm_plasm):  --NOT SUPPORTED ON G4 YET
+      --plasm_prog
+    ELSE:
+  ENDSELECT
+
+  --Gasbox Programs
+  SELECT gasboxtype OF
+    CASE(gasbox_gmstd):
+      gasgmstdprog
+    ELSE:
+  ENDSELECT
+
+END laser_pg
+-----------------------------------------------------------------------------
+ROUTINE set_las_pg
+-- PURPOSE: set laser programs 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(LasPG_Setup) OR (Reset_Cell) THEN
+    LasPG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser Program GMLASPG', FALSE)
+
+  IF (LasPG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser Prog Already Setup', FALSE)
+    IF ExecSetupAgn('Laser Program') THEN -- ask user if they want to setup again
+      LasPG_Setup = FALSE
+    ELSE
+      WriteLog('  Laser Program already Complete', FALSE)
+      WriteLog('  GMLASPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_las_pg
+  laser_pg
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Arc Prog Setup GMLASPG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser Prog Setup completed', FALSE)
+    LasPG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_las_pg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlaspg

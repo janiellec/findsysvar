@@ -1,0 +1,243 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPTPRGS.KL
+--   TITLE:          GMPTPRGS PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GMPT Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZMH,GMWIZVIS are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--                    4-28-16     RKosaski        Had from GMPRWTN instead of GMPWRTN for PickTmpltPrg  PlaceTmpltPrg
+--                    9-16-19     RKosaski        Added AEFNDNOD and AECLEAR program loading from FRS:
+--                    11-03-20    RKosaski        Removed AEFNDNOD and AECLEAR PROGRAM it is in product now.
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMPTPRGS
+
+%COMMENT = 'GMPT Prgs V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT SYSDEF  -- required for the $group[1]. variable
+%ENVIRONMENT MNMCDEF -- needed for the Macro Table vars
+%ENVIRONMENT TPE -- required for the program attribute settings
+%ENVIRONMENT KCLOP -- required for the KCL builtin
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+
+Version = '2020-11-03'
+%INCLUDE gmcnstnt -- all gm Wizard constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  gm_status,i,
+  StrtinErs  : INTEGER  -- How many errors I/O error counter had when the program started
+
+GMPTStor_Loc IN SHADOW FROM GMPWRTN: STRING[40] -- the name of where GMPT files are stored at ASI load and
+                                                                               --IE 'FR:\GMPWRTRN'
+PickTmpltPrg IN CMOS FROM GMPWRTN:ARRAY[10] OF STRING[16] -- Used for Pick template files to load
+PlacTmpltPrg IN CMOS FROM GMPWRTN:ARRAY[10] OF STRING[16] -- Used for Place template files to load
+PlltTmpltPrg IN CMOS FROM GMPWRTN:ARRAY[2]  OF STRING[16] -- Used for Palletizing TP Files to load
+
+GMPTPrgsDone IN SHADOW : BOOLEAN -- if the programs has ran completly
+
+%INCLUDE gmcfgcel  -- used for all the workcell variables
+%INCLUDE gmcfgerr  -- used for all the error counting and status while executing the wizard
+%INCLUDE gmcfgpwr  -- GMPT Configuration variables
+
+ROUTINE Finish_Log FROM GMWizLog  -- Used to close the log File
+ROUTINE closeLog FROM GMWizLog  -- Used to close the log File
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWizLog  -- used to write an items to the log file
+ROUTINE Setup_Log(P_ShopLog:STRING) FROM GMWizLog -- used to Create the log file
+
+%INCLUDE gmrdutil
+-----------------------------------------------------------------------------
+ROUTINE initGMPTPRGS
+-- PURPOSE: to initialize variables associated with Material Handling setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--      -- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+IF UNINIT(Use_Prog_Mon) THEN
+  Use_Prog_Mon = FALSE
+ENDIF
+IF UNINIT(Load_Templts) THEN
+  Load_Templts = FALSE
+ENDIF
+IF UNINIT(Num_PickTmpl) THEN
+  Num_PickTmpl = 1
+ENDIF
+IF UNINIT(Num_PlacTmpl) THEN
+  Num_PlacTmpl = 1
+ENDIF
+IF UNINIT(GMPTStor_Loc) THEN
+  GMPTStor_Loc = 'FR:\GMPWRTRN\'
+ENDIF
+IF UNINIT(LoadPlltTmpl) THEN
+  LoadPlltTmpl = FALSE
+ENDIF
+
+IF Use_Prog_Mon THEN
+  WriteLog('  Loading Program Monitor Software', FALSE)
+
+ -- Set_S_sVar( '$DEVICE', GMPTStor_Loc) -- switch device to our location
+
+  --KCL('LOAD FORM FXMDFYEG',gm_status)
+  --  add_dict(GMPTStor_Loc + 'FXMDFYEG','MDFY',dp_default,dp_dram,gm_status)
+ --   IF gm_status<> 0 THEN
+ --     POST_ERR(38000, 'Form FXMPNCEG failed to load', gm_status, 0) --
+ --     WriteLog('  Form FXMPNCEG failed to load status = '+int2str(gm_status), TRUE)
+--      WriteLog('  Program Monitor Software INCOMPLETE load', TRUE)
+ --   ELSE
+      Set_S_sVar('$CUSTOMMENU[19].$TITLE','Prog Monitor')
+      Set_S_sVar('$CUSTOMMENU[19].$PROG_NAME','MDFYSTUP')
+      Set_I_sVar('$CUSTOMMENU[19].$OPTION',31)
+    --  Load_File(GMPTStor_Loc,'CHK_MDFY.PC',1)
+    --  Load_File(GMPTStor_Loc,'MDFYSTUP.PC',1)
+      WriteLog('  Program Monitor Software loaded', FALSE)
+--   ENDIF
+ELSE
+  Set_S_sVar('$CUSTOMMENU[19].$TITLE','')
+  Set_S_sVar('$CUSTOMMENU[19].$PROG_NAME','')
+ENDIF
+
+-- Load the files for the Multiple pounces
+--  WriteLog('  Loading Programs For Multiple Pounces', FALSE)
+--  Set_S_sVar( '$DEVICE', GMPTStor_Loc) -- switch device to our location
+
+--     add_dict(GMPTStor_Loc + 'FXMPNCEG','MPNC',dp_default,dp_dram,gm_status)
+  -- KCL('LOAD FORM FXMPNCEG',gm_status)
+--     IF gm_status<> 0 THEN
+--       POST_ERR(38000, 'Form FXMPNCEG failed to load', gm_status, 0) --
+--      WriteLog('  Form FXMPNCEG failed to load status = '+int2str(gm_status), TRUE)
+--       WriteLog('  Multiple Pounces load INCOMPLETE', TRUE)
+--     ELSE
+--       Set_S_sVar('$CUSTOMMENU[22].$TITLE','Pounce Data')
+--       Set_S_sVar('$CUSTOMMENU[22].$PROG_NAME','GMPNCDTA')
+--       Set_I_sVar('$CUSTOMMENU[22].$OPTION',31)
+--       Load_File(GMPTStor_Loc,'MPNC.VR',1)-- load dictionary variable file
+--       Load_File(GMPTStor_Loc,'REF_POS_FLT.TP',1)
+--       Load_File(GMPTStor_Loc,'MOV_POUNCE.TP',1)
+--       Load_File(GMPTStor_Loc,'CKPRPATH.PC',1)
+--       Load_File(GMPTStor_Loc,'GMPNCDTA.PC',1)
+--       WriteLog('  Multiple Pounces load completed', FALSE)
+--     ENDIF
+-- end of Multiple Pounces
+
+-- Load user templates if user said yes
+  IF Load_Templts THEN -- if user selected tempaltes
+    IF (Num_PickTmpl >0) THEN
+      WriteLog('  Loading '+int2str(Num_PickTmpl)+' Pick templates for user',FALSE)
+      FOR i = 1 TO Num_PickTmpl DO
+        Load_File(GMPTStor_Loc,PickTmpltPrg[i]+'.TP',1)
+      ENDFOR --
+    ENDIF
+    IF (Num_PlacTmpl >0) THEN
+      WriteLog('  Loading '+int2str(Num_PickTmpl)+' Place templates for user',FALSE)
+      FOR i = 1 TO Num_PlacTmpl DO
+        Load_File(GMPTStor_Loc,PlacTmpltPrg[i]+'.TP',1)
+      ENDFOR --
+    ENDIF
+    IF (LoadPlltTmpl) THEN
+      WriteLog('  Loading Palletizing templates for user',FALSE)
+      FOR i = 1 TO ARRAY_LEN(PlltTmpltPrg)  DO
+        Load_File(GMPTStor_Loc,PlltTmpltPrg[i]+'.TP',1)
+      ENDFOR --
+    ENDIF
+    WriteLog('  All user template programs loaded',FALSE)
+  ENDIF -- End of template program loading
+
+
+   -- If auto exit is loaded
+ -- 11-3-2020 RK removed in AE now   Load_File('FRS:\','aefndnod.pc',1)
+ -- 11-3-2020 RK removed in AE now   Load_File('FRS:\','aeclear.pc',1)
+
+
+END initGMPTPRGS
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+  ErrsInShop.ErrorsPrgrms = 0
+ENDIF
+
+IF UNINIT(GMPTPrgsDone) THEN
+  GMPTPrgsDone = FALSE
+ENDIF
+
+   WriteLog('GMPT Programs setup Started', FALSE)
+
+  IF (GMPTPrgsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('GMPT Programs Already Setup', FALSE)
+    IF ExecSetupAgn('GMPT Programs') THEN -- ask user if they want to setup again
+      GMPTPrgsDone = FALSE
+    ELSE
+      WriteLog('GMPT Program already Complete', FALSE)
+      WriteLog('GMPTPRGS Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+-- log how many errors starting with
+
+ StrtinErs = ErrsInShop.ErrorsPrgrms
+ ClrUtltyErrs -- Clear all errors in utility program to be used when done
+
+  initGMPTPRGS-- execute program installtion routine
+
+  -- Get all errors in utility program that was used to any program errors
+ ErrsInShop.ErrorsPrgrms = ErrsInShop.ErrorsPrgrms +  (AddUtltyErrs)
+
+ IF (ErrsInShop.ErrorsPrgrms - StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('GMPT Program setup,GMPTPRGS had ' + int2str((ErrsInShop.ErrorsPrgrms-StrtinErs))+' Errors', TRUE)
+ ELSE
+   WriteLog('GMPT Program setup Program completed', FALSE)
+   GMPTPrgsDone = TRUE
+ ENDIF
+
+END GMPTPRGS

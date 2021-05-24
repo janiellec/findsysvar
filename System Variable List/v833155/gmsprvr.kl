@@ -1,0 +1,290 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPRVR.KL
+--   TITLE:          GMSPRVR PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+-- 
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Dispense Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/27 marchaka Add gmwizlog logging functionality
+--         2016/11/08 marchaka Modified to support combos.
+--         2016/12/05 marchaka Need to configure two weld controllers and assign weld 
+--                             controller 2 to spr application for combos when SPR is 
+--                             combined with a spot process (e.g. stud)
+--             V4.1  2017/02/05  marchaka         Modify prompts for wizard rerun
+--             V4.2  2018/04/04  schoensm  V8.33P05
+--             V4.3  2018/09/25  schoensm  V8.33P06  removed ffrmtr in BG
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPRVR
+
+%COMMENT = 'GM SPR V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE klevkeys  -- TP and cRT key codes
+%INCLUDE gmevrlng
+
+%INCLUDE gmevrs4io -- GM Variables
+%INCLUDE gm_var    -- GM variables
+
+%INCLUDE gmcfgspr  -- GM wizard variables for SPR Applications
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+
+CONST
+Version = '2018-09-25'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+
+  g_x:  INTEGER
+  gm_status: INTEGER
+
+  errtbl_setup IN SHADOW FROM SWSHELL  : BOOLEAN
+  finished     IN CMOS FROM SLERINIT   : BOOLEAN  -- Tells if initialization of error table done
+  last_done    IN CMOS FROM SLERINIT   : INTEGER 
+  count        IN DRAM FROM SLERINIT   : INTEGER 
+  last_good    IN DRAM FROM SLERINIT   : INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SPRVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+
+ROUTINE srvo_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initSPRVARS
+-- PURPOSE: to initialize application Variable associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--	gmmain1.kl
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(SPRVR_Setup) THEN
+    SPRVR_Setup = FALSE
+  ENDIF
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+END initSPRVARS
+
+-----------------------------------------------------------------------------
+ROUTINE spr_var
+-- PURPOSE: set application variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  Set_B_sVar('$ap_selap[2]',TRUE)  --turn spot application on
+
+  -- Set BG Logic programs to nothing
+  Set_S_sVar('$MIX_BG[7].$PROG_NAME', '')
+  Set_I_sVar('$Mix_BG[7].$STATUS',1)
+  Set_S_sVar('$MIX_BG[8].$PROG_NAME', '')
+  Set_I_sVar('$Mix_BG[8].$STATUS',1)
+
+  IF (bshop_proc1 = sprappl) THEN
+    Set_S_sVar('$MIX_BG[8].$PROG_NAME', 'rivbgpr1')
+    Set_I_sVar('$MIX_BG[8].$MODE',2)
+    Set_I_sVar('$Mix_BG[8].$STATUS',2)
+  ENDIF
+
+  IF (bshop_proc1 <> sprappl) AND (bshop_proc2 = sprappl) THEN
+    Set_S_sVar('$MIX_BG[8].$PROG_NAME', 'rivbgpr2')
+    Set_I_sVar('$MIX_BG[8].$MODE',2)
+    Set_I_sVar('$Mix_BG[8].$STATUS',2)
+  ENDIF
+
+  IF (bshop_proc1 = sprappl) AND (bshop_proc2 = sprappl) THEN
+    Set_I_sVar('$rsmfst_sv.$ffast_do.$port_num',2042)
+    Set_S_sVar('$MIX_BG[8].$PROG_NAME', 'rivbgpr1_2')
+    Set_I_sVar('$MIX_BG[8].$MODE',2)
+    Set_I_sVar('$Mix_BG[8].$STATUS',2) 
+  ENDIF
+
+  IF (((bshop_proc1 = sprappl) AND (bshop_proc2 <> sprappl)) OR ((bshop_proc1 = dispappl) AND (bshop_proc2 = sprappl))) THEN --only one spot equipment and it is for spr
+    Set_I_sVar('$spotnumeq', 1) 
+    Set_B_sVar('$spoteqsetup[1].$BU_STROKE[1]', TRUE)
+    IF (g_servog_opt = TRUE) THEN --robot has servo gun option installed
+      Set_I_sVar('$SGCFG[1].$EQUIP_TYPE', 1)
+    ENDIF
+  ENDIF --only one spot equipment
+
+  IF (numsprctrl = 2) THEN --two spot equipment, both of them for SPR
+    Set_I_sVar('$spotnumeq', 2) 
+    Set_B_sVar('$spoteqsetup[1].$BU_STROKE[1]', TRUE)
+    Set_B_sVar('$spoteqsetup[2].$BU_STROKE[1]', TRUE)
+    IF (g_servog_opt = TRUE) THEN --robot has servo gun option installed
+      Set_I_sVar('$SGCFG[1].$EQUIP_TYPE', 1)
+      Set_I_sVar('$SGCFG[2].$EQUIP_TYPE', 1)
+    ENDIF
+  ENDIF --two spot equipment, both of them for SPR
+
+  IF  (((bshop_proc1 = spotappl) OR (bshop_proc1 = dispappl) OR (bshop_proc1 = studappl)) AND (bshop_proc2 = sprappl)) THEN --two spot equipment, second equipment is SPR
+    Set_I_sVar('$spotconfig.$num_wd_ctls',2)    
+    Set_I_sVar('$spotnumeq', 2) 
+    Set_B_sVar('$spoteqsetup[2].$BU_STROKE[1]', TRUE)
+    Set_I_sVar('$spoteqsetup[2].$weld_ctrler[1]',2)
+    Set_I_sVar('$spoteqsetup[2].$weld_ctrler[2]',2)
+    IF (g_servog_opt= TRUE) THEN --servo gun option is installed on the robot need to set equipment as air gun
+      Set_I_sVar('$SGCFG[2].$EQUIP_TYPE', 1)
+    ENDIF
+  ENDIF
+
+END spr_var
+
+-----------------------------------------------------------------------------
+ROUTINE spr_errtbl
+-- PURPOSE: set error table for application application
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+--  IF (ARRAY_LEN($error_table) > 201) then
+--    IF UNINIT($ERROR_TABLE[10]) THEN   
+--      IF UNINIT($ERROR_TABLE[200]) THEN
+--        -- RE-init error table setup
+--        errtbl_setup = FALSE
+--        finished = FALSE
+--        last_done = 0
+--        count  = 0
+--        last_good = 0
+--      ENDIF
+--    ENDIF
+--  ENDIF
+
+END spr_errtbl
+
+-----------------------------------------------------------------------------
+ROUTINE set_spr_var
+-- PURPOSE: Sets application variable settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (numsprctrl <> 0) THEN -- SPR App
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(SPRVR_Setup) OR (Reset_Cell) THEN
+    SPRVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the SPR Variables GMSPRVR', FALSE)
+
+  IF (SPRVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  SPR Variables Already Setup', FALSE)
+    IF ExecSetupAgn('SPR Vars') THEN -- ask user if they want to setup again
+      SPRVR_Setup = FALSE
+    ELSE
+      WriteLog('  SPR Variables already Complete', FALSE)
+      WriteLog('GMSPRVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  initSPRVARS
+  spr_var
+  spr_errtbl
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('SPR Variable Setup GMSPRVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('SPR Variable Setup completed', FALSE)
+    SPRVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_spr_var
+
+-----------------------------------------------------------------------------
+BEGIN
+
+set_spr_var
+
+END GMSPRVR

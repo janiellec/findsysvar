@@ -1,0 +1,1060 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         SPINTOPUTIL
+--   TITLE:          SPINTOPUTIL PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  07/27/18
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  VMT
+--
+--
+--    SETUP ROUTINES INCLUDED
+--
+--    Other Application files:
+
+-------------------------------------------------------------------------------
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--          1         8-20-18     R.Kosaski       Initial release for VMT to maintian
+--			2		  8-30-18 	  M.Fiedler 	  Individual, optional offsets for GOUTs (Angle/Pose/CntrlPln)
+--			2		  8-30-18 	  M.Fiedler 	  Made Spn_Cell, PC and Head IO to be called from external
+--------------------------------------------------------------------------
+PROGRAM SPINTOPUTIL
+
+%COMMENT = 'SpinTop I/O V4.0'
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT tpthrdef -- Required for the $THRSDITABLE[x] variables
+%ENVIRONMENT STRNG -- Required for the Convert Int& Real builtins
+
+%NOLOCKGROUP
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+Version = '2018-8-30'
+
+Ethernet = 89 -- Ethernet Communications
+TYPE
+
+VMT_OUTPUT FROM SPINTOP= STRUCTURE
+  Offset  : INTEGER
+  Length  : INTEGER
+  ToGateway  : BOOLEAN
+ENDSTRUCTURE
+
+VMT_INPUT FROM SPINTOP= STRUCTURE
+  Offset : INTEGER
+  Length  : INTEGER
+  FromGateway  : BOOLEAN
+ENDSTRUCTURE
+
+VAR
+
+Err_Prefix :STRING[12] -- used to hold the error for data type is failure
+
+--Set these 2 offsets to a free I/O area, according to your system
+OUT_OFFSETPC IN CMOS FROM SPINTOP: INTEGER -- first bit of mapped communication for PC
+IN_OFFSETPC IN CMOS FROM SPINTOP: INTEGER -- first bit of mapped communication for PC
+
+--Set these 2 offsets to a free I/O area, according to your system
+OUT_OFFSETGW IN CMOS FROM SPINTOP: INTEGER -- first bit of mapped communication for Gateway
+IN_OFFSETGW IN CMOS FROM SPINTOP: INTEGER -- first bit of mapped communication for Gateway
+
+CntrlPlnGOUT IN CMOS FROM SPINTOP: INTEGER
+Angle_GOUT IN CMOS FROM SPINTOP: INTEGER
+Pose_GOUT IN CMOS FROM SPINTOP: INTEGER
+CRC_GOUT IN CMOS FROM SPINTOP: INTEGER
+CRC_GIN IN CMOS FROM SPINTOP: INTEGER
+POSE_GIN IN CMOS FROM SPINTOP:INTEGER
+
+ST_OUT_ANGLE IN CMOS FROM SPINTOP: VMT_OUTPUT  --
+ST_OUT_X IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_Y IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_Z IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_RX IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_RY IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_RZ IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_RES IN CMOS FROM SPINTOP: VMT_OUTPUT  --2 bytes reserved
+ST_OUT_CRC IN CMOS FROM SPINTOP: VMT_OUTPUT
+
+ST_OUT_TRIGG IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_START IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_OUT_CPLAN IN CMOS FROM SPINTOP: VMT_OUTPUT
+ST_CPLAN_SET IN CMOS FROM SPINTOP: VMT_OUTPUT
+
+ST_IN_PCAUTO IN CMOS FROM SPINTOP: VMT_INPUT
+ST_IN_PCBusy IN CMOS FROM SPINTOP: VMT_INPUT
+ST_IN_TC_Ack IN CMOS FROM SPINTOP: VMT_INPUT
+ST_IN_TC_OK IN CMOS FROM SPINTOP: VMT_INPUT
+ST_IN_PCRDY IN CMOS FROM SPINTOP: VMT_INPUT
+ST_IN_SenRDY IN CMOS FROM SPINTOP: VMT_INPUT
+
+ST_IN_CRC_RD IN CMOS FROM SPINTOP: VMT_INPUT
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+debug  : BOOLEAN -- Used for if the debug messages should be used
+  i,entry,value,
+  ST_NumSgmnts,
+  l_entry,               -- used for the GET_VAR
+  gm_status    : INTEGER
+
+ temp_str : INTEGER
+
+Spin_IO_Done IN SHADOW : BOOLEAN -- if the I/O has ran completely
+MaxEnetPorts,
+EnetPortGW,          -- used for the port number in the Ethernet setup G4 =64
+EnetPortPC IN CMOS:INTEGER  -- used for the port number in the Ethernet setup G4 =63
+
+  BCD_Num :INTEGER
+ CellCommType :INTEGER -- used for type of communications with cell equipment
+
+ ---------------------------------------------
+-- Declarations
+---------------------------------------------
+ROUTINE Spn_Cell_IO FROM SPINTOPUTIL -- Setup Cell I/O comments and Configuration
+ROUTINE ST_PC_IO FROM SPINTOPUTIL     -- SpinTop to/from PC for I/O communications
+ROUTINE SP_Head_IO FROM SPINTOPUTIL   -- SpinTop to/from Gateway for Head communications I/O
+
+
+
+-------------------------------------------------------------------
+ROUTINE Verify_Answr(P_Answer:INTEGER;P_Min_Answer:INTEGER;P_Max_Answer:INTEGER):BOOLEAN
+--                                                               --
+-- Verify answer to all questions is valid. If the answer is Less--
+-- than or two then the user cannot exit the question unitl a 1 or  --
+-- 2 is inputed by the user                                     --
+-------------------------------------------------------------------
+VAR
+Verified:BOOLEAN --returned value if valid True is OK False out of Range
+
+BEGIN
+ Verified = FALSE -- set default to False
+
+  IF ((P_Answer <P_Min_Answer) OR (P_Answer> P_Max_Answer)) THEN
+    WRITE (cr,'Entry of',P_Answer,' NOT valid. Must be',P_Min_Answer,' -',P_Max_Answer,cr)
+    WRITE TPPROMPT (CR, 'Press ENTER key to select again')
+    READ TPPROMPT (CR)
+  ELSE -- is Verified in range passed Answer
+    Verified = TRUE
+  ENDIF
+
+RETURN(verified)
+
+END Verify_Answr
+-----------------------------------------------------------
+ROUTINE int2str (p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[9]
+BEGIN
+  l_string = ''
+IF UNINIT(p_integer) THEN
+  p_integer = 0
+ENDIF
+
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int2str
+-----------------------------------------------------------------------------
+ROUTINE real2str(p_real:REAL):STRING
+--
+-- PURPOSE:  to convert Reals to string variables
+--
+ ----------------------------------------------------------------------------
+
+VAR
+  l_string: STRING[14]
+
+BEGIN
+   l_string = ''
+IF UNINIT(p_real) THEN
+  p_real = 0
+ENDIF
+
+   CNV_REAL_STR(p_real, 4, 2, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+
+IF UNINIT(l_string) THEN
+  l_string = '??.??'
+ENDIF
+
+  RETURN(l_string)
+
+END real2str
+-----------------------------------------------------------------------------
+ROUTINE Cnfg_Grp(P_Grp_Type:INTEGER;P_Grp_Num:INTEGER;P_Comm_Type:INTEGER;P_Slot_Num:INTEGER;P_Strt_Num:INTEGER;P_Num_Points:INTEGER):BOOLEAN
+-- PURPOSE: To config a group in and output and check for errors
+--
+--
+-- INPUT:       Group Type,
+--            - Group Number
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  SELECT (P_Grp_Type) OF --
+    CASE (IO_DIN):  -- Digital Input to be configured
+        Err_Prefix = 'DI['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DIN,P_Strt_Num,P_Num_Points,gm_status)
+    CASE (IO_DOUT):  -- Digital Output to be configured
+        Err_Prefix = 'DO['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DOUT,P_Strt_Num,P_Num_Points,gm_status)
+    CASE (IO_GPIN):  -- Group Input to be configured
+        Err_Prefix = 'GI['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DIN,P_Strt_Num,P_Num_Points,gm_status)
+    CASE (IO_GPOUT):  -- Group Output to be configured
+        Err_Prefix = 'GO['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DOUT,P_Strt_Num,P_Num_Points,gm_status)
+    CASE (IO_UOPIN):  -- User Input to be configured
+        Err_Prefix = 'UI['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DIN,P_Strt_Num,P_Num_Points,gm_status)
+    CASE (IO_UOPOUT):  -- User Output to be configured
+        Err_Prefix = 'UO['
+        SET_PORT_ASG(P_Grp_Type,P_Grp_Num,P_Comm_Type,P_Slot_Num,IO_DOUT,P_Strt_Num,P_Num_Points,gm_status)
+    ELSE: --  Unknown post and return
+      POST_ERR(38000, 'P_Grp_Type '+Int2str(P_Grp_Type)+' in ST_Utilty INVALID', 0, 0) --
+  ENDSELECT --
+
+  IF (gm_status <> 0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+    POST_ERR(38000,Err_Prefix + int2str(P_Grp_Num)+'] Rack' +int2str(P_Comm_Type) &
+    +' Slot'+ Int2str(P_Slot_Num)+' Start'+ int2str(P_Strt_Num)+'#'+int2str(P_Num_Points)+' FAILED', gm_status, 0) --
+    DELAY 1000
+    RETURN(FALSE)
+  ELSE
+    IF debug THEN
+      POST_ERR(38000,Err_Prefix + int2str(P_Grp_Num)+'] Rack' +int2str(P_Comm_Type) &
+    +' Slot'+ Int2str(P_Slot_Num)+' Start'+ int2str(P_Strt_Num)+'#'+int2str(P_Num_Points)+' set', gm_status, 0)
+    ENDIF
+    RETURN(TRUE)
+  ENDIF
+
+END Cnfg_Grp
+-----------------------------------------------------------
+ROUTINE set_B_sVar (P_var_name:STRING;P_Bvar_value:BOOLEAN)
+-- PURPOSE: to Set system variables that have a boolean Type
+--
+--
+-- INPUT:  The system Variable to set passed as a string
+--         the boolean to set to
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ SET_VAR(l_entry,'*SYSTEM*',P_var_name,P_Bvar_value,gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*]'+P_var_name+' FAILED', gm_status, 0) --
+   ENDIF
+
+END set_B_sVar
+-----------------------------------------------------------------------------
+ROUTINE Set_I_sVar(P_var_name:STRING;P_Ivar_value:INTEGER)
+-- PURPOSE: to Set system variables that have a Interger Type
+--
+--
+-- INPUT:  The system Variable to set passed as a string
+--         the integer to set to
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ SET_VAR(l_entry,'*SYSTEM*',P_var_name,P_Ivar_value,gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*]'+P_var_name+' to ' + int2str(P_Ivar_value)+ ' FAILED' , gm_status, 0) --
+   ENDIF
+
+END Set_I_sVar
+-----------------------------------------------------------------------------
+ROUTINE Set_S_sVar(P_var_name:STRING;P_Svar_value:STRING)
+-- PURPOSE: to Set system variables that have a String Type
+--
+--
+-- INPUT:  The system Variable to set passed as a string
+-----------------------------------------------------------------------------
+BEGIN
+
+ SET_VAR(l_entry,'*SYSTEM*',P_var_name,P_Svar_value,gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*]'+P_var_name + ' to' + P_Svar_value+ ' FAILED' , gm_status, 0) --
+   ENDIF
+
+END Set_S_sVar
+-----------------------------------------------------------------------------
+ROUTINE Set_R_sVar(P_var_name:STRING;P_Rvar_value:REAL)
+-- PURPOSE: to Set system variables that have a Real Type
+--
+--
+-- INPUT:  The system Variable to set passed as a string
+--         the Real to set to
+--
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ SET_VAR(l_entry,'*SYSTEM*',P_var_name,P_Rvar_value,gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*]'+P_var_name+' to' +real2str(P_Rvar_value)+ ' FAILED', gm_status, 0) --
+   ENDIF
+
+END Set_R_sVar
+-----------------------------------------------------------------------------
+ROUTINE FndNumEnets
+-- PURPOSE: to go find number of enet ports available
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+MaxEnetPorts = 0
+gm_status = 0
+
+WHILE (gm_status=0) DO --
+  FOR i = 1 TO 128 DO --
+    GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2str(i)+'].$err_sv', value, gm_status)
+      IF gm_status = 0 THEN
+        MaxEnetPorts = MaxEnetPorts +1
+      ELSE
+        RETURN
+      ENDIF
+  ENDFOR --
+ENDWHILE --
+
+END FndNumEnets
+-----------------------------------------------------------------------------
+ROUTINE Comnt_port(P_ioType:INTEGER;P_ioNumber:INTEGER;P_iocomment:STRING)
+-- PURPOSE:
+--
+--
+-- INPUT:  P_ioType - The IO_TYPE as declared in kliotyps.kl (Fanuc File) with translator
+--         P_ioNumber --The I/O Port Number to comment
+--    -    P_iocomment - The I/O comment string to be set
+------------------------------------------------------------------------------
+
+BEGIN
+
+  SET_PORT_CMT(P_ioType,P_ioNumber,P_IOComment,gm_status)      -- Process2On
+
+  IF (gm_status <> 0)  THEN --PRIO-149 Invalid Assignment Recorded  AND (gm_Status <> 13149)
+    SELECT (P_ioType) OF --
+      CASE (IO_DIN):  -- Digital Input to be configured
+          Err_Prefix = 'DI['
+      CASE (IO_DOUT):  -- Digital Output to be configured
+          Err_Prefix = 'DO['
+      CASE (IO_GPIN):  -- Group Input to be configured
+          Err_Prefix = 'GI['
+      CASE (IO_GPOUT):  -- Group Output to be configured
+          Err_Prefix = 'GO['
+      CASE (IO_UOPIN):  -- User Input to be configured
+          Err_Prefix = 'UI['
+      CASE (IO_UOPOUT):  -- User Output to be configured
+          Err_Prefix = 'UO['
+      ELSE: --  Unknown post and return
+        POST_ERR(38000, 'P_Grp_Type '+Int2str(P_ioType)+' in ST_Utilty INVALID', 0, 0) --
+    ENDSELECT --
+
+    POST_ERR(38000,Err_Prefix + int2str(P_ioType)+'] comment to ' +P_IOComment+' FAILED', gm_status, 0) --
+    DELAY 100
+  ENDIF
+
+END Comnt_port
+-----------------------------------------------------------------------------
+ROUTINE SPINTOP_PC(P_Con_Num:INTEGER;p_Con_Name:STRING)
+-- PURPOSE:Setup the EIP connection for the Input Connection # passed
+--
+-- INPUT:   P_Con_Num -- the Connection Number to Setup in the EtherNet/IP List field
+--          p_Con_Name -- the name to be placed in the comment feild of the EtherNet/IP List field
+--          Some setting are assume and Hard coded based on the type Setup
+--          Connection Name to comment the connection to
+--          for instance the input block are assumed to be specific brands
+--          - Spin-Top PC interface with robot.
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+
+ Write('Setting ENet Port',P_Con_Num,' for ',p_Con_Name,CR)
+
+     Current_Ver = Version
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- set the description comment set above
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',P_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+  l_host_ip = '192.168.1.'+Con_String -- The host name is equal to base setup and Passed element
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',l_host_ip)
+
+  -- Set Connection is Scanner
+  set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',0)--0= stop 1= warn,2=pause
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+  --$DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',FALSE)
+  -- Setup all EIP Scanner variables
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',8)--When Scanner=Input
+  --Set the I/O Produce size for the Block in 16-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',2)--When Scanner=Output
+
+  -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',283)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',257)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',283)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',257)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',TRUE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',27)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',1)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',101)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',100) --assembly instance (input)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END SPINTOP_PC
+-----------------------------------------------------------------------------
+ROUTINE SPINTOP_GW(P_Con_Num:INTEGER;p_Con_Name:STRING)
+-- PURPOSE:Setup the EIP connection for the Input Connection # passed
+--
+-- INPUT:   P_Con_Num -- the Connection Number to Setup in the EtherNet/IP List field
+--          p_Con_Name -- the name to be placed in the comment feild of the EtherNet/IP List field
+--          Some setting are assume and Hard coded based on the type Setup
+--          Connection Name to comment the connection to
+--          for instance the input block are assumed to be specific brands
+--          - Spin-Top GateWay to head interface with robot.
+--
+-----------------------------------------------------------------------------
+VAR
+  Con_String :STRING[3]
+  Con_name : STRING[33]
+  l_host_ip : STRING[33]
+  l_entry :INTEGER
+
+BEGIN
+
+ Write('Setting ENet Port',P_Con_Num,' for ',p_Con_Name,CR)
+
+     Current_Ver = Version
+
+-- Convert the passed integer to string to add to the variable for setting.
+  Con_String = int2str(P_Con_Num)
+
+-- set the description comment set above
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$DESC',P_Con_Name)
+
+-- Setup the host name for the device i.e. its IPConfig
+  l_host_ip = '192.168.1.'+Con_String -- The host name is equal to base setup and Passed element
+  Set_S_Svar('$EIP_CONN['+Con_String+'].$HOST',l_host_ip)
+
+  -- Set Connection is Scanner
+  set_B_sVar('$EIP_CONN['+Con_String+'].$IS_SC',TRUE)
+  -- Set to Warning Error Serverity
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$ERR_SV',0)--0= stop 1= warn,2=pause
+  -- Set Connection State
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+  --$DATATYPE = TRUE makes it 8 byte - when FALSE 16 bit
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',FALSE)
+  -- Setup all EIP Scanner variables
+  --Set the I/O Consume size
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$CS_SZ',2)--When Scanner=Input
+  --Set the I/O Produce size for the Block in 16-Bit words
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$PR_SZ',32)--When Scanner=Output
+
+  -- EtherNet IP target device vender ID variable for electronic keying Valid when Robot is Scanner
+  Set_I_Svar('$EIP_SC['+Con_String+'].$VENDOR',283)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$DEVTYPE',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PRDCODE',271)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_VENDOR',283)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_DEVTYPE',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_PRDCODE',271)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$PX_REV',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TORPI',16)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$OTRPI',16)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CONN_FLAG',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$MULT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$TRIG',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_OT',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$NETC_TO',0)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$MULTICAST',FALSE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$DATATYPE',TRUE)
+  Set_B_Svar('$EIP_SC['+Con_String+'].$RECONNECT',FALSE)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$RECONNTIME',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_SIZE',9)
+
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[1]',52)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[2]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[3]',27)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[4]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[5]',12)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[6]',0)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[7]',15)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[8]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[9]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[10]',1)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[11]',32)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[12]',4)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[13]',36)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[14]',1)-- Configuration instance
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[15]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[16]',100)--assembly instance (output)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[17]',44)
+  Set_I_Svar('$EIP_SC['+Con_String+'].$CN_PATH[18]',101) --assembly instance (input)
+
+  -- Enable the connection
+  Set_B_Svar('$EIP_CONN['+Con_String+'].$ENABLE',TRUE)
+  -- Enable
+  Set_I_Svar('$EIP_CONN['+Con_String+'].$STATE',2)
+
+END SPINTOP_GW
+-----------------------------------------------------------------------------
+ROUTINE SetPortNumbr(p_devicename:STRING):INTEGER
+-- PURPOSE: to get the port number from user input
+--
+-- INPUT:  the device string to display in the message to the user
+--            -
+-- OUTPUT:  Port Number selected
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+VAR
+UserConfrmd : INTEGER
+UsrPortEntrd : INTEGER
+usedporttext : STRING[32]
+Con_active,
+PortisSet :BOOLEAN
+
+BEGIN
+
+PortIsSet = FALSE
+
+WHILE (PortIsSet = FALSE) DO --
+
+-- Prompt the Operator to enter a port number
+    REPEAT
+      UsrPortEntrd = -1
+
+      WRITE(CHR(137),CHR(128));
+      WRITE TPDISPLAY(CR,' The Ethernet communication port ',cr)
+      WRITE TPDISPLAY(' for "',p_devicename, '" has not been set.',cr,cr)
+      WRITE TPDISPLAY(' Please enter last octet to be used for',cr)
+      WRITE TPDISPLAY(' the connection port to setup in the',cr)
+      WRITE TPDISPLAY(' EtherNet/IP list for ',p_devicename,'.',cr)
+      WRITE TPDISPLAY(' 192.168.1.EnetComPort      ',cr)
+      WRITE TPPROMPT (CR,'Enter Port# 1 -', MaxEnetPorts,', then Press Enter '+CHR(129))
+
+      READ TPPROMPT(UsrPortEntrd)
+    UNTIL (Verify_Answr(UsrPortEntrd,1,MaxEnetPorts))-- Verify Answer is valid
+
+-- Go check is is not currently active
+   GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2str(UsrPortEntrd)+'].$ENABLE', Con_active, gm_status)
+     IF gm_status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$EIP_CONN['+int2str(UsrPortEntrd)+'].$ENABLE FAILED', gm_status, 0) --
+     ELSE -- If active confirm user will overwrite it
+       IF Con_active THEN -- if Active ask user is he sure
+         GET_VAR(entry, '*SYSTEM*' , '$EIP_CONN['+int2str(UsrPortEntrd)+'].$DESC', usedporttext, gm_status)
+           IF gm_status = 0 THEN
+             REPEAT
+               UserConfrmd = -1
+               WRITE(CHR(137),CHR(128));
+               WRITE TPDISPLAY(CR,' The Ethernet communication port ',cr)
+               WRITE TPDISPLAY(' #',UsrPortEntrd,' IS ACTIVE for ',usedporttext,cr,cr)
+               WRITE TPDISPLAY(' Enter 0 to select a new port # or, ',cr)
+               WRITE TPDISPLAY(' Enter 1 to use connection#',UsrPortEntrd,cr)
+               WRITE TPDISPLAY(' and OVERWRITE ',usedporttext,' setup,',cr)
+               WRITE TPDISPLAY(' to use the port for ',p_devicename,'.',cr)
+               WRITE TPDISPLAY('                                        ',cr)
+               WRITE TPPROMPT (CR,'Enter either 0 or 1, then Press Enter '+CHR(129))
+               READ TPPROMPT(UserConfrmd)
+             UNTIL (Verify_Answr(UserConfrmd,0,1))-- Verify Answer is valid
+               IF UserConfrmd = 1 THEN
+                 POST_ERR(38000, 'User OVERWROTE EIP '+int2str(UsrPortEntrd)+' for '+usedporttext, 0, 0) --
+                 PortIsSet = TRUE
+               ENDIF
+           ENDIF
+       ELSE -- Port is not currently active
+         PortIsSet = TRUE
+       ENDIF
+     ENDIF
+
+ENDWHILE --
+
+WRITE(CHR(137),CHR(128));-- Clear screen
+WRITE TPPROMPT (CHR(129))-- Clear user prompt
+
+  RETURN(UsrPortEntrd)
+
+END SetPortNumbr
+
+-----------------------------------------------------------------
+ROUTINE Spn_Cell_IO
+-- PURPOSE: to setup the I/O comments for the spinTop to PLC interface
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ I:  INTEGER
+
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+
+ Write('  Setting up SpinTop Digital Inputs', CR)
+
+  -- SET DIGITAL OUTPUTS to PLC for SpinTop gm_status
+  Comnt_port(io_dout,129,'MSS_AUTOMATIC')      -- Process2On
+
+  Comnt_port(io_dout,135,'Last Result OK')     -- Proc2TaskOK
+
+  Comnt_port(io_dout,185,'SpinTop Ready')
+
+   Write('  Setting up SpinTop PLC I/O Completed', CR)
+
+END Spn_Cell_IO
+-----------------------------------------------------------------
+ROUTINE ST_PC_IO
+-- PURPOSE: to setup the I/O comments for the spinTop PC to and from robot
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ I:  INTEGER
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+IF UNINIT(debug) THEN
+  debug = FALSE
+ENDIF
+
+FndNumEnets  -- go set number of ports to be used later
+
+IF UNINIT(EnetPortPC) THEN -- if not set, set so prompted
+  EnetPortPC = 0
+ENDIF
+IF (EnetPortPC <1) OR (EnetPortPC>MaxEnetPorts) THEN
+  EnetPortPC = SetPortNumbr('SpinTop PC')-- 63 for GM G4 version
+ENDIF
+
+ SPINTOP_PC(EnetPortPC,'SpinTop PC')  -- Setup the IP Config and Communications for the SpinTop
+
+ Write('  Setting SpinTop PC to Robot Inputs ',CR)
+-- PLC interface
+IF NOT Cnfg_Grp(IO_DIN,in_offsetpc,CellCommType,EnetPortPC,1,-64) THEN
+  RETURN
+ENDIF
+
+   FOR i = in_Offsetpc TO (in_Offsetpc + 63) DO -- comment them all, then overwrite used ones
+     Comnt_port(io_din,i,'STPCunusedResrvd')
+   ENDFOR --
+
+   -- SET DIGITAL INPUTS from SPinTop
+  Comnt_port(io_din,(in_offsetpc+St_in_pcauto.offset),'MSS AUTOMATIC')    --  start at 137 for Process #2
+  Comnt_port(io_din,(in_offsetpc+St_in_pcbusy.offset),'MSS Busy')
+  Comnt_port(io_din,(in_offsetpc+St_in_tc_ack.offset),'MSS CPLAN TAKEN')
+  Comnt_port(io_din,(in_offsetpc+St_in_tc_ok.offset),'MSS CPLAN OK')
+  Comnt_port(io_din,(in_offsetpc+St_in_pcrdy.offset),'MSS READY')
+  Comnt_port(io_din,(in_offsetpc+St_in_senrdy.offset),'Sensor READY')
+  Comnt_port(io_din,(in_offsetpc+St_in_senrdy.offset+1),'Last Results OK')
+  Comnt_port(io_din,(in_offsetpc+St_in_senrdy.offset+2),'Last Results NOK')
+
+  -- Get where start +previous comments to start here, then add Number of segments
+  ST_NumSgmnts= 48  -- is the number of segments that avialable at once, could be down to 32
+  FOR i = (in_offsetpc+16) TO ((in_offsetpc+16)+ ST_NumSgmnts) DO
+    temp_str =(i-(in_offsetpc+16)+ 1)
+    Comnt_port(io_din,i,'STPC PASS SEG#'+int2str(temp_str))
+  ENDFOR --
+
+ Write('  Setting Robot Outputs to SpinTop PC',CR)
+
+-- these are the outputs TO SpinTop PC through the ethernet configuation
+IF NOT Cnfg_Grp(IO_DOUT,Out_Offsetpc,CellCommType,EnetPortPC,1,-16) THEN
+  RETURN
+ENDIF
+
+   FOR i = Out_Offsetpc TO (Out_Offsetpc + 15) DO
+     Comnt_port(io_dout,i,'STPCUnusedResrvd')
+   ENDFOR --
+
+   Comnt_port(io_dout,(Out_Offsetpc+ST_out_Start.offset),'STPC Start Bit')-- Start bit for Spin Top
+   Comnt_port(io_dout,(Out_Offsetpc+ST_CPLAN_SET.Offset),'STPC CPlan Set') -- Strobe Set ControlPlan
+   Comnt_port(io_dout,(Out_Offsetpc+7),'STPCResetResults') -- Reset the results
+
+-- COnfigure CntrlPlnGOUT should be initialized to 27
+IF NOT Cnfg_Grp(IO_GPOUT,CntrlPlnGOUT,CellCommType,EnetPortPC,(ST_out_CPlan.offset+1),-ST_out_CPlan.length) THEN
+  RETURN
+ELSE
+  FOR i = (out_offsetpc+ST_out_CPlan.offset) TO ((out_offsetpc+ST_out_CPlan.offset)+ (ST_out_CPlan.length-1)) DO
+    temp_str =(i-(out_offsetpc+ST_out_CPlan.offset)+ 1)
+    Comnt_port(io_dout,i,'STPC CPlan BCD'+int2str(temp_str))
+  ENDFOR --
+     Comnt_port(io_gpout,CntrlPlnGOUT,'STPC CntrlPlan')
+ENDIF
+
+  WRITE('SpinTop PC to Robot I/O Completed', CR,CR)
+
+END ST_PC_IO
+-----------------------------------------------------------------------------
+ROUTINE SP_Head_IO
+-- PURPOSE: to set the communication to the SP head through the gateway device
+--
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ I:  INTEGER
+
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+
+FndNumEnets  -- go set number of ports to be used later
+
+IF UNINIT(EnetPortGW) THEN -- if not set, set so prompted
+  EnetPortGW = 0
+ENDIF
+IF (EnetPortGW <1) OR (EnetPortGW>MaxEnetPorts) THEN
+  EnetPortGW = SetPortNumbr('SpinTop GateWay')-- 64 for GM G4 version
+ENDIF
+
+-- **************** Setup the Gateway i.e. to HEAD directly
+ SPINTOP_GW(EnetPortGW,'SpinTop GW')  -- Setup the IP Config and Communications for the Head Itself
+
+ Write('  Setting SpinTop GW to Robot Inputs ',CR)
+
+-- set the INPUT range from the Gateway for HEAD
+  IF NOT Cnfg_Grp(IO_DIN,In_offsetgw,CellCommType,EnetPortGW,1,-16) THEN
+    POST_ERR(38000, 'SpinTop to Gateway Digital Inputs FAILED', gm_status, 0) --
+  RETURN
+  ENDIF
+
+IF (CRC_GIN > 0) THEN
+  IF Cnfg_Grp(IO_GPIN,CRC_GIN,CellCommType,(EnetPortGW),1,-16) THEN
+    Comnt_port(io_gpin,CRC_GIN,'STGW_CkSum1')
+    FOR i = (In_Offsetgw) TO (In_Offsetgw + 15) DO
+      BCD_Num = ((i - In_Offsetgw)+1)-- make start number begin at 0,then increment for comment
+      Comnt_port(io_din,i,'STGW_CkSumBCD.'+int2str(BCD_Num))
+    ENDFOR --
+  ENDIF
+ENDIF
+
+-- ************ Set the Ouputs to Gateway **********************
+
+ Write('  Setting Robot Outputs to SpinTop GW', CR)
+
+-- these are the outputs TO SpinTop HEAD through the ethernet configuation
+IF NOT Cnfg_Grp(IO_DOUT,Out_offsetgw,CellCommType,EnetPortGW,1,-256) THEN
+  POST_ERR(38000, 'SpinTop HEAD output assign FAILED', 0, 0) --
+  RETURN
+ENDIF
+
+-- set spare and allow to be written over
+   FOR i = (Out_Offsetgw) TO (Out_Offsetgw + 255)  DO
+     Comnt_port(io_dout,i,'STGWunusedResrvd')
+   ENDFOR --
+
+-- Set Trigger output
+   Comnt_port(io_dout,(Out_Offsetgw+ST_out_Trigg.offset),'STGW Out Trigger')-- Trigger for the Sensor
+
+ --Setup the angle to the Spin-Top Head for robot position
+
+IF ANGLE_GOUT > 0 THEN
+	IF Cnfg_Grp(IO_GPOUT, ANGLE_GOUT ,CellCommType,EnetPortGW,(ST_out_Angle.offset+1),-ST_out_Angle.length) THEN
+	   FOR i = (Out_offsetgw+ST_out_Angle.offset) TO (Out_offsetgw+ST_out_Angle.offset+1+(ST_out_Angle.length-1))  DO
+		 BCD_Num = (i - (Out_offsetgw+ST_out_Angle.offset)+1)-- make start number begin at 0,then increment for comment
+		 Comnt_port(io_dout,i,'ST_OUT_ANGLE.'+int2str(BCD_Num))
+	   ENDFOR --
+	   Comnt_port(io_gpout,CntrlPlnGOUT + 1,'ST_AngleToHead')
+	ELSE
+	  POST_ERR(38000, 'SpinTop Angle output assign FAILED', 0, 0) --
+	ENDIF
+ENDIF
+
+
+IF Pose_GOUT > 0 THEN
+	-- Setup the X position Output to Gateway for Head
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT),CellCommType,EnetPortGW,(ST_OUT_X.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT),'To VMT Rbt X LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+1),CellCommType,EnetPortGW,(ST_OUT_X.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+1),'To VMT Rbt X MSD')
+	  -- Setup the X element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_X.Offset) TO (Out_offsetgw+ST_OUT_X.Offset+(ST_OUT_X.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_X.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_X.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO X MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO X LSD assign FAILED', 0, 0) --
+	ENDIF
+
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+2),CellCommType,EnetPortGW,(ST_OUT_Y.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+2),'To VMT Rbt Y LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+3),CellCommType,EnetPortGW,(ST_OUT_Y.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+3),'To VMT Rbt Y MSD')
+	-- Setup the Y element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_Y.Offset) TO (Out_offsetgw+ST_OUT_Y.Offset+(ST_OUT_Y.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_Y.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_Y.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO Y MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO Y LSD assign FAILED', 0, 0) --
+	ENDIF
+
+	-- Setup the Z element to the Spin-Top for robot Current position
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+4),CellCommType,EnetPortGW,(ST_OUT_Z.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+4),'To VMT Rbt Z LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+5),CellCommType,EnetPortGW,(ST_OUT_Z.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+5),'To VMT Rbt Z MSD')
+	-- Setup the Z element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_Z.Offset) TO (Out_offsetgw+ST_OUT_Z.Offset+(ST_OUT_Z.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_Z.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_Z.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO Z MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO Z LSD assign FAILED', 0, 0) --
+	ENDIF
+
+	-- Setup the W element to the Spin-Top for robot Current position
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+6),CellCommType,EnetPortGW,(ST_OUT_RX.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+6),'To VMT Rbt W LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+7),CellCommType,EnetPortGW,(ST_OUT_RX.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+7),'To VMT Rbt W MSD')
+	-- Setup the W element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_RX.Offset) TO (Out_offsetgw+ST_OUT_RX.Offset+(ST_OUT_RX.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_RX.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_W.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO W MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO W LSD assign FAILED', 0, 0) --
+	ENDIF
+
+	-- Setup the P element to the Spin-Top for robot Current position
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+8),CellCommType,EnetPortGW,(ST_OUT_RY.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+8),'To VMT Rbt P LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+9),CellCommType,EnetPortGW,(ST_OUT_RY.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+9),'To VMT Rbt P MSD')
+	-- Setup the P element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_RY.Offset) TO (Out_offsetgw+ST_OUT_RY.Offset+(ST_OUT_RY.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_RY.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_P.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO P MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO P LSD assign FAILED', 0, 0) --
+	ENDIF
+
+
+
+
+	-- Setup the R element to the Spin-Top for robot Current position
+	IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+10),CellCommType,EnetPortGW,(ST_OUT_RZ.Offset+1),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+10),'To VMT Rbt R LSD')
+	   IF Cnfg_Grp(IO_GPOUT,(Pose_GOUT+11),CellCommType,EnetPortGW,(ST_OUT_RZ.Offset+17),-16) THEN
+	   Comnt_port(io_gpout,(Pose_GOUT+11),'To VMT Rbt R MSD')
+	-- Setup the P element to the Spin-Top for robot Current position
+		FOR i = (Out_offsetgw+ST_OUT_RZ.Offset) TO (Out_offsetgw+ST_OUT_RZ.Offset+(ST_OUT_RZ.length-1))  DO
+		  BCD_Num = (i - (Out_offsetgw+ST_OUT_RZ.Offset)+1)-- make start number begin at 0,then increment for comment
+		  Comnt_port(io_dout,i,'ST_OUT_R.'+int2str(BCD_Num))
+		ENDFOR --
+	   ELSE
+		 POST_ERR(38000, 'GW to HEAD GO R MSD assign FAILED', 0, 0) --
+	   ENDIF
+	ELSE
+	  POST_ERR(38000, 'GW to HEAD GO R LSD assign FAILED', 0, 0) --
+	ENDIF
+
+ENDIF
+
+   -- Setup the spare for Bytes 30&31 to the Spin-Top HEAD
+   FOR i = (Out_Offsetgw +(st_out_res.offset))TO (Out_Offsetgw + st_out_res.offset+15)  DO
+     Comnt_port(io_dout,i,'STGW_SpareResvd')
+   ENDFOR --
+
+IF (CRC_Gout > 0) THEN
+  IF Cnfg_Grp(IO_GPOUT,CRC_Gout,CellCommType,EnetPortGW,(st_out_crc.offset+1),-16) THEN
+    Comnt_port(io_gpout,CRC_Gout,'STGWCRC16chksum1')
+  ELSE
+    POST_ERR(38000, 'GW to HEAD GO Chk Sum 1 assign FAILED', 0, 0) --
+  ENDIF
+ENDIF
+
+FOR i = (Out_Offsetgw +(st_out_crc.offset)) TO (Out_Offsetgw +(st_out_crc.offset)+15)  DO
+  BCD_Num = (i - (Out_Offsetgw +st_out_crc.offset))+1-- make start number begin at 0,then increment for comment
+  Comnt_port(io_dout,i,'ST_OUT_CRC.'+int2str(BCD_Num))
+ENDFOR --
+
+  WRITE('SpinTop GW to Robot I/O Completed', CR)
+--
+
+END SP_Head_IO
+-----------------------------------------------------------------------------
+ROUTINE SpinTopFlags
+-- PURPOSE: to setup the flag comments for the spinTop controller
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+i :INTEGER
+
+BEGIN
+
+
+   -- Setup Flags for if control plan is used when results read
+         FOR i = 291 TO 295 DO
+           Comnt_port(io_flag,i,'ST CPlan#'+int2str(i-290)+' used')
+         ENDFOR --
+
+           Comnt_port(io_flag,300,'CPlan Seg Failed')
+
+   -- Setup comments for results Control Plans Data
+         FOR i = 301 TO 348 DO
+           Comnt_port(io_flag,i,'Sum CPlansSeg#'+int2str(i-300))
+         ENDFOR --
+           Comnt_port(io_flag,349,'SumOf CPlans OK')
+           Comnt_port(io_flag,350,'SumOf CPlans NOK')
+
+   -- Setup comments for results Control Plan#1 Data
+         FOR i = 351 TO 398 DO
+           Comnt_port(io_flag,i,'ST CPlan#1Seg#'+int2str(i-350))
+         ENDFOR --
+           Comnt_port(io_flag,399,'CP#1 ALL Seg OK')
+           Comnt_port(io_flag,400,'CP#1 ANY Seg NOK')
+
+   -- Setup comments for results Control Plan#2 Data
+         FOR i = 401 TO 448 DO
+           Comnt_port(io_flag,i,'ST CPlan#2Seg#'+int2str(i-400))
+         ENDFOR --
+           Comnt_port(io_flag,449,'CP#2 ALL Seg OK')
+           Comnt_port(io_flag,450,'CP#2 ANY Seg NOK')
+
+   -- Setup comments for results Control Plan#3 Data
+         FOR i = 451 TO 498 DO
+           Comnt_port(io_flag,i,'ST CPlan#3Seg#'+int2str(i-450))
+         ENDFOR --
+           Comnt_port(io_flag,499,'CP#3 ALL Seg OK')
+           Comnt_port(io_flag,500,'CP#3 ANY Seg NOK')
+
+   -- Setup comments for results Control Plan#4 Data
+         FOR i = 501 TO 548 DO
+           Comnt_port(io_flag,i,'ST CPlan#4Seg#'+int2str(i-500))
+         ENDFOR --
+           Comnt_port(io_flag,549,'CP#4 ALL Seg OK')
+           Comnt_port(io_flag,550,'CP#4 ANY Seg NOK')
+
+   -- Setup comments for results Control Plan#5 Data
+         FOR i = 551 TO 598 DO
+           Comnt_port(io_flag,i,'ST CPlan#5Seg#'+int2str(i-550))
+         ENDFOR --
+           Comnt_port(io_flag,599,'CP#5 ALL Seg OK')
+           Comnt_port(io_flag,600,'CP#5 ANY Seg NOK')
+
+ Write('Flag Comments for SpinTop Setup Completed',CR)
+
+END SpinTopFlags
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+IF UNINIT(debug) THEN
+  debug = FALSE
+ENDIF
+
+
+-- Spn_Cell_IO  -- Setup Cell I/O comments and Configuration
+-- ST_PC_IO     -- SpinTop to/from PC for I/O communications
+-- SP_Head_IO   -- SpinTop to/from Gateway for Head communications I/O
+ --SpinTopFlags -- Setup Flag comments used for
+
+
+END SPINTOPUTIL

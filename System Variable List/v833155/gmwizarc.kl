@@ -1,0 +1,1418 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMWIZARC.KL
+--   TITLE:          GMWIZARC PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 ArcTool Wizard
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.1   2018/03/06 marchaka         Modify wizard questions
+--             v4.1   2018/04/02 marchaka         Add external I/O interlock setup
+--             v4.2   2018/09/05 marchaka         Modifications to miscellaneous tools menu
+--             v4.2   2018/09/12 marchaka         Per GM's request for v833p06, ONLY setup DCS if the user answers "yes"
+--                                                during wizard execution.  Most DCS setup occurs automatically during 
+--                                                software installation, so there shouldn't be an issue with this.  Added 
+--                                                text to state that a DCS APPLY will need to be done if the user answer's yes.
+--             v4.2   2018/11/30 marchaka         Fix an issue with wizard configuration variables getting cleared every time
+--                                                the wizard is executed, even if one does not do run configuration.  
+--                                                Add wiz_exec and display_exec settings at the end of display config (disp_cfg)
+--                                                routine.  This will address an issue where cold start robot config setup was
+--                                                occurring when it shouldn't.  It is the same logic that SpotTool+ uses.
+--                                                Added config_comp variable.  This variable will be used to determine when
+--                                                robot configuration that happens outside of gmwizard execution (e.g. 
+--                                                cold start setup, pmc app bits) on cold start. 
+--	       v4.3   2019/09/12 marchaka         Add check for J802 RSI Interface. 
+--	       v4.4   2020/10/23 schoensm         Added Mig-Weld wizard during v8.33p10         
+--             v4.4   2020/10/26 marchaka         Add collaborative robot support       
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmwizarc
+
+%COMMENT = 'GM Arc Wiz V4.4'
+
+%ENVIRONMENT TIM -- required for the time builtins
+%ENVIRONMENT IOSETUP
+%ENVIRONMENT ioblt  --required for iovalrd
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE kliotyps
+
+%INCLUDE gmcfgerr -- GM wizard error logging
+%INCLUDE gmcfgcel -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfglas -- GM laser wizard variables
+%INCLUDE gmcfgvis -- GM vision wizard variables
+%INCLUDE gmcfgarc -- GM arctool wizard variables
+%INCLUDE gmcfgmig -- GM Mig-Weld wizard variables
+%INCLUDE gmevrlng -- GM wizard langauge variables
+%INCLUDE gmevralg -- GM arctool wizard langauge variables
+
+
+CONST
+
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  Version = '2020-11-19'
+  ISAFTotlSGOA = 93  -- Used for "Total" Safety Signature GOUT 1 of 2
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  Errs_ans,
+  main_ans      : INTEGER                  --answer for wizard main menu
+  entry,i,        -- used in the Get_var builtin
+  ans           :INTEGER
+  gm_status     :INTEGER
+  pop_index     :INTEGER
+  screen        :STRING[4]
+  gm_value      :INTEGER
+  disp_only     :BOOLEAN --5-4-2018 "display only"
+
+  Cur_Shop_Str IN SHADOW : STRING[16] -- used for sting the shop represents
+  Cur_Proc_Typ,  -- Used in for loop for the current process to execute wizard questions
+  TotalErrors  : INTEGER -- Used for total count of errors
+
+  ConStartStat IN CMOS : INTEGER -- used for the controller state 1= Control,2= Cold
+  Reset_Errs,  -- Used to reset all the error counters   -- $SYS_CONFIG.$STARTMD
+  Exec_Wizard : BOOLEAN
+
+  LoadSavePerm,			 -- This boolean set to FALSE while we work on load save feature
+  display_exec IN CMOS : BOOLEAN -- used for if the display has been executed
+
+  RunngWizard IN CMOS:BOOLEAN -- used for the While loop in main wizard, set to FALSE AND it will end
+
+  RunngSetup  IN CMOS:BOOLEAN -- used for the While Loop hook
+  Lang_set IN CMOS : BOOLEAN -- Used for if language has ever been set used to display text prompts
+
+  StrtFrmWizrd :BOOLEAN  -- The menu was started from wizard.
+  CurrProc_Str : STRING[25]-- used for displaying differant text in the menu
+
+  WizSetTimStr IN CMOS : STRING[20] -- time and date when wizard ran
+  WizStrTimStr IN CMOS : STRING[20] -- time and date when wizard was Ended
+  WizEndTimStr IN CMOS : STRING[20] -- time and date when the wizard was Ended
+  Wiz_StrtTime IN CMOS : INTEGER    -- the timestamp when the wizard was ran started
+  Wiz_RunTime  IN CMOS : INTEGER    -- the timestamp how long the wizard was ran start to finish
+  Wiz_StupTime IN CMOS : INTEGER    -- the timestamp when the wizard Ran the SETUP portion.
+  Wiz_EndTime  IN CMOS : INTEGER    -- the timestamp when the wizard finished
+  GM_SaftyDone IN SHADOW FROM GMSAFEIO: BOOLEAN -- Used for tracking if the Saftey has been setup
+                                              -- safety should be setup at install and not enabled??
+  arc_optn IN SHADOW FROM GMVARS: BOOLEAN --arctool loaded on teh robot
+  lsrproc_optn IN SHADOW FROM GMATVAR: BOOLEAN  -- Laser process tool option loaded on robot
+  pwrs_extinlk  IN SHADOW FROM GMVARS: BOOLEAN
+  config_comp IN CMOS: BOOLEAN -- used to allow robot configuration that happens during cold start and outside of gmwizard
+  rsi_optn		IN SHADOW FROM GMATVAR: BOOLEAN  --J802 RSI Interface software option
+
+%INCLUDE klrdutil -- Needed for the CLR_STND_SCR routine
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE set_english  FROM gmlang1
+ROUTINE set_span     FROM gmlang2
+ROUTINE set_german   FROM gmlang1
+ROUTINE set_arc_eng  FROM gmalang
+ROUTINE set_arc_spn  FROM gmalang
+ROUTINE set_arc_ger  FROM gmalang
+ROUTINE Setup_Log(P_ShopLog: STRING) FROM GMWIZLOG 
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG 
+ROUTINE Finish_Log FROM GMWIZLOG 
+ROUTINE arc_loaded FROM gmmain1
+ROUTINE laser_wiz FROM gmwizlas
+ROUTINE mig_wiz FROM gmwizmig
+ROUTINE set_arc_ctrl FROM gmamain
+ROUTINE Vis_app_wiz FROM gmwizvis
+ROUTINE gmwzldsv FROM gmwzldsv -- Program used for laoding and saving of programs
+ROUTINE dcs_extinlk FROM gmsafeio --External I/O Interlock Relay DCS settings
+ROUTINE arc_disply  FROM gmatdata -- Used to Display the Arc-Tool current setup
+-----------------------------------------------------------------------------------
+ROUTINE arctl_ld
+--  This routine checks to see if Arc Tool is loaded
+-----------------------------------------------------------------------------------
+VAR
+  h541_loaded:  BOOLEAN
+  h574_loaded:  BOOLEAN
+
+BEGIN
+
+ arc_optn = FALSE
+ h541_loaded = FALSE
+ h574_loaded = FALSE
+
+ IF Chk_Feature('H541') THEN -- is the Arc Tool option loaded
+   h541_loaded = TRUE   
+ ENDIF
+ IF Chk_Feature('H574') THEN -- is the LR Arc Tool option loaded
+   h574_loaded = TRUE   
+ ENDIF
+
+ IF (h541_loaded) OR (h574_loaded) THEN
+  arc_optn = TRUE
+ ENDIF
+
+END arctl_ld
+-----------------------------------------------------------------------------------
+ROUTINE lsrprc_ld
+--  This routine checks to see if Laser Process Tool is loaded
+-----------------------------------------------------------------------------------
+BEGIN
+
+ lsrproc_optn = FALSE
+
+ IF Chk_Feature('R828') THEN --Laser Process Tool is installed on robot
+   lsrproc_optn = TRUE  
+ ENDIF
+
+END lsrprc_ld
+-----------------------------------------------------------------------------------
+ROUTINE rsi_ld
+--  This routine checks to see if RSI Interface is loaded
+-----------------------------------------------------------------------------------
+BEGIN
+
+ rsi_optn = FALSE
+
+ IF Chk_Feature('J802') THEN --RSI Interface is installed on robot
+   rsi_optn = TRUE  
+ ENDIF
+
+END rsi_ld
+-----------------------------------------------------------------------------------
+ROUTINE sel_wiz_lang
+--  This routine contains language setup
+-----------------------------------------------------------------------------------
+BEGIN
+
+  REPEAT
+    -- Select Language for Wizard
+    -- setup questions and error text
+    -- Run-Wizard to Configure Robot
+    -- or COLD START after selection.
+
+    CLR_STND_SCR(gm_status)
+    WRITE (CR,CR,m40_gmdata,CR)   -- Select Language for Wizard
+    WRITE (m41_gmdata,CR)
+    WRITE (m42_gmdata,CR)
+    WRITE (m43_gmdata,CR)
+    WRITE ('1. ',m44_gmdata,CR)     -- 1. English
+    WRITE ('2. ',m45_gmdata,CR)     -- 2. Spanish
+    WRITE ('3. ',m46_gmdata,CR)     -- 3. German
+    WRITE (gdata_ans,'(1-3):')      -- Answer(1-3):
+    READ (ans)
+  UNTIL (Verify_Answr(Ans,1,3))-- Verify Answer
+    wiz_lang = ans
+
+  SELECT (ans) OF --
+    CASE (wiz_lang_eg):  -- Set English
+      set_english
+      set_arc_eng
+    CASE (wiz_lang_sp):  -- Set Spanish
+      set_span
+      set_arc_spn
+    CASE (wiz_lang_gm):  -- Set German
+      set_german
+      set_arc_ger
+    ELSE: --
+      POST_ERR(38000, 'Language Selection' +int2str(ans)+' is INVALID, in GMWIZARC', 0, 0) --
+      set_english
+      set_arc_eng
+  ENDSELECT --
+
+END sel_wiz_lang
+-----------------------------------------------------------------------------
+ROUTINE init_arc_wiz
+-- PURPOSE: to initialize variables for arc tool wizard
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- save version for reference in backups
+
+  arctl_ld --check if Arc Tool is loaded on the robot, needed for configuration in general cell setup (e.g. gmcellvr)
+  lsrprc_ld --check if laser process tool is loaded on the robot
+  rsi_ld --check if RSI Interface is loaded
+
+  IF UNINIT(LoadSavePerm) THEN
+    LoadSavePerm = TRUE
+  ENDIF
+
+  IF UNINIT(Reset_Cell) THEN  -- this has to be at top, vars below will use to reset when true
+    Reset_Cell  = TRUE               --Setup all cell settings
+  ENDIF
+
+  IF UNINIT(display_exec) THEN  -- sets if user has ever checked the display
+    display_exec = FALSE
+  ENDIF
+
+  -- Check for Language Initialization
+  IF UNINIT(wiz_lang) THEN
+    set_english
+    set_arc_eng
+    wiz_lang = 1
+  ENDIF
+
+  IF UNINIT(m1_gmdata) THEN
+   set_english
+   set_arc_eng
+   wiz_lang = 1
+  ENDIF
+
+  IF UNINIT(Lang_set) THEN
+    set_english -- 1st Run must set language to english
+    set_arc_eng
+    Lang_set = TRUE
+  ENDIF
+
+  USING WizardStatus DO -- set the wizard status so can look into history of wizard
+    IF UNINIT(Cnfg_Is_Done) THEN
+      Cnfg_Is_Done = FALSE
+    ENDIF
+    IF UNINIT(Cnfg_Status) THEN
+      Cnfg_Status = 0
+    ENDIF
+    IF UNINIT(DsplyIs_Done) THEN
+      DsplyIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Dsply_Status) THEN
+      Dsply_Status = 0
+    ENDIF
+    IF UNINIT(LodedIs_Done) THEN
+      LodedIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Loded_Status) THEN
+      Loded_Status = 0
+    ENDIF
+    IF UNINIT(SaveIs_Done) THEN
+      SaveIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Save_Status) THEN
+      Save_Status = 0
+    ENDIF
+    IF UNINIT(SetupIs_Done) THEN
+      SetupIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Setup_Status) THEN
+      Setup_Status = 0
+    ENDIF
+  ENDUSING -- end of WizardStatus structure "using"
+
+  Reset_Errs = TRUE  -- always reset error counts at start of wizard
+
+  USING ErrsinShop DO -- -- Check the Shop specific Errors
+      ErrorsPrgrms = 0
+      ErrorsRgstrs = 0
+      ErrorsVarbls = 0
+      ErrorsIOCom = 0
+  ENDUSING --
+
+  USING ErrsInCell DO -- Check the Workcell Errors
+      ErrorsPrgrms = 0
+      ErrorsRgstrs = 0
+      ErrorsVarbls = 0
+      ErrorsIOCom = 0
+  ENDUSING --
+
+  IF UNINIT(Enable_Log) THEN
+    Enable_Log = FALSE
+  ENDIF
+
+  Reset_Errs = FALSE
+
+  IF UNINIT(DisplayStat) THEN
+    DisplayStat  = TRUE          -- Used for if during Routine Execution should display messages TPERROR
+  ENDIF
+  IF UNINIT(DisplayDely) THEN
+    DisplayDely  = 0              -- Used for how long to delay to allow a user to see DIsplay Messages
+  ENDIF
+
+  wiz_exec = FALSE
+  set_eip = 0
+
+ IF UNINIT(eip_oct1) THEN
+    eip_oct1     = 0		  --First octet of I/P address
+  ENDIF
+  IF UNINIT(eip_oct2) THEN
+    eip_oct2     = 0              --Second octet of I/P address
+  ENDIF
+  IF UNINIT(eip_oct3) THEN
+    eip_oct3     = 0              --Third octet of I/P address
+  ENDIF
+  IF UNINIT(eip_oct4) THEN
+    eip_oct4     = 0              --Fourth octet of I/P address
+  ENDIF
+
+  IF UNINIT(GM_SaftyDone) THEN
+    GM_SaftyDone = FALSE
+  ENDIF
+
+  IF UNINIT(config_comp) THEN --used to allow robot configuration for robot config that
+			     --happens outside of gmwizard (e.g. cold start, servo gun motor)
+    config_comp = FALSE
+  ENDIF
+
+  --Vision
+  IF UNINIT(Use_Vision) THEN
+    Use_Vision   = FALSE          -- If a cell Has vision
+  ENDIF
+  IF UNINIT(VisSys_Type) THEN
+    VisSys_Type  = 0              -- Vision SYstem Type iRvision = 1, Cognex =2 , Spin-Top =3
+  ENDIF
+  IF UNINIT(iRType) THEN
+    iRType       = 0              -- Vision iRvision Type
+  ENDIF
+  IF UNINIT(FanuciR) THEN
+    FanuciR      = FALSE          --
+  ENDIF
+  IF UNINIT(Fanuc3dl) THEN
+    Fanuc3dl     = FALSE          --
+  ENDIF
+  IF UNINIT(VisLghtType) THEN
+    VisLghtType  = 0              -- What Type of Vision Lighting Rbt=1 Fix=2 Rbt&Fix=3
+  ENDIF
+
+END init_arc_wiz
+-----------------------------------------------------------------------------
+ROUTINE initatwizvar
+-- PURPOSE: program clears GM wizard variables.  ArcTool version of SpotTool
+--          initgmwizvar
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  init_arc_wiz  --check if variables are uninitialized
+
+  --ArcTool variables
+  arclink_app = 0 		  --arclink
+
+  --Laser variables
+  laser_app = 0                   --laser application
+  laser_ctrl = 0         	  --laser controller
+  laser_head = 0		  --laser head
+  laser_wire = 0		  --laser process has wire
+  braze_param = 0		  --load laser braze parameters
+  datamon_file = 0                --load data monitor file
+  gasboxtype = 0                  --gas box type
+  procmontype = 0                 --type or process monitor
+  
+  --Mig-Weld variables
+  mig_steel    = 0    -- Mig-weld steel used
+  rmr_noz_det  = 0    -- Mig-weld Reamer/nozzle detection
+  rmr_trch_wiz = 0    -- Mig-Weld Reamer Torch Wizard  
+
+END initatwizvar
+-----------------------------------------------------------------------------
+ROUTINE chk_errs:BOOLEAN
+-- PURPOSE: to display the errors the wizard has
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+RETURN(FALSE)  -- added so people quit complaining RK
+
+TotalErrors = 0
+
+  -- get the Cell specific errors
+  TotalErrors = TotalErrors + ErrsInCell.ErrorsVarbls
+  TotalErrors = TotalErrors + ErrsInCell.ErrorsIOCom
+  TotalErrors = TotalErrors + ErrsInCell.ErrorsPrgrms
+  TotalErrors = TotalErrors + ErrsInCell.ErrorsRgstrs
+  -- get the shop specific errors
+  TotalErrors = TotalErrors + ErrsInShop.ErrorsVarbls
+  TotalErrors = TotalErrors + ErrsInShop.ErrorsIOCom
+  TotalErrors = TotalErrors + ErrsInShop.ErrorsPrgrms
+  TotalErrors = TotalErrors + ErrsInShop.ErrorsRgstrs
+
+IF TotalErrors = 0 THEN
+  RETURN(FALSE)
+ENDIF
+
+  CLR_STND_SCR(gm_status)
+  DELAY 500
+
+  WriteLog('The Workcell Setup Errors:', FALSE)
+
+   IF ErrsInCell.ErrorsVarbls>0 THEN
+     WriteLog('  Workcell Variable Setup:  ' +int2str(ErrsInCell.ErrorsVarbls) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInCell.ErrorsIOCom>0 THEN
+     WriteLog('  WorkCell I/O Setup:       ' + int2str(ErrsInCell.ErrorsIOCom) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInCell.ErrorsPrgrms>0 THEN
+     WriteLog('  Workcell Program Setup:   ' + int2str(ErrsInCell.ErrorsPrgrms) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInCell.ErrorsRgstrs>0 THEN
+     WriteLog('  Workcell Register Setup:  ' + int2str(ErrsInCell.ErrorsRgstrs) + ' Errors', FALSE)
+   ENDIF
+
+    WriteLog('',FALSE)
+
+  WriteLog('The '+shop_str+' Cell Setup Errors:', FALSE)
+
+   IF ErrsInShop.ErrorsVarbls>0 THEN
+     WriteLog('  ' +shop_str + ' Variable Setup: ' + int2str(ErrsInShop.ErrorsVarbls) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInShop.ErrorsIOCom>0 THEN
+     WriteLog('  ' +shop_str + ' I/O Setup:      '+int2str(ErrsInShop.ErrorsIOCom) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInShop.ErrorsPrgrms>0 THEN
+     WriteLog('  ' +shop_str + ' Program Setup:  ' + int2str(ErrsInShop.ErrorsPrgrms) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInShop.ErrorsRgstrs>0 THEN
+     WriteLog('  ' +shop_str + ' Register Setup: ' + int2str(ErrsInShop.ErrorsRgstrs) + ' Errors', FALSE)
+   ENDIF
+    WriteLog('',FALSE)
+
+  WriteLog('The Vision Process Setup Errors:', FALSE)
+
+   IF ErrsInVision.ErrorsVarbls>0 THEN
+     WriteLog('  Vision Variable Setup: ' + int2str(ErrsInVision.ErrorsVarbls) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInVision.ErrorsIOCom>0 THEN
+     WriteLog('  Vision I/O Setup:      '+int2str(ErrsInVision.ErrorsIOCom) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInVision.ErrorsPrgrms>0 THEN
+     WriteLog('  Vision Program Setup:  ' + int2str(ErrsInVision.ErrorsPrgrms) + ' Errors', FALSE)
+   ENDIF
+   IF ErrsInVision.ErrorsRgstrs>0 THEN
+     WriteLog('  Vision Register Setup: ' + int2str(ErrsInVision.ErrorsRgstrs) + ' Errors', FALSE)
+   ENDIF
+    WriteLog('',FALSE)
+
+    delay 500
+-- if here had at least one error
+  RETURN(TRUE)
+
+END chk_errs
+-----------------------------------------------------------------------------
+ROUTINE set_reset
+-- PURPOSE: to reset all the prompts for the user. this executes when the user has
+--          answered yes in the RUN_SETUP routine
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+Reset_Cell = TRUE  -- this resets alot Cell I/O Variables
+
+-- Reset all the Cell I/O that the user has setup
+set_B_PVar('GMCELLIO','Cell_IO_Done',FALSE)
+set_B_PVar('GMCELLPG','StylTblDone',FALSE)
+set_B_PVar('GMCELLPG','CellMacDone',FALSE)
+set_B_PVar('GMCELLPG','CellPrgsDone',FALSE)
+set_B_PVar('GMCELLRG','CellRegsDone',FALSE)
+set_B_PVar('GMCELLVR','CellVarsDone',FALSE)
+
+set_B_PVar('GMCOLBIO','ColbIO_Setup',FALSE)
+set_B_PVar('GMCOLBVR','ColbVR_Setup',FALSE)
+set_B_PVar('GMCOLBPG','ColbPG_Setup',FALSE)
+
+set_B_PVar('GMARCTL','ArcTl_Setup',FALSE)
+
+set_B_PVar('GMARCIO','ArcIO_Setup',FALSE)
+set_B_PVar('GMARCPG','ArcPG_Setup',FALSE)
+set_B_PVar('GMARCRG','ArcRG_Setup',FALSE)
+set_B_PVar('GMARCVR','ArcVR_Setup',FALSE)
+
+set_B_PVar('GMMIGIO','MigIO_Setup',FALSE)
+set_B_PVar('GMMIGPG','MigPG_Setup',FALSE)
+set_B_PVar('GMMIGRG','MigRG_Setup',FALSE)
+set_B_PVar('GMMIGVR','MigVR_Setup',FALSE)
+
+IF (laser_app = wizans_yes) THEN  --laser application
+  set_B_PVar('GMLASR','ArcLs_Setup',FALSE)
+
+  set_B_PVar('GMLASIO','LasIO_Setup',FALSE)
+  set_B_PVar('GMLASIO2','LasIO2_Setup',FALSE)
+  set_B_PVar('GMLASPG','LasPG_Setup',FALSE)
+  set_B_PVar('GMLASRG','LasRG_Setup',FALSE)
+  set_B_PVar('GMLASVR','LasVR_Setup',FALSE)
+ENDIF
+
+IF Use_Vision THEN
+  set_B_PVar('GMVISNIO','Visn_IO_Done',FALSE)
+  set_B_PVar('GMVISPRG','VisnPrgsDone',FALSE)
+  set_B_PVar('GMVISREG','VisnRegsDone',FALSE)
+  set_B_PVar('GMVISVAR','VisnVarsDone',FALSE)
+ENDIF
+
+END set_reset
+-----------------------------------------------------------------------------
+ROUTINE runsetup
+-- PURPOSE: this routine will execute the setup as users selected. it can be ran from the menu
+--          or it can be ran from the load screen
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(WizSetTimStr) THEN
+  WizSetTimStr = 'Never'
+ENDIF
+
+IF (WizardStatus.SetupIs_Done =TRUE) THEN -- setup so it is known that the Setup is Completed
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+
+    WRITE(cr,'Worckcell SETUP has already',cr)
+    WRITE('been executed on: ',WizSetTimStr,cr)
+    WRITE('User prompts to acknowledge each device',cr)
+    WRITE('reset will be displayed. To reset all',cr)
+    WRITE('devices without using prompts, enter 1',cr)
+    WRITE('to execute setup WITHOUT prompts.',cr)
+    WRITE(cr,'Enter 1 to RESET Cell, 0 to use Prompts.',cr)
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is between 0&4
+
+    CLR_STND_SCR(gm_status)
+
+   IF Ans=1 THEN
+     POST_ERR(38000,'Previous Cell SETUP Reset by User', 0, 0) --
+     WriteLog('Previous WorkCell Reset by User',FALSE)
+     WriteLog('Overwriting '+WizSetTimStr+' Setup',FALSE)
+     set_reset -- call routine to reset all the prompts a user would be asked.
+   ENDIF
+ENDIF   -- endif for if the Setup has been already ran
+
+  WizardStatus.SetupIs_Done =FALSE -- setup so it is known that the Setup is started
+
+--Perform the robot setup based on all the questions just answered
+  CLR_STND_SCR(gm_status)
+  WRITE (CR)
+  WRITE (rbtcfg1_gm,CR)-- Please wait while the robot is',CR)
+  WRITE (rbtcfg2_gm,CR)-- configured...',CR)
+
+  set_arc_ctrl
+
+  GET_TIME(Wiz_StupTime) -- Save the wizard end time stamp
+  CNV_TIME_STR(Wiz_StupTime,WizSetTimStr)
+
+  WizardStatus.SetupIs_Done =TRUE -- setup so it is known that the Setup is Completed
+
+END runsetup
+-----------------------------------------------------------------------------------
+ROUTINE disp_cfg
+--  This routine displays the current robot configuration
+-----------------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(WizardStatus.Cnfg_Is_Done) THEN
+  WizardStatus.Cnfg_Is_Done = FALSE
+ENDIF
+
+IF WizardStatus.Cnfg_Is_Done = FALSE  THEN -- if the wizard was never ran  wiz_exec = FALSE
+  WriteLog('Display selected BEFORE wizard execution',FALSE)
+  CLR_STND_SCR(gm_status)
+  WRITE (CR, 'The Configuration wizard has')
+  WRITE (CR, 'NOT been executed to display the ')
+  WRITE (CR, 'the current Setup.',CR,CR)
+
+  WRITE('Enter 1 to Return to Main Menu then',CR)
+  WRITE ('Execute "',m18_gmdata,'"',CR)
+  WRITE(gdata_ans,'(1): ')
+  READ TPPROMPT(ans)
+  RETURN -- go back to main screen
+ENDIF
+
+display_exec = FALSE
+
+WizardStatus.DsplyIs_Done = FALSE -- set user retruned from Display mode
+
+arc_disply --Display arc configuration
+
+IF disp_only = TRUE THEN  --display only
+ RETURN  --return without asking to execute setup
+ENDIF
+  
+   REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+      WRITE(CR,'Enter 0 to Return, 1 to Execute Setup ',CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ TPPROMPT (ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+    IF ans = 1 THEN
+      display_exec = TRUE
+      wiz_exec = TRUE
+      config_comp = FALSE --allow additional robot setup 
+    ELSE
+      display_exec = FALSE
+    ENDIF
+--ENDSELECT
+
+-- If display is complete, user has to select if run the wizard again or execute
+
+    IF display_exec = TRUE THEN
+      writeLog('Wizard Display Config completed ', FALSE)
+      WizardStatus.DsplyIs_Done = TRUE -- set user retruned from Display mode
+      runsetup -- run setup routine to complete, when done return back to main screen
+      WizardStatus.Cnfg_Is_Done = TRUE -- if Setup done, then Configuration had to be done or loaded
+
+    -- Below makes the wizard END NO questions asked PER B Kroll
+  --    Exec_Wizard = FALSE
+      wiz_exec = TRUE -- set flag wizard has finished to be used to know
+                      -- the wizard was completed.
+    ENDIF
+
+END disp_cfg
+-----------------------------------------------------------------------------------
+ROUTINE arc_cfg
+--  This routine contains the wizard questions for arc applications
+-----------------------------------------------------------------------------------
+BEGIN
+
+  --arc config questions
+  IF (lsrproc_optn = FALSE) THEN
+    REPEAT
+      clr_stnd_scr(gm_status)
+      WRITE (CR,arclnkgmdata,CR)		--Use ArcLink Communication
+      WRITE ('1.', yes_gmdata,CR)
+      WRITE ('2.', no_gmdata,CR)
+      WRITE (gdata_ans,'(1-2):') 
+      READ (arclink_app)
+    UNTIL(Verify_Answr(arclink_app,1,2))
+  ELSE --set arclink to FALSE if laser per GM
+    arclink_app = wizans_no
+  ENDIF 
+
+  --vision wizard
+  Vis_app_wiz
+
+  --Laser Application Wizard
+  laser_wiz
+  
+  --Mig-Weld Wizard
+  IF (laser_app = wizans_no) THEN -- robot not a laser application
+    mig_wiz
+  ENDIF 
+
+  -- Set the wizard Confgiguration  to be all good
+  WizardStatus.Cnfg_Status = 0
+  WizardStatus.Cnfg_Is_Done = TRUE -- set true so next stage, display, can execute.
+
+END arc_cfg
+-----------------------------------------------------------------------------
+ROUTINE eip_data
+-- PURPOSE: to Prompt user to enter the EIP settings
+-----------------------------------------------------------------------------
+VAR
+
+Num_of_loops :INTEGER -- Used for loop counter to determine if Wizard status should be executed
+                      -- should only execute the wizard status on teh first loop, if user got it
+                      -- wrong and runs again do not increment.
+
+BEGIN
+
+  set_eip = 1 -- set answer to yes to get it to run
+
+  Num_of_loops = 0
+
+  WHILE (set_eip = 1) DO --
+    REPEAT  -- ask for EIP settings
+      CLR_STND_SCR(gm_status)
+      WRITE(CR, eip_host_na7,CR) -- 'The IP Address is the following:
+      WRITE(eip_oct1, '.',eip_oct2, '.',eip_oct3, '.',eip_oct4,CR) -- 'eip_oct1,'.',eip_oct2,'.',eip_oct3,'.',eip_oct4
+      WRITE(CR,eip_host_n10 ,'?' ,CR)  -- 'Change Robot IP Address?'
+      WRITE('1.', yes_gmdata,CR)       -- '1. YES
+      WRITE('2.', no_gmdata,CR)        -- '2. NO
+      WRITE(gdata_ans,'(1-2):')        -- 'Answer(1-2):
+      READ(set_eip)
+    UNTIL (Verify_Answr(set_eip,1,2))
+
+    IF (set_eip = wizans_no) THEN  --Enter IP Address
+      WriteLog('NO Change to EIP Settings by user',FALSE)
+      WriteLog('Using '+ int2str(eip_oct1) + '.' + int2str(eip_oct2) + '.' + int2str(eip_oct3) +'.'+ int2str(eip_oct4),FALSE)
+      RETURN
+    ENDIF
+
+    Num_of_loops = Num_of_loops + 1
+
+    REPEAT -- get first octet
+      CLR_STND_SCR(gm_status)
+      WRITE(CR, eip_host_na2,CR)
+      WRITE(eip_host_na3,'?',CR)
+      IF (eip_oct1 = 0) THEN
+        WRITE(gdata_ans,'  :???.',eip_oct2, '.',eip_oct3, '.',eip_oct4,': ',CR)
+      ELSE
+        WRITE(gdata_ans,'  :"',eip_oct1,'".',eip_oct2, '.',eip_oct3, '.',eip_oct4,': ',CR)
+      ENDIF
+      READ(ans)
+    UNTIL(Verify_Answr(ans,1,255))
+    eip_oct1 = ans -- user confirm EIP now save
+
+    IF Num_of_loops = 1 THEN -- dont keep logging if they have already done
+      WizardStatus.Cnfg_Status = WizardStatus.Cnfg_Status + 1
+    ENDIF
+
+    REPEAT -- get second octet
+      CLR_STND_SCR(gm_status)
+      WRITE(CR, eip_host_na2,CR)
+      WRITE(eip_host_na4,'?',CR)
+
+     IF (eip_oct2 = 0) THEN -- if a value has been entered display it
+       WRITE(gdata_ans,'  :',eip_oct1,'.???.',eip_oct3, '.',eip_oct4,': ',CR) -- 'eip_oct1,'.',eip_oct2,'.',eip_oct3,'.',eip_oct4
+      ELSE
+        WRITE(gdata_ans,'  :',eip_oct1,'."',eip_oct2, '".',eip_oct3, '.',eip_oct4,': ',CR)
+      ENDIF
+    READ(ans)
+    UNTIL(Verify_Answr(ans,1,255))
+    eip_oct2 = ans -- user confirm EIP now save
+
+    IF Num_of_loops = 1 THEN -- dont keep logging if they have already done
+      WizardStatus.Cnfg_Status = WizardStatus.Cnfg_Status + 1
+    ENDIF
+
+    REPEAT -- get third octet
+      CLR_STND_SCR(gm_status)
+      WRITE(CR, eip_host_na2,CR)
+      WRITE(eip_host_na5,'?',CR)
+      IF (eip_oct3 = 0) THEN -- if a value has been entered display it
+        WRITE(gdata_ans,'  :',eip_oct1,'.',eip_oct2,'.???.',eip_oct4,': ',CR)
+      ELSE
+        WRITE(gdata_ans,'  :',eip_oct1,'.',eip_oct2, '."',eip_oct3, '".',eip_oct4,': ',CR)
+      ENDIF
+      READ(ans)
+    UNTIL(Verify_Answr(ans,1,255))
+    eip_oct3 = ans -- user confirm EIP now save
+
+    IF Num_of_loops = 1 THEN -- dont keep logging if they have already done
+      WizardStatus.Cnfg_Status = WizardStatus.Cnfg_Status + 1
+    ENDIF
+
+   REPEAT -- get fourth octet
+     CLR_STND_SCR(gm_status)
+     WRITE(CR, eip_host_na2,CR)
+     WRITE(eip_host_na6,'?',CR)
+     IF (eip_oct4 = 0) THEN -- if a value has been entered display it
+       WRITE(gdata_ans,'  :',eip_oct1,'.',eip_oct2,'.',eip_oct3,'.???: ',CR)
+     ELSE
+       WRITE(gdata_ans,'  :',eip_oct1,'.',eip_oct2, '.',eip_oct3, '."',eip_oct4,'": ',CR)
+     ENDIF
+
+   READ(ans)
+   UNTIL(Verify_Answr(ans,1,255))
+   eip_oct4 = ans -- user confirm EIP now save
+
+   IF Num_of_loops = 1 THEN -- dont keep logging if they have already done
+     WizardStatus.Cnfg_Status = WizardStatus.Cnfg_Status + 1
+   ENDIF
+
+  ENDWHILE --
+
+END eip_data
+-----------------------------------------------------------------------------
+ROUTINE run_arc_cfg
+-- PURPOSE: run arc tool wizard
+-----------------------------------------------------------------------------
+BEGIN
+
+  REPEAT
+
+     CLR_STND_SCR(gm_status)
+     WRITE(CR,run_gmwiz,CR)     -- Robot Wizard Settings Will be Reset
+     WRITE(gmwizcont,'?',CR)    -- Do you want to continue?
+     WRITE('1.', yes_gmdata,CR) -- 1. YES
+     WRITE('2.', no_gmdata,CR)  -- 2. NO
+     WRITE(gdata_ans,'(1-2):')  -- Answer(1-2):
+     READ(ans)
+  UNTIL(Verify_Answr(ans,1,2))
+
+  IF (ans = wizans_no) THEN
+  --  GOTO end_config
+    RETURN
+  ENDIF
+
+  WizardStatus.Cnfg_Status = 0
+  WizardStatus.Cnfg_Is_Done = FALSE -- wizard is starting
+
+  initatwizvar
+
+  --Setup DCS question
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,safeio_gm2,'?',CR) -- Initialized DCS Settings  safeio_gm1
+    WRITE('1.', yes_gmdata,CR)  -- 1. YES
+    WRITE('2.', no_gmdata,CR)   -- 2. NO
+    WRITE(CR,safeio_gm3,',',CR)     --If answer is yes,
+    WRITe(safeio_gm4,CR)        --DCS APPLY is required 
+    WRITE(CR,gdata_ans,'(1-2):')   -- Answer(1-2):
+    READ(ans)
+  UNTIL(Verify_Answr(ans,1,2))
+  set_safeio = ans
+
+  WizardStatus.Cnfg_Status = WizardStatus.Cnfg_Status + 1
+
+  eip_data -- Call routine to Enter the EIP data and ask if changes required
+
+  Cur_Shop_Str = 'Arc'
+  arc_cfg  --run Arc Wizard
+
+-- if Setup done, then Configuration had to be done or loaded
+  IF (exec_wizard = TRUE) THEN
+    IF WizardStatus.Cnfg_Is_Done = TRUE THEN  -- specific app must set this to true at the end of the application
+      disp_cfg
+    ENDIF
+  ELSE
+    RETURN
+  ENDIF
+  -- run_setup routine to setup all the questions already answered.
+
+END run_arc_cfg
+-----------------------------------------------------------------------------------
+ROUTINE load_config
+--  This routine contains loads the robot configuration from file
+-----------------------------------------------------------------------------------
+BEGIN
+
+  IF (LoadSavePerm = TRUE) THEN  
+    IF (chk_loaded('gmwzldsv')) THEN -- Call program for loading and saving of variables
+      WriteLog('  Launching the Load and Save Routine',FALSE)
+      gmwzldsv -- Call program to load and save
+      WriteLog('  Load and Save Routine Completed',FALSE)
+    ELSE
+      WriteLog('GMWZLDSV is not loaded for use',TRUE)
+    ENDIF
+
+  ELSE -- Loading and saving is disabled
+
+    CLR_STND_SCR(gm_status)
+    WRITE (CR, 'LOAD Configuration Menu',CR)
+    WRITE (CR,'The Load configuration files is')
+    WRITE (CR,'under development. This allows')
+    WRITE (CR,'loading a previously used wizard.')
+    WRITE (CR, 'Please look for in a Future Release!',CR)
+
+    WRITE TPPROMPT (CR, enter_gmdata,'.')
+    READ TPPROMPT (CR)
+
+  ENDIF
+
+END load_config
+-----------------------------------------------------------------------------
+ROUTINE at_extioint
+-- PURPOSE: External I/O Interlock Hardware Relay Setup Wizard
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+extinlk_ans:  INTEGER
+extinlk_cfm:  INTEGER
+
+BEGIN
+
+  IF UNINIT(extioinlk) THEN
+    extioinlk = 0 --no external I/O interlock setup has ever been executed
+  ENDIF
+
+  IF UNINIT(pwrs_extinlk) THEN
+    pwrs_extinlk = FALSE --disable external interlock hardware power supply monitoring by default
+  ENDIF
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    WRITE(CR,extio_gmdata,CR,CR)      -- External I/O Interlock Relay Setup
+    WRITE(extio_gmdt_1,CR,CR)      -- Please see GM Wizard manual sec 8.7
+    WRITE ('1. ',extio_gmdt_4 ,CR) -- 1. Enable external I/O interlock relay
+    WRITE ('2. ',extio_gmdt_5 ,CR) -- 2. Disable external I/O interlock relay
+    WRITE ('0. ',exit_gmdata ,CR) -- 0. Exit
+    WRITE (m31_gmdata,' 0-2:  ') -- Enter Selection 0-2:
+    READ (extinlk_ans)
+  UNTIL (Verify_Answr(extinlk_ans,0,2)) 
+
+  SELECT extinlk_ans OF
+    CASE(enb_extioinl):  --enable external I/O interlock hardware
+
+      REPEAT
+        CLR_STND_SCR(gm_status)    
+        WRITE(CR,extio_gmdt_2,CR)       -- IMPORTANT! Enabling or Disabling
+        WRITE(extio_gmdt_3,CR,CR)   -- will cause a change to DCS signatures
+        WRITE(extio_gmdt_4,'?',CR)  --Enable external I/O interlock rly
+        WRITE (extio_gmdt_6,CR) --Enter 1 to execute setup
+        WRITE (extio_gmdt_7,CR) --Enter 0 to cancel and exit
+        WRITE(gdata_ans,':  ')
+        READ(extinlk_cfm)
+      UNTIL(Verify_Answr(extinlk_cfm,0,1)) 
+
+      IF (extinlk_cfm = 1) THEN --execute setup
+        extioinlk = extio_enbld --external I/O interlock hardware is enabled
+        pwrs_extinlk = TRUE --enable relay power supply monitoring
+        dcs_extinlk --DCS settings for external I/O interlock
+      ENDIF
+
+    CASE(dsb_extioinl):  --disable external I/O interlock hardware
+
+      REPEAT
+        CLR_STND_SCR(gm_status) 
+        WRITE(CR,extio_gmdt_2,CR)       -- IMPORTANT! Enabling or Disabling
+        WRITE(extio_gmdt_3,CR,CR)   -- will cause a change to DCS signatures
+        WRITE (extio_gmdt_5,'?',CR) -- Disable external I/O interlock rly
+        WRITE (extio_gmdt_6,CR) --Enter 1 to execute setup
+        WRITE (extio_gmdt_7,CR) --Enter 0 to cancel and exit
+        WRITE(gdata_ans,':  ')
+        READ(extinlk_cfm)
+      UNTIL(Verify_Answr(extinlk_cfm,0,1))
+
+      IF (extinlk_cfm = 1) THEN --execute setup
+        extioinlk = extio_dsbld --external I/O interlock hardware is enabled
+        pwrs_extinlk = FALSE --disable relay power supply monitoring
+        dcs_extinlk  --DCS settings for external I/O interlock
+      ENDIF
+
+    CASE(0):  --exit
+
+    ELSE:
+  ENDSELECT
+
+END at_extioint
+-----------------------------------------------------------------------------
+ROUTINE at_idns_menu
+-- PURPOSE: IDNS Safety Menu
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+idns_ans:  INTEGER
+
+BEGIN
+
+  REPEAT
+    CLR_STND_SCR(gm_status) 
+    WRITE(CR,misc_idnsopt,CR)		-- IDNS Safety Options
+    WRITE(idns_rust,CR,CR)   		-- RUST Form Changes Required
+    WRITE ('1. ',extio_gmdata,CR) 	-- 1. External I/O Interlock Relay Setup      
+    WRITE ('0. ',exit_gmdata ,CR) 	-- 0. Exit
+    WRITE(gdata_ans,':  ')
+    READ(idns_ans)
+  UNTIL(Verify_Answr(idns_ans,0,1))
+
+  SELECT idns_ans OF
+    CASE(menu_extio):
+
+
+      at_extioint --External I/O interlock setup wiz
+
+    CASE(0):  --exit
+
+    ELSE:
+  ENDSELECT
+
+END at_idns_menu
+-----------------------------------------------------------------------------
+ROUTINE at_misc_tool
+-- PURPOSE: Miscellaneous tools menu
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  
+--
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+misc_ans:  INTEGER
+
+BEGIN
+
+--Initialize variables
+  -- Check for Language Initialization
+  IF UNINIT(wiz_lang) THEN
+    set_english
+    wiz_lang = 1
+  ENDIF
+
+  IF UNINIT(m1_gmdata) THEN
+   set_english
+   wiz_lang = 1
+  ENDIF
+
+  IF UNINIT(Lang_set) THEN
+    Set_english -- 1st Run must set language to english
+    Lang_set = TRUE
+  ENDIF
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+
+    WRITE(CR,misc_gmdata,CR)      -- Miscellaneous Tools
+    WRITE ('1. ',misc_idnsopt ,CR) -- 1. IDNS Safety Options
+    WRITE ('2. ',clrcfg_gm_1 ,CR) -- 2. Clear Config
+    WRITE ('0. ',exit_gmdata ,CR) -- 0. Exit
+    WRITE (m31_gmdata,'0-2:  ') -- Enter Selection 0-2:
+    READ (misc_ans)
+  UNTIL (Verify_Answr(misc_ans,0,2)) 
+
+  SELECT misc_ans OF
+    CASE(wiz_idnsopt):
+
+      at_idns_menu
+
+    CASE(wiz_clr_cfg):
+
+      REPEAT
+        CLR_STND_SCR(gm_status) 
+
+        WRITE (CR,'****** Clear Customization *******',CR)
+        WRITE ('To clear out all wizard settings from',CR)
+        WRITE ('the robot first backup the mastering',CR)
+        WRITE ('files and record $FNO as these will',CR)
+        WRITE ('have to be restored. Then preform an',CR)
+        WRITE ('Init Start.',CR,CR)
+					        
+        WRITE ('Answer 1 to Exit :')
+        READ (ans)
+        WRITE (CR)
+				
+      UNTIL (Verify_Answr(ans,1,1))
+
+    CASE(0):  --Exit
+
+    ELSE:
+  ENDSELECT
+
+END at_misc_tool
+-----------------------------------------------------------------------------
+ROUTINE cnfm_exit:BOOLEAN
+-- PURPOSE: to prompt the operator it ensure they want to exit. it will also
+--          confirm that they are not exiting without ever completing a setup
+--          on one of the applications. They can exit, but we will log that they end
+--          and never completed the setup.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:   returns if the user has confirm to exit
+--
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+User_Confirm  : BOOLEAN -- Used for what the user desires to do end or not
+Conf_string   : STRING[32] -- Will display Configuration completion status
+SetupString   : STRING[32] -- Will display setup completion status
+BEGIN
+
+User_Confirm = FALSE
+
+     IF (WizardStatus.SetupIs_Done) AND (WizardStatus.Cnfg_Is_Done) THEN   -- check user has finished
+        RETURN(TRUE)
+     ENDIF
+
+   REPEAT
+     CLR_STND_SCR(gm_status)
+     WRITE (CR,'Confirm to Exit the Wizard ?',CR,CR)
+     WRITE ('You have selected to Exit,' ,CR)
+     IF (WizardStatus.Cnfg_Is_Done) THEN -- check user has atleast finish the
+       Conf_String = '"Configuration" is Complete'
+       --WRITE ('Configuration is Completed' ,CR)     -- Configuration setup once.
+     ELSE
+       Conf_String = 'CONFIGURATION NOT DONE and' -- If configuration not done
+       --WRITE ('CONFIGURATION NOT DONE' ,CR)     -- Setup CANNOT be done because
+     ENDIF                                        -- can't setup if not configured
+
+
+     IF (WizardStatus.SetupIs_Done) THEN   -- check user has at least finished the
+       SetupString = '"Setup" is Completed'
+    --   WRITE ('Setup is Completed' ,CR)  -- application setup once, to ensure
+     ELSE                                  -- they are exiting and it has been done
+       IF (WizardStatus.Cnfg_Is_Done) THEN
+         Conf_String = Conf_String + ',but'
+       ENDIF
+       SetupString = 'SETUP HAS NOT BEEN DONE !!'
+     ENDIF
+
+     WRITE (Conf_String,CR)
+     WRITE (SetupString,CR)
+
+     WRITE (CR,'Enter 1 to Exit wizard' ,CR)
+     WRITE ('Enter 0 to Cancel Exit',CR,CR)
+     WRITE(gdata_ans,':  ')
+     READ (Ans)
+   UNTIL Verify_Answr(Ans,0,1)
+
+   IF (ans = 1) THEN -- if exiting, log if something never done completly
+     IF NOT (WizardStatus.Cnfg_Is_Done) THEN
+       POST_ERR(38000, 'Wizard CONFIG Incomplete by user', 0, 0) --
+     ENDIF
+     IF NOT (WizardStatus.SetupIs_Done) THEN
+       POST_ERR(38000, 'Wizard SETUP Incomplete by user', 0, 0) --
+     ENDIF
+     User_Confirm = TRUE
+
+      CLR_STND_SCR(gm_status)
+      WRITE(m32_gmdata,CR)  -- Exiting Wizard
+
+      DELAY DisplayDely
+      CLR_STND_SCR(gm_status)
+
+   ENDIF
+
+    REPEAT
+      Errs_ans = 0
+      IF (chk_errs) THEN -- Go display number of errors for user
+          WRITE (CR,'Enter 1=Exit,0= Cancel Exit')
+          WRITE(CR,gdata_ans,':  ')
+          READ (Errs_ans)
+      ELSE
+        Errs_ans = 1 -- no errors no question needed
+      ENDIF
+      IF Errs_ans = 0 THEN
+        User_Confirm = FALSE
+      ENDIF
+    UNTIL Verify_Answr(Errs_ans,0,1)
+
+  RETURN(User_Confirm)
+
+END cnfm_exit
+-----------------------------------------------------------------------------------
+--                      Main Body of gmwizarc                                   --
+-----------------------------------------------------------------------------------
+BEGIN
+
+  init_arc_wiz 
+
+  PUSH_KEY_RD('TPKB', 255, pop_index, gm_status)
+  ATT_STND_WIN(gm_status)  -- in klutils
+  CLR_STND_SCR(gm_status)
+  ACT_SCREEN ('T_SC', screen, gm_status)
+
+  GET_VAR(entry, '*SYSTEM*' , '$SYS_CONFIG.$STARTMD', ConStartStat, gm_status)
+   IF gm_status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$SYS_CONFIG.$STARTMD FAILED', gm_status, 0) --
+     ConStartStat = cold_state -- force at cold_state
+   ENDIF
+
+  IF UNINIT(ConStartStat) THEN --make sure code can run
+    ConStartStat = Cold_State
+  ENDIF
+
+  IF UNINIT(StrtFrmWizrd) THEN
+    StrtFrmWizrd = FALSE
+  ENDIF
+  
+  IF UNINIT(disp_only) THEN
+    disp_only = FALSE
+  ENDIF
+
+  Exec_Wizard = TRUE -- Set the wizard WHILE loop variable will End when False
+
+  Setup_Log('GM Global 4') -- create and open the log file
+
+  GET_TIME(Wiz_StrtTime)
+  CNV_TIME_STR(Wiz_StrtTime,WizStrTimStr)-- set teh strart time of wizard
+
+WHILE (Exec_Wizard) DO --
+
+  REPEAT
+    CLR_STND_SCR(gm_status)
+
+    WRITE(CR,m30_gmdata,CR)      -- GRS-4 Global#4 Customization
+    WRITE ('1. ',m4_gmdata ,CR)  -- 1. Select Language
+    WRITE ('2. ',m17_gmdata ,CR) -- 2. Display Current Robot Configuration
+    WRITE ('3. ',m18_gmdata ,CR) -- 3. Run Robot Configuration Tool
+    WRITE ('4. ',m19_gmdata ,CR) -- 4. Load Robot Configuration from File
+    WRITE ('5. ',misc_gmdata,CR) -- 5. Miscellaneous Tools
+    WRITE ('6. ',exit_gmdata,CR) -- 6. Exit
+    WRITE (m31_gmdata,' 1-6:  ') -- Enter Selection 1-6:
+    READ (main_ans)
+  UNTIL (Verify_Answr(main_ans,1,6))
+
+ReDisplay :: 
+
+  SELECT main_ans OF
+
+    CASE(wiz_sel_lng):
+      WRITE TPERROR(CHR(cc_clear_win))-- clear any text from error window
+      writeLog('User selected Language Setup', FALSE)
+      sel_wiz_lang
+      writeLog('Language Setup Complete', FALSE)
+
+    CASE(wiz_disp_cfg):
+      writeLog('User selected Display Config ', FALSE)
+      WRITE TPERROR(CHR(cc_clear_win))-- clear any text from error window
+      WizardStatus.DsplyIs_Done = FALSE -- Set user went into display mode
+      WizardStatus.Dsply_Status = 0  -- reset this currently no function 3-23-16
+      disp_only = TRUE --sms added to use as a return hook
+      disp_cfg -- start the display of the setup
+      disp_only = FALSE
+
+    CASE(wiz_run_set):
+      WRITE TPERROR(CHR(cc_clear_win))-- clear any text from error window
+      writeLog('User selected Configuration wizard', FALSE)
+      WizardStatus.Cnfg_Is_Done = FALSE -- reset Configuration complete
+      WizardStatus.Cnfg_Status  = 0     -- set status to zero to be checked when returning
+
+      -- Language Question Setting
+      SELECT wiz_lang OF
+        CASE(wiz_lang_eg):
+          set_english       --English
+          set_arc_eng
+        CASE(wiz_lang_sp):
+          set_english       -- Spanish not supported yet
+          set_arc_eng
+        CASE(wiz_lang_gm):
+          set_german        -- German
+          set_arc_ger
+        ELSE:
+          set_english
+          set_arc_eng
+      ENDSELECT
+
+      run_arc_cfg
+ 
+      IF (exec_wizard = FALSE) THEN
+        RETURN
+      ENDIF
+
+      IF WizardStatus.Cnfg_Status = 0 THEN -- if returned we assume it finished without a known status
+         WizardStatus.Cnfg_Is_Done = TRUE
+
+      ELSE
+        POST_ERR(38000, 'RUN_CONFIG '+Cur_Shop_Str+' Status='+int2str(WizardStatus.Cnfg_Status)+ &
+                           ' Execution ', 0, 0) --
+      ENDIF
+
+    CASE(wiz_load_cfg):
+
+        CLR_STND_SCR(gm_status) 
+        WRITE(CR,m19_gmdata)
+        WRITE(CR,'UNDER DEVELOPMENT')
+        WRITE TPPROMPT (CR, enter_gmdata,'.')
+        READ TPPROMPT (CR)
+
+      --TEMPORARILIY REMOVED --IT DOES NOT CONFIGURE AN ARCTOOL ROBOT PROPERLY
+      --ALL CODE BELOW THIS WAS COMMENTED OUT IN THIS CASE SELECT
+
+      --WRITE TPERROR(CHR(cc_clear_win))-- clear any text from error window
+      --writeLog('User selected LOAD Config ', FALSE)
+      --WizardStatus.LodedIs_Done = FALSE
+      --WizardStatus.Loded_Status = 0
+
+      --load_config -- execute the loading of a backup of previous valid configuration
+
+      --writeLog('Wizard Load Config completed ', FALSE)
+      --WriteLog('  ',FALSE)
+      --IF WizardStatus.Loded_Status = 0 THEN -- if returned we assume it finished
+        --IF (WizardStatus.LodedIs_Done = TRUE) THEN
+          --WizardStatus.Cnfg_Is_Done = TRUE -- loading a valid file makes config not nessacary
+          --main_ans = wiz_disp_cfg -- RK added to force display after Load save for viewing
+          --GOTO ReDisplay -- Jump up so redisplay so config will be displayed
+        --ENDIF
+      --ELSE -- Load had an issue
+        --POST_ERR(38000, 'LOAD_CFG routine '+int2str(WizardStatus.Loded_Status)+ &
+         --                 ' = Status returned', 0, 0) --
+      --ENDIF
+
+    CASE(wiz_misctool):  --miscellaneous tools
+      at_misc_tool
+
+    CASE(wiz_exit):
+      writeLog('', FALSE)
+      writeLog('User Selected to Exit Wizard', FALSE)
+
+      IF (cnfm_exit) THEN  -- call routine to confirm user wants to exit, also check to ensure
+         Exec_Wizard = FALSE -- Wizard has ran to complete setup of something
+      ELSE
+         writeLog('User Did not Exit Wizard', FALSE)
+      ENDIF
+
+      --WRITE('Exiting Wizard',CR)
+      CLR_STND_SCR(gm_status)
+      WRITE(m32_gmdata,CR)
+
+  ENDSELECT
+
+ --  this is incase GM wants exit after wizard is ran, problem is once set
+ --  when to you reset in case wizard is ran again???
+
+ -- IF WizardStatus.Cnfg_Is_Done AND WizardStatus.SetupIs_Done THEN -- if totally succeful log it
+ --   Exec_Wizard = FALSE
+ -- ENDIF
+
+ENDWHILE -- until variable Exec_Wizard = FALSE the WHILE will execute
+
+  GET_TIME(Wiz_EndTime) -- Save the wizard end time stamp
+  CNV_TIME_STR(Wiz_EndTime,WizEndTimStr)
+
+  Finish_Log -- finish the log file for the wizard
+
+-- Below maybe need for the GHOSTING KEY currently required, this is BS and
+-- need to determine when it is going to trigger?? it occurs in SWCFSCRN when this
+-- program returns.
+IF (WizardStatus.Cnfg_Is_Done AND WizardStatus.SetupIs_Done) THEN
+  wiz_exec = TRUE -- set flag wizard has finished to be used to know
+                  -- the wizard was completed.
+ELSE -- this is preventing the ghost key from occuring.
+   wiz_exec = FALSE
+ENDIF
+
+END gmwizarc

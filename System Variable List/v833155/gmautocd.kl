@@ -1,0 +1,636 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMAUTOCD.KL
+--   TITLE:          GMAUTOCD PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2017/03/31
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--
+--         DESCRIPTION: Autoupdate Karel file to handle updates.  This program
+--                      will execute on first cold start.  It is executed from autocold.com.
+--    			Original release was for autoupdate for p02 to p03
+--
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             V4.1   2017/05/08 marchaka         Add UNINIT checks for all variables  
+--	       V4.1   2017/06/24 marchaka         All updates included in GM v833p04 Software Specification
+--                                                - Auto Update functional spec added
+--             V4.1   2017/07/03 marchaka         Added gm_autouprun variable to be turned to TRUE when gmautoup or gmautocd are executing. 
+--             V4.2   2018/02/23 marchaka         Added setup webscreen routine call for ArcTool
+--             V4.2   2018/04/02 marchaka         Do not overwrite DCS I/O consistency settings if external interlock I/O hardware is used
+--             V4.2   2018/04/05 marchaka         Add shell_check variables as they get overwritten during an autoupdate.  
+--                                                Add group 3 reference position setting for spot applications.
+--             V4.2   2018/04/25 schoenberg       Add J2 protection enable.  Add CONDET ZDT settings for press robots.
+--             V4.2   2018/05/03 marchaka         Add comment for SIR[1].
+--             V4.2   2018/05/09 schoenberg       Add R[444] comment for bodyshop.  Wouldn't get set on robot in gmautoup
+--             V4.3   2018/07/24 baker            Add press_updt for press shop which checks for r2000iC_100p robot and then
+--                                                sets a system variable based on the press application selected in the wizard
+--             V4.4   2019/07/30 marchaka	  Added ZDT condet settings.
+--             V4.4   2019/10/07  marchaka        Update outputs used for prompt boxes.  Paint shop does not use these outputs.
+--             V4.4   2019/10/17 marchaka         Set $slcellio[1].do_wait_plci to 19001 for paint shop because DO[17] is now controlled by PMC. 
+--             V4.5   2020/05/13 marchaka	  Move upd_reg routine calls gmautoup to this program.  There was an issue were some robots
+--                                                could not have higher range registers updated during controlled start updates (ROUT-030).  Issue was
+--                                                seemed to be centred around p05ish robots. Issue doesn't appear to be related to BSG though. 
+--                                                At the time the issue presented itself only with data and string registers
+--             V4.6      2020/12/14 kosaskrr         Added code to set new ABE search function for PT applications added pt_cold_updt routine and call in
+--             V4.2   2018/02/23 marchaka         Added setup webscreen routine call for ArcTool
+--             V4.2   2018/04/02 marchaka         Do not overwrite DCS I/O consistency settings if external interlock I/O hardware is used
+--             V4.2   2018/04/05 marchaka         Add shell_check variables as they get overwritten during an autoupdate.
+--                                                Add group 3 reference position setting for spot applications.
+--             V4.2   2018/04/25 schoenberg       Add J2 protection enable.  Add CONDET ZDT settings for press robots.
+--             V4.2   2018/05/03 marchaka         Add comment for SIR[1].
+--             V4.2   2018/05/09 schoenberg       Add R[444] comment for bodyshop.  Wouldn't get set on robot in gmautoup
+--             V4.3   2018/07/24 baker            Add press_updt for press shop which checks for r2000iC_100p robot and then
+--                                                sets a system variable based on the press application selected in the wizard
+--             V4.4   2019/07/30 marchaka	  Added ZDT condet settings.
+--             V4.4   2019/10/07  marchaka        Update outputs used for prompt boxes.  Paint shop does not use these outputs.
+--             V4.4   2019/10/17 marchaka         Set $slcellio[1].do_wait_plci to 19001 for paint shop because DO[17] is now controlled by PMC.
+--             V4.5   2020/05/13 marchaka	  Move upd_reg routine calls gmautoup to this program.  There was an issue were some robots
+--                                                could not have higher range registers updated during controlled start updates (ROUT-030).  Issue was
+--                                                seemed to be centred around p05ish robots. Issue doesn't appear to be related to BSG though.
+--                                                At the time the issue presented itself only with data and string registers
+--             V4.6      2020/12/14 kosaskrr         Added code to set new ABE search function for PT applications added pt_cold_updt routine and call in
+--                                                spottl_updt routine when PT to update file MOV_POUNCE from FRS:
+--             V4.6   2021/01/09                  Added ZDT pressure checking enable var, moved from gmautoup
+--
+--                       2021/01/13 Kosaskrr      Had to change $AUTOEX_CNF2.$CLOSEST_ENB, switched to use boolen routine
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMAUTOCD
+
+%COMMENT = 'GM AutoUp Cd V4.6'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT sysdef --prmpdspout
+%ENVIRONMENT MULTI --needed for run task command
+
+
+CONST
+
+Version = '2021-01-13'
+%INCLUDE atconst -- required for the constants for the "shell_check" variable array
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  gm_status:  INTEGER
+  l_reg:      INTEGER
+  status:     INTEGER
+  l_entry:    INTEGER
+
+  press_area: BOOLEAN --press shop
+
+  pnt_area_cd:  BOOLEAN --paint shop
+  pwr_area  FROM GMAUTOUP : BOOLEAN  --powertrain shop
+  body_area FROM GMAUTOUP : BOOLEAN  --bodyshop
+
+  shell_check  IN SHADOW FROM ATSHELL  : ARRAY[MAX_CHECKS,MAX_CONDS] of BOOLEAN
+
+  gm_autouprun  IN SHADOW FROM GMVARS: BOOLEAN --auto update routines are running
+
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded
+
+  --Common
+  mfg_area     IN SHADOW FROM GMCFGCEL: INTEGER      --Manufacturing area
+  extioinlk    IN SHADOW FROM GMCFGCEL: INTEGER  --External I/O interlock hardware safety relay
+  prmp_dout    IN SHADOW FROM GMVARS: INTEGER  --P: User Prompt Box DO
+  prmp_sdout   IN SHADOW FROM GMVARS: INTEGER  --P: System Prompt Box DO
+
+  --Bodyshop
+  num_proc     IN SHADOW FROM GMCFGBDY: INTEGER  --Number of processes
+  bshop_proc1  IN SHADOW FROM GMCFGBDY: INTEGER  --Bodyshop application process 1
+  bshop_proc2  IN SHADOW FROM GMCFGBDY: INTEGER  --Bodyshop application process 2
+
+  --Press
+  PresLineType IN SHADOW FROM GMCFGPRS : INTEGER
+  r2000ic_100p IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+  --Spot App
+  numwldctrl   IN SHADOW FROM GMCFGSPT: INTEGER --number of weld controllers
+  do_guncls     IN SHADOW FROM GMVARS: INTEGER  --Gun Closed Position
+  do_guncls2    IN SHADOW FROM GMVARS: INTEGER  --P: Gun 2 Closed Position
+  g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN     -- Servo gun option loaded  
+  wld1_app      IN SHADOW FROM GMCFGSPT: INTEGER   --One weld controller application
+  wld2_app      IN SHADOW FROM GMCFGSPT: INTEGER   --Two weld controllers applciation
+  sgunchng     IN SHADOW FROM GMCUSTO  : BOOLEAN   -- Servo gun tool changer option loaded
+  sp_gnnum     IN SHADOW FROM GMCFGSPT: INTEGER 
+  sp_ttl_gn    IN SHADOW FROM GMCFGSPT: INTEGER
+  swgtcnumguns IN SHADOW FROM GMCFGSPT: INTEGER
+
+  --Projection Weld App
+  numprojctrl    IN SHADOW FROM GMCFGPJW: INTEGER --Number of projection weld controllers
+
+  --Stud App
+  numstudctrl   IN SHADOW FROM GMCFGSTD: INTEGER  --Number of Stud controllers
+  stud1_app     IN SHADOW FROM GMCFGSTD: INTEGER  --Stud controller 1 application
+
+  --ArcTool
+  laser_app    IN SHADOW FROM GMCFGLAS: INTEGER   --laser application (ArcTool)
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+ROUTINE menu_scrn_ok FROM custook --intialize menu selections for custook
+ROUTINE menuscrn_lst FROM custolst --intialize menu selections for custolst
+ROUTINE menu_scrn_yn FROM custoyn --initialize menu selections for custoyn
+ROUTINE dcs_cnstcy FROM gmsafeio --DCS Consistency Check settings
+ROUTINE swg_reg FROM gmspotrg --Tip wear register settings
+ROUTINE SetWebScreen FROM gmcellvr --Webscreen
+ROUTINE set_webscrn FROM gmarcvr --ArcTool setup webscreen
+ROUTINE upd_reg FROM gmautoup2 --Register updates
+-----------------------------------------------------------------------------
+ROUTINE init_updt
+-- PURPOSE: Initialize settings for auto update
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF
+
+  IF UNINIT(extioinlk) THEN
+    extioinlk = 0 --no external I/O interlock setup has ever been executed
+  ENDIF
+
+  IF (arc_optn = FALSE) THEN --SpotTool+
+
+    --SpotTool+
+    IF UNINIT(mfg_area) THEN
+      mfg_area = 0
+    ENDIF
+
+    IF (mfg_area <> mfg_area_bs) THEN  --check if bodyshop
+      body_area = FALSE
+    ELSE --bodyshop
+      body_area = TRUE
+    ENDIF
+
+    IF (mfg_area <> mfg_area_ps) THEN  --check if press shop
+      press_area = FALSE
+    ELSE --press shop
+      press_area = TRUE
+    ENDIF
+
+    IF (mfg_area <> mfg_area_pt) THEN  --check if powertrain shop
+      pwr_area = FALSE
+    ELSE --powertrain shop
+      pwr_area = TRUE
+    ENDIF
+
+    IF (mfg_area <> mfg_area_pn) THEN --check if paint shop
+      pnt_area_cd = FALSE
+    ELSE --paint shop
+      pnt_area_cd = TRUE
+    ENDIF
+
+  ELSE -- ArcTool
+    press_area = FALSE --no shops in Arc, therefore FALSE
+    pnt_area_cd = FALSE --no shops in Arc, therefore FALSE
+    body_area = FALSE  --no shops in Arc, therefore FALS
+    pwr_area = FALSE --no shops in Arc, therefore FALS
+  ENDIF --Arc or Spot
+
+END init_updt
+-----------------------------------------------------------------------------
+ROUTINE spotwld_updt
+-- PURPOSE: Update Spot App Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+gun_num: STRING[2]
+
+BEGIN
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option loaded
+
+    swg_reg --update tip wear register settings
+
+    --Update reference position
+    do_guncls     = 106       --Gun Closed Position
+    Set_S_sVar('$REFPOS2[1].$COMMENT','Gun Closed Proc 1')
+    Set_B_sVar('$REFPOS2[1].$ENABLED',TRUE)
+    Set_I_sVar('$REFPOS2[1].$DOUT_INDX',do_guncls)
+    Set_R_sVar('$REFPOS2[1].$PERCHPOS[1]', 0.000)
+    Set_R_sVar('$REFPOS2[1].$PERCHTOL[1]', 1.000)
+    Set_B_sVar('$REFPOS2[1].$HOMEPOS',FALSE)
+
+    SELECT numwldctrl OF
+
+      CASE(1):  --one weld controller, one spot process        
+        SELECT wld1_app OF --process 1 spot application
+          CASE(wld1app_dpsg): 
+            Set_S_sVar('$REFPOS3[1].$COMMENT','Gun Closed Proc 2')
+            Set_B_sVar('$REFPOS3[1].$ENABLED',TRUE)
+            Set_I_sVar('$REFPOS3[1].$DOUT_INDX',do_guncls2)
+            Set_R_sVar('$REFPOS3[1].$PERCHPOS[1]', 0.000)
+            Set_R_sVar('$REFPOS3[1].$PERCHTOL[1]', 1.000)
+            Set_B_sVar('$REFPOS3[1].$HOMEPOS',FALSE)       
+          ELSE:
+        ENDSELECT --process 1 spot application
+       
+      CASE(2):  --two weld controller, two spot processes
+        SELECT wld2_app OF --process 2 spot application
+          CASE(wld2app_dpsg, wld2app_cgpg):
+            Set_S_sVar('$REFPOS3[1].$COMMENT','Gun Closed Proc 2')
+            Set_B_sVar('$REFPOS3[1].$ENABLED',TRUE)
+            Set_I_sVar('$REFPOS3[1].$DOUT_INDX',do_guncls2)
+            Set_R_sVar('$REFPOS3[1].$PERCHPOS[1]', 0.000)
+            Set_R_sVar('$REFPOS3[1].$PERCHTOL[1]', 1.000)
+            Set_B_sVar('$REFPOS3[1].$HOMEPOS',FALSE)
+          ELSE:
+        ENDSELECT --process 2 spot appliation
+     
+      ELSE:
+    ENDSELECT --number or weld controllers
+
+    IF (sgunchng = TRUE) THEN --servo gun tool change loaded on robot
+      shell_check[6,1] = TRUE
+      shell_check[6,2] = TRUE
+      shell_check[6,3] = TRUE
+      FOR sp_gnnum = 1 to swgtcnumguns DO -- Total Number of Guns
+        gun_num = int_to_strg(sp_gnnum)
+        --V8.33P10 ZDT Pressure Check Enable 1-8-2021 schoensm
+        Set_I_sVar('$sgprsmsgcfg[' + gun_num + ',1]', 1)  --enable pressure checking Gun X
+      ENDFOR --total number of guns setup
+    ELSE --Not a gun changer
+      FOR sp_gnnum = 1 to sp_ttl_gn DO -- Total Number of Guns
+        gun_num = int_to_strg(sp_gnnum)
+        --V8.33P10 ZDT Pressure Check Enable 1-8-2021 schoensm
+        Set_I_sVar('$sgprsmsgcfg[' + gun_num + ',1]', 1)  --enable pressure checking Gun X
+      ENDFOR --total number of guns setup      
+    ENDIF
+  ENDIF --servo gun option loaded
+
+END spotwld_updt
+-----------------------------------------------------------------------------
+ROUTINE proj_updt
+-- PURPOSE: Update Projection Weld App Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END proj_updt
+-----------------------------------------------------------------------------
+ROUTINE stud_updt
+-- PURPOSE: Update Stud App Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END stud_updt
+-----------------------------------------------------------------------------
+ROUTINE body_updt
+-- PURPOSE: Update Bodyshop Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (numwldctrl <> 0) THEN --Spot Application
+    spotwld_updt
+  ENDIF
+
+  IF (numprojctrl <> 0) THEN --Projection Weld
+    proj_updt
+  ENDIF
+
+  IF (numstudctrl <> 0) THEN --Stud Weld
+    stud_updt
+  ENDIF
+
+END body_updt
+
+-----------------------------------------------------------------------------
+ROUTINE pt_cold_updt
+-- PURPOSE: Items in this routine have to be done after the controller has done an auto update
+--          and restored previous which MAY have to be overwritten with the latest on FRS:
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+-- 12/14/2020 RK added because a change was made to MOV_POUNCE in P10, so need
+-- to overwrite the restored program that was loaded by system after ASI
+
+   Load_File('FRS:\','MOV_POUNCE.TP',1)
+
+   IF Chk_Feature('R861') THEN --auto exit is installed on the robot
+
+    Set_I_sVar('$AUTOEX_CONF.$ENABLE',1) -- ENABLE EXIT PATH-- should be in product
+    Set_B_sVar('$AUTOEX_CNF2.$CLOSEST_ENB',TRUE) -- ENABLE find closest node EXIT PATH-- RK-12-14-2020
+
+    RUN_TASK('AECTRL',0,FALSE,FALSE,0,gm_status)-- added 10-03-17 due to two controlled starts
+     IF gm_status <> 0 THEN                     -- required when enabling without user doing manually and
+       POST_ERR(38000,'AECTRL FAILED TO START', gm_status,0) -- pressing the apply
+       DELAY 2000
+     ENDIF
+  ENDIF --only install if auto exit is installed on the robot
+
+  RETURN
+END pt_cold_updt
+-----------------------------------------------------------------------------
+ROUTINE press_updt
+-- PURPOSE: Update press shop.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  r2000iC_100p = FALSE -- VAR for R2000iC/100p robot arm
+
+  IF Chk_Feature('H730') THEN
+    r2000iC_100p = TRUE
+  ENDIF
+
+  IF r2000iC_100p = TRUE THEN -- R2000iC/100p arm
+
+    IF ((PresLineType = PresTandem) OR (PresLineType = PresDestack)) THEN -- setting for tandem or destacking applications
+      Set_R_sVar('$TBJ_GRP[1].$FLEX[5]', 1.0)
+    ENDIF
+
+    IF ((PresLineType = PresTransfer) OR (PresLineType = PresRoboRack)) THEN -- setting for end of line transfer or robot racking applications
+      Set_R_sVar('$TBJ_GRP[1].$FLEX[5]', 0.0)
+    ENDIF
+
+  ENDIF -- R2000iC/100p arm
+
+END press_updt
+-----------------------------------------------------------------------------
+ROUTINE spottl_updt
+-- PURPOSE: Update SpotTool+ Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Update webscreen
+  IF (mfg_area <> 0) THEN --wizard has not been run, cannot setup webscreen
+    SetWebScreen --always must be run as menu favourites gets overwritten during auto update
+  ENDIF
+
+  --DCS Consistency Settings
+  IF (extioinlk <> extio_enbld) THEN --GM G4 DCS settings for no external interlock hardware is used
+    dcs_cnstcy
+  ENDIF
+
+  --DCS Comments
+  Set_S_sVar('$DCS_C_SIR[1]', 'IO Interlock Status')
+
+  --machine locking
+  shell_check[6,1] = FALSE
+  shell_check[6,2] = FALSE
+  shell_check[6,3] = FALSE
+
+  --at home checking
+  shell_check[1,1] = FALSE
+  shell_check[1,2] = FALSE
+  shell_check[1,3] = FALSE
+
+  Set_I_sVar('$SFZN_CFG.$ENABLE',1) --Enable J2 protection
+
+  IF (pnt_area_cd = FALSE) THEN --all shops but paint shop
+    prmp_dout    = 19002      -- DO prompt displayed --User
+    prmp_sdout   = 19001      -- DO prompt displayed --System
+    $PRMPDSPOUT = prmp_sdout      -- DO prompt displayed
+  ELSE --make sure set to 0 for paint shop so no UNINIT errors or other gminstal issues
+    prmp_dout    = 0      -- DO prompt displayed --User
+    prmp_sdout   = 0      -- DO prompt displayed --System
+    Set_I_sVar('$SLCELLIO[1].DO_WAIT_PLCI', 19001)  --hard coded because Karel variable prmp_sdout must be 0 for paint shop
+                                                    --because this output is used for something different than the rest of of GM shops
+  ENDIF
+
+  upd_reg  --moved to cold start to address issues with some robots not being
+           --able to update registers during controlled start (gmautoup)
+           --never able to determine the issue
+
+  SELECT mfg_area OF --shop specific updates
+    CASE(mfg_area_bs):  --bodyshop
+      body_updt
+    CASE(mfg_area_pt):  --Powertrain
+      pt_cold_updt
+    CASE(mfg_area_ps):  --press
+      press_updt
+    ELSE:
+  ENDSELECT --shop specific updates
+
+END spottl_updt
+-----------------------------------------------------------------------------
+ROUTINE arctl_updt
+-- PURPOSE: Update ArcTool  Settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(laser_app) THEN --wizard has not been run
+    laser_app = 0 --init to 0 and use this as trigger to not run specific updates
+  ENDIF
+
+  --DCS Consistency Settings
+  IF (extioinlk <> extio_enbld) THEN --GM G4 DCS settings for no external interlock hardware is used
+    dcs_cnstcy
+  ENDIF
+
+  --machine locking
+  shell_check[6,1] = FALSE
+  shell_check[6,2] = FALSE
+  shell_check[6,3] = FALSE
+
+  --at home checking
+  shell_check[1,1] = FALSE
+  shell_check[1,2] = FALSE
+  shell_check[1,3] = FALSE
+
+  --Prompt box output
+  prmp_dout    = 19002      -- DO prompt displayed --User
+  prmp_sdout   = 19001      -- DO prompt displayed --System
+  $PRMPDSPOUT = prmp_sdout      -- DO prompt displayed
+
+  IF (laser_app <> 0) THEN --wizard has been run, can do some updates
+    SetWebScreen --common cell setup for webscreens
+    set_webscrn --ensure ArcTool webscreens are setup, auto update clears our custom settin
+    upd_reg  --moved to cold start to address issues with some robots not being
+             --able to update registers during controlled start (gmautoup)
+             --never able to determine the issue
+  ENDIF
+
+END arctl_updt
+-----------------------------------------------------------------------------
+ROUTINE zdt_updt
+-- PURPOSE: ZDT updates
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Flex Data
+  Set_I_sVar('$CONDET_CFG.$EXT_MASK', 63)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[1].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[1].$VAR_NAME', '$SFZN_CFG.$ENABLE')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$REG_NUM', 0)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$STYLE', 0)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[2].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[2].$VAR_NAME', '$MNUFRAMENUM[1]')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$REG_NUM', 0)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$STYLE', 0)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[3].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[3].$VAR_NAME', '$MNUTOOLNUM[1]')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$REG_NUM', 0)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$STYLE', 0)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[4].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[4].$VAR_NAME', '$HSCDMNGRP[1].$THRESHOLD')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$REG_NUM', 0)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$STYLE', 0)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[5].$PROG_NAME', '*SYSTEM*')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[5].$VAR_NAME', '$MCR.$GENOVERRIDE')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$REG_NUM', 0)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$STYLE', 0)
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[6].$PROG_NAME', '')
+  Set_S_sVar('$CONDET_CFG.$EXT_DATA[6].$VAR_NAME', '')
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$REG_NUM', 50)
+  Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$STYLE', 0)
+
+  --H607 R2000iB/100P, H730 R2000iC/100P, H630 M900iA/200P
+  IF (Chk_Feature('H630')) OR (Chk_Feature('H607')) OR (Chk_Feature('H730')) THEN
+
+    Set_I_sVar('$CONDET_CFG.$ENABLE', 1)
+    Set_I_sVar('$CONDET_CFG.$MODE', 28)
+    Set_I_sVar('$CONDET_TRIG.$IO_TYPE', 2)
+    Set_I_sVar('$CONDET_TRIG.$IO_PORT', 313)
+    Set_I_sVar('$CONDET_TRIG.$IO_STYLE', 0)
+    Set_I_sVar('$CONDET_TRIG.$DELAY', 10)
+    Set_I_sVar('$CONDET_TRIG.$STYLE_TYPE', 18)
+    Set_I_sVar('$CONDET_TRIG.$STYLE_PORT', 1)
+
+    --Flex Data
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[1].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[2].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[3].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[4].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[5].$STYLE', 2)
+    Set_I_sVar('$CONDET_CFG.$EXT_DATA[6].$STYLE', 2)
+
+  ENDIF --H607 R2000iB/100P, H730 R2000iC/100P, H630 M900iA/200P
+
+END zdt_updt
+-----------------------------------------------------------------------------
+BEGIN
+
+  gm_autouprun = TRUE --auto update setup is running
+
+  init_updt  --intialize settings for autoupdate
+
+  zdt_updt --update necessary ZDT settings
+
+  IF (arc_optn = FALSE) THEN --SpotTol+
+    spottl_updt  --SpotTool+ settings
+  ELSE --ArcTool
+    arctl_updt   --ArcTool settings
+  ENDIF --SpotTool+
+
+  gm_autouprun = FALSE --auto update setup is no longer executing
+
+END GMAUTOCD

@@ -1,0 +1,795 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPRESIO.KL
+--   TITLE:          GMPRESIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Press Shop I/O setup files. These routines will be
+--                      called from the main wizard, no prompts are in the I/O file
+--                      only the settting
+--
+--    SETUP ROUTINES INCLUDED
+--
+--    Other Application files:
+--    GMPRESIO -- program to setup and comment the press I/O GMCELLIO is also required to setup workcell interface
+--    GMPRESPG -- program for loading all unique program that are specific to Press applications
+--    GMPRESRG -- program for setting registers and position registers comments and default values
+--    GMPRESVR -- program for setting variables specific to Press application
+-------------------------------------------------------------------------------
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4.0         2-13-16   R.Kosaski        based on 2-13-16 I/O map
+--         4.1         7-28-16   R.Kosaski        changed DI 12-16 to not have comment
+--         4.2         10-27-16   R.Kosaski        Changed I/O AGAIN and AGAIN
+--         4.3         06-23-17   Kosaski           Added Var settings per Leo Keselman for PressSync
+--         4.4         08-03-17   Kosaski          reset DO376 and 377 back to reserve
+--                                                 set DO 475 from reserve to LPT1 RelChushHold
+--
+--------------------------------------------------------------------------
+PROGRAM GMPRESIO
+
+%COMMENT = 'Press I/O   V4.0'
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT tpthrdef -- Required for the $THRSDITABLE[x] variables
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+Version = '2017-08-03'
+%INCLUDE gmcnstnt  -- used for all gm constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  StrtinErs,   -- How many errors I/O error counter had when the program started
+  entry,                 -- used for the GET_VAR
+  gm_status    : INTEGER
+
+Pres_IO_Done IN SHADOW : BOOLEAN -- if the I/O has ran completly
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- variables declares for Shop specifics
+%INCLUDE gmcfgprs  -- GM wizard variables for press Applications
+%INCLUDE gmcfgtlc  -- GM wizard variables for tool changer Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for vision Applications
+
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+-------------------------------------------------------------------
+ROUTINE load_prs_IO						--
+-- Set Cell Interface for GM Press				--
+-------------------------------------------------------------------
+VAR
+  gm_status   :INTEGER
+  entry			:INTEGER
+  status		:INTEGER
+  mac_id 		:INTEGER
+  l_stat                :INTEGER
+
+BEGIN
+--jja  R30iB  SET_PORT_ASG(IO_GPIN, 14,g_cell_rack,CellSlotNmbr,IO_DIN,93,-4,gm_status)
+--gi_ppdelay_t = 0
+--gi_ppdelay_i = 0
+
+--  rst_aft_cold = TRUE
+
+  -- Tryout mode gets reset to zero on first cold start after full load.
+  -- must set this var so that the robot resets tryout mode
+  -- Input is Set in gm_config routine
+  -- Initiate Style Program (Cycle Start)
+  -- Also set the type so that common shell does NOT reset index
+ -----------------------------------------------------------------------------
+  -- Press Interconnects ARE IN GMPRESVR!
+
+-- other I/O points are done in GMMHGPIO , so only need to commment these
+
+    SET_PORT_CMT(IO_DOUT,  817, 'do817Valve06ToA',  gm_status)
+    SET_PORT_CMT(IO_DOUT,  818, 'do818Valve06ToB',  gm_status)
+
+
+END load_prs_IO
+-----------------------------------------------------------------
+ROUTINE Prs_Cell_IO
+--  Setup Payload Information per Hazen                          --
+-------------------------------------------------------------------
+VAR
+ I:  INTEGER
+
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+
+ WriteLog('  Setting up Press Digital Inputs', FALSE)
+
+  SET_PORT_CMT(IO_DIN, 257,'NextToolIDBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 258,'NextToolIDBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 259,'NextToolIDBit4', gm_status)
+  SET_PORT_CMT(IO_DIN, 260,'NextToolIDBit8', gm_status)
+  SET_PORT_CMT(IO_DIN, 261,'NextToolIDBit16', gm_status)
+  SET_PORT_CMT(IO_DIN, 262,'NextToolIDBit32', gm_status)
+  SET_PORT_CMT(IO_DIN, 263,'NextToolIDBit64', gm_status)
+--  di_tcdis_t = 1
+--  di_tcdis_i = 264
+  SET_PORT_CMT(IO_DIN, 264,'BypassToolCheck', gm_status)
+  SET_PORT_CMT(IO_DIN, 265,'NextToolTypeBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 266,'NextToolTypeBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 267,'NextToolTypeBit4', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 268,'PartPresAtPick', gm_status)
+                                              -- Press Tool Check Disable
+  SET_PORT_CMT(IO_DIN, 269,'PartPres1Active', gm_status)
+  SET_PORT_CMT(IO_DIN, 270,'PartPres2Active', gm_status)
+  SET_PORT_CMT(IO_DIN, 271,'PartPres3Active', gm_status)
+  SET_PORT_CMT(IO_DIN, 272,'PartPres4Active', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 273,'EnableVenturi', gm_status)
+  SET_PORT_CMT(IO_DIN, 274,'EnableVacPump', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 275,'(Reserved Press)', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 276,'RemoteFltRecovry', gm_status)
+--  di_dblsht_t = 1
+ -- di_dblsht_i = 277
+  SET_PORT_CMT(IO_DIN, 277,'DblShtDetected', gm_status)
+ -- di_repeat_t = 0
+ -- di_repeat_i = 0
+--  di_stsrch_t = 1
+ -- di_stsrch_i = 278
+  SET_PORT_CMT(IO_DIN, 278,'StackSearch', gm_status)
+  SET_PORT_CMT(IO_DIN, 279,'SearchDisabled', gm_status)
+  SET_PORT_CMT(IO_DIN, 280,'IndexRobotPick', gm_status)
+  SET_PORT_CMT(IO_DIN, 281,'OtherRbtBypass', gm_status)
+ -- di_bysideA_t = 1
+--  di_bysideA_i = 282
+  SET_PORT_CMT(IO_DIN,282,'BypassPickSide1', gm_status)
+ -- di_bysideB_t = 1
+ -- di_bysideB_i = 283
+  SET_PORT_CMT(IO_DIN, 283,'BypassPickSide2', gm_status)
+  SET_PORT_CMT(IO_DIN, 284,'EarlyVisionInit', gm_status)
+  SET_PORT_CMT(IO_DIN, 285,'(Reserved Press)', gm_status)
+  SET_PORT_CMT(IO_DIN, 286,'(Reserved Press)', gm_status)
+  SET_PORT_CMT(IO_DIN, 287,'(Reserved Press)', gm_status)
+  SET_PORT_CMT(IO_DIN, 288,'(Reserved Press)', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 289,'NewRack1', gm_status)
+  SET_PORT_CMT(IO_DIN, 290,'NewRack2', gm_status)
+  SET_PORT_CMT(IO_DIN, 291,'WasherOffline', gm_status)
+  SET_PORT_CMT(IO_DIN, 292,'OilerOffline', gm_status)
+  SET_PORT_CMT(IO_DIN, 293,'RecipRckTypeBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 294,'RecipRckTypeBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 295,'RecipRckTypeBit4', gm_status)
+  SET_PORT_CMT(IO_DIN, 296,'RecipRckTypeBit8', gm_status)
+  SET_PORT_CMT(IO_DIN, 297,'CurrentGroupBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 298,'CurrentGroupBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 299,'CurrentGroupBit4', gm_status)
+  SET_PORT_CMT(IO_DIN, 300,'BypNewRackChk', gm_status)
+  SET_PORT_CMT(IO_DIN, 301,'BypPickVisOffset', gm_status)
+  SET_PORT_CMT(IO_DIN, 302,'BypPreDrRkClrChk', gm_status)
+  SET_PORT_CMT(IO_DIN, 303,'BypPstDrRkClrChk', gm_status)
+  SET_PORT_CMT(IO_DIN, 304,'BypDropVisOffset', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 305,'NumPrtCurGrpBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 306,'NumPrtCurGrpBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 307,'NumPrtCurGrpBit4', gm_status)
+  SET_PORT_CMT(IO_DIN, 308,'NumPrtCurGrpBit8', gm_status)
+  SET_PORT_CMT(IO_DIN, 309,'NumPrtCurGrpBt16', gm_status)
+  SET_PORT_CMT(IO_DIN, 310,'NumPrtCurGrpBt32', gm_status)
+  SET_PORT_CMT(IO_DIN, 311,'NumPrtCurGrpBt64', gm_status)
+  SET_PORT_CMT(IO_DIN, 312,'AirNozzleEnable', gm_status)
+  SET_PORT_CMT(IO_DIN, 313,'AirNozzPowerBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 314,'AirNozzPowerBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 315,'PickPosOffsetX', gm_status)
+  SET_PORT_CMT(IO_DIN, 316,'PickPosOffsetY', gm_status)
+  SET_PORT_CMT(IO_DIN, 317,'PickPosOffsetR', gm_status)
+  SET_PORT_CMT(IO_DIN, 318,'PickPosOffsetCrs', gm_status)
+  SET_PORT_CMT(IO_DIN, 319,'PickPosOffsetNeg', gm_status)
+  SET_PORT_CMT(IO_DIN, 320,'PickPosOffsetRst', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 321,'ActiveCamPosBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 322,'ActiveCamPosBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 323,'ActiveCamPosBit4', gm_status)
+  SET_PORT_CMT(IO_DIN, 324,'ActiveCamPosBit8', gm_status)
+  SET_PORT_CMT(IO_DIN, 325,'ActiveCameraBit1', gm_status)
+  SET_PORT_CMT(IO_DIN, 326,'ActiveCameraBit2', gm_status)
+  SET_PORT_CMT(IO_DIN, 327,'ActiveCameraBit4', gm_status)
+
+  IF (Chk_Feature('R886')) THEN -- Press Sync Option
+    SET_PORT_CMT(IO_DIN, 328,'PK PressStop FLT', gm_status)-- RK Added 6-23-17 per Leo Keselman
+  ELSE
+    SET_PORT_CMT(IO_DIN, 328,'(Reserved Press)', gm_status)
+  ENDIF
+
+  SET_PORT_CMT(IO_DIN, 329,'diEarlyOpnAck', gm_status)
+  SET_PORT_CMT(IO_DIN, 330,'(Reserved Press)', gm_status)
+  SET_PORT_CMT(IO_DIN, 331,'diEarlyClsAck', gm_status)
+  SET_PORT_CMT(IO_DIN, 332,'LPT1CarLubeRst', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 333,'LPT1PayLubeRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 334,'LPT1RackLubeRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 335,'LPT1BeltInspRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 336,'LPT1PinInspRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 337,'LPT1CCarInspRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 338,'LPT1BeltRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 339,'LPT1BearingRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 340,'LPT1DriveRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 341,'LPT1PinionRst', gm_status)
+  SET_PORT_CMT(IO_DIN, 342,'LPT1OdoRst', gm_status)
+
+-- FOR I = 343 TO 350 DO
+--   SET_PORT_CMT(IO_DIN, i,'Sync_Support Rsrv', gm_status)
+-- ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 343,'Sync_PKPrsEmpty', gm_status)
+  SET_PORT_CMT(IO_DIN, 344,'Sync_PKPrsPrsing', gm_status)
+  SET_PORT_CMT(IO_DIN, 345,'Sync_PKPrs@TDC', gm_status)
+
+  SET_PORT_CMT(IO_DIN, 346,'Sync_Enabled', gm_status)
+  SET_PORT_CMT(IO_DIN, 347,'Sync_DPPrsEmpty', gm_status)
+  SET_PORT_CMT(IO_DIN, 348,'Sync_DPPrsPrsing', gm_status)
+  SET_PORT_CMT(IO_DIN, 349,'Sync_DPPrs@TDC', gm_status)
+  SET_PORT_CMT(IO_DIN, 350,'Sync_SusManual', gm_status)
+  SET_PORT_CMT(IO_DIN, 351,'Sync_SPDChgPKPrs', gm_status)
+  SET_PORT_CMT(IO_DIN, 352,'Sync_IgnPKPrs', gm_status)
+
+
+FOR I = 353 TO 368 DO
+  SET_PORT_CMT(IO_DIN, i,'diCNTDwnEntB'+int2str((i-352)), gm_status)
+ENDFOR --
+
+FOR I = 369 TO 384 DO
+  SET_PORT_CMT(IO_DIN, i,'diCNT2DnEntB'+int2str((i-368)), gm_status)
+ENDFOR --
+FOR I = 385 TO 400 DO
+  SET_PORT_CMT(IO_DIN, i,'PK Press EncMirr', gm_status)
+ENDFOR --
+FOR I = 401 TO 416 DO
+  SET_PORT_CMT(IO_DIN, i,'DP Press EncMirr', gm_status)
+ENDFOR --
+
+  SET_PORT_CMT(IO_DIN, 421,'Di_ZDT_Event_Ack', gm_status)
+  SET_PORT_CMT(IO_DIN, 422,'Di_ProfilerENBL', gm_status)
+  SET_PORT_CMT(IO_DIN, 425,'Sync_IdlePKPRS', gm_status)
+  SET_PORT_CMT(IO_DIN, 426,'Sync_RLearnPart', gm_status)
+  SET_PORT_CMT(IO_DIN, 427,'Sync_SPDChgDPPrs', gm_status)
+  SET_PORT_CMT(IO_DIN, 428,'Sync_IgnDPPrs', gm_status)
+  SET_PORT_CMT(IO_DIN, 429,'Sync_IdleDPPrs', gm_status)
+  SET_PORT_CMT(IO_DIN, 430,'Sync_OverrideSkp', gm_status)
+  SET_PORT_CMT(IO_DIN, 431,'Sync_Reserved', gm_status)
+  SET_PORT_CMT(IO_DIN, 432,'Sync_Reserved', gm_status)
+
+
+FOR I = 433 TO 440 DO
+  SET_PORT_CMT(IO_DIN, i,'PrevSlideAdjtB'+int2str((i-432)), gm_status)
+ENDFOR --
+FOR I = 441 TO 448 DO
+  SET_PORT_CMT(IO_DIN, i,'NextSlideAdjtB'+int2str((i-440)), gm_status)
+ENDFOR --
+
+
+  SET_PORT_CMT(IO_DIN, 473,'diHMI_Part_Pick', gm_status)
+  SET_PORT_CMT(IO_DIN, 474,'diHMI_Part_Drop', gm_status)
+
+
+  SET_PORT_CMT(IO_DIN, 801,'RbtPartPresent1', gm_status)
+  SET_PORT_CMT(IO_DIN, 802,'RbtPartPresent2', gm_status)
+  SET_PORT_CMT(IO_DIN, 803,'RbtPartPresent3', gm_status)
+  SET_PORT_CMT(IO_DIN, 804,'RbtPartPresent4', gm_status)
+
+ WriteLog('  Press Digital Inputs completed', FALSE)
+
+---------------------------------------------------------
+-- Set Output Comments
+---------------------------------------------------------
+---------------------------------------------------------------------
+
+WriteLog('  Setting Up Press Group Inputs', FALSE)
+
+-- Group Input Assignments
+SET_PORT_CMT(io_gpin,70,'NextToolID',gm_status)
+SET_PORT_ASG(IO_GPIN, 70,CellCommType,CellSlotNmbr,IO_DIN,257,-7,gm_status)
+
+SET_PORT_CMT(io_gpin,71,'NextToolType',gm_status)  --jja  R30iB Update02
+SET_PORT_ASG(IO_GPIN, 71,CellCommType,CellSlotNmbr,IO_DIN,265,-3,gm_status)
+
+--gi_fltrsp_t = 18
+--gi_fltrsp_i = 72
+SET_PORT_CMT(io_gpin,72,'FltResponseCode',gm_status)
+IF NOT Cnfg_Grp(IO_GPIN,72,CellCommType,CellSlotNmbr,449,-8) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpin,73,'MetalFormReservd',gm_status)
+
+--gi_OVPLCsp_t = 18        -- Press PLC speed percentage
+--gi_OVPLCsp_i = 74
+SET_PORT_CMT(io_gpin,74,'RobotPercentOvr',gm_status) -- the DI comments in GMCELLIO
+IF NOT Cnfg_Grp(IO_GPIN,74,CellCommType,CellSlotNmbr,457,-8) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpin,75,'AirNozzPowerLevl',gm_status)
+IF NOT Cnfg_Grp(IO_GPIN,75,CellCommType,CellSlotNmbr,313,-2) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpin,76,'LineNumber',gm_status)
+IF NOT Cnfg_Grp(IO_GPIN,76,TC_Comm_Type,54,21,-4) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+-- do Line Type SPecific i/o
+   SELECT (PresLineType) OF --
+     CASE (1):  -- Tandem Press Line
+     CASE (2,4):  -- Robotic Destacking , -- Robotic Racking
+        SET_PORT_CMT(io_gpin,77,'CurrentGroup',gm_status)
+          SET_PORT_ASG(IO_GPIN, 77,CellCommType,CellSlotNmbr,IO_DIN,297,-3,gm_status)
+          IF NOT Cnfg_Grp(IO_GPIN,77,CellCommType,CellSlotNmbr,297,-3) THEN
+            ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+          ENDIF
+
+     CASE (3):  --  EOL Transfer
+   ENDSELECT --
+
+IF (PresLineType = 2) OR (PresLineType = 4) THEN
+  SET_PORT_CMT(io_gpin,77,'CurrentGroup',gm_status)
+  SET_PORT_ASG(IO_GPIN, 77,CellCommType,CellSlotNmbr,IO_DIN,297,-3,gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,77,CellCommType,CellSlotNmbr,297,-3) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+ENDIF
+
+IF (PresLineType = 4) THEN
+  SET_PORT_CMT(io_gpin,78,'NumPartsCurGrp',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,78,CellCommType,CellSlotNmbr,305,-7) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+  SET_PORT_CMT(io_gpin,79,'RecipeRackType',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,79,CellCommType,CellSlotNmbr,293,-4) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+ENDIF
+
+  -- Robotic Racking
+IF (PresLineType = 4) AND (fanuc3dl = TRUE) THEN   -- Robotic Racking
+  SET_PORT_CMT(io_gpin,80,'ActiveCamera',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,80,CellCommType,CellSlotNmbr,325,-3) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+  SET_PORT_CMT(io_gpin,81,'ActiveCameraPos',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,81,CellCommType,CellSlotNmbr,321,-4) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+ENDIF
+
+  SET_PORT_CMT(io_gpin,83,'CNT_DownEntTime1',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,83,CellCommType,CellSlotNmbr,353,-16) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+  SET_PORT_CMT(io_gpin,85,'CNT_DownEntTime2',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,85,CellCommType,CellSlotNmbr,369,-16) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+-- Added below RK 10-26-16 as request by L Steed
+  SET_PORT_CMT(io_gpin,86,'PrevSlideAdjust',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,86,CellCommType,CellSlotNmbr,433,-8) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+  SET_PORT_CMT(io_gpin,87,'PKPrrsEncMirror',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,87,CellCommType,CellSlotNmbr,385,-16) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+  SET_PORT_CMT(io_gpin,88,'DPPrsEncMirror',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,88,CellCommType,CellSlotNmbr,401,-16) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+-- Added below RK 10-26-16 as request by L Steed
+  SET_PORT_CMT(io_gpin,89,'NextSlideAdjust',gm_status)
+  IF NOT Cnfg_Grp(IO_GPIN,89,CellCommType,CellSlotNmbr,441,-8) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+
+  SET_PORT_CMT(io_gpin,90,'EGD(Press Sync)',gm_status)
+ -- IF NOT Cnfg_Grp(IO_GPIN,88,CellCommType,CellSlotNmbr,401,-16) THEN
+ --   ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+--  ENDIF
+
+ WriteLog('  Press Digital Group Inputs completed', FALSE)
+
+---------------------------------------------------------
+-- Set Output Comments
+---------------------------------------------------------
+---------------------------------------------------------------------
+WriteLog('  Setting Up Press Digital outputs', FALSE)
+
+  SET_PORT_CMT(IO_DOUT, 257,'ToolPresInNest1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 258,'ToolTypNest1Bit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 259,'ToolTypNest1Bit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 260,'ToolTypNest1Bit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 261,'ToolPresInNest2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 262,'ToolTypNest2Bit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 263,'ToolTypNest2Bit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 264,'ToolTypNest2Bit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 265,'CurToolTypeBit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 266,'CurToolTypeBit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 267,'CurToolTypeBit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 268,'VisionOffsetOK', gm_status)
+
+
+--  do_partA_t = 2
+--  do_partA_i = 269
+  SET_PORT_CMT(IO_DOUT, 269,'RobotPartPres1', gm_status)
+
+  --do_partB_t = 2
+ -- do_partB_i = 270
+  SET_PORT_CMT(IO_DOUT, 270,'RobotPartPres2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 271,'RobotPartPres3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 272,'RobotPartPres4', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 273,'RbtSPVac1Made', gm_status)
+--  SET_PORT_CMT(IO_DOUT, 273,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 274,'RbtSPVac2Made', gm_status)
+--  SET_PORT_CMT(IO_DOUT, 274,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 275,'EarlyVisionEnbl', gm_status)
+ -- SET_PORT_CMT(IO_DOUT, 275,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 276,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 277,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 278,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 279,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 280,'Press Reserved', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 281,'RbtTCPPosBit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 282,'RbtTCPPosBit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 283,'RbtTCPPosBit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 284,'RbtTCPPosBit8', gm_status)
+  SET_PORT_CMT(IO_DOUT, 285,'RbtTCPPosBit16', gm_status)
+  SET_PORT_CMT(IO_DOUT, 286,'RbtTCPPosBit32', gm_status)
+  SET_PORT_CMT(IO_DOUT, 287,'RbtTCPPosBit64', gm_status)
+  SET_PORT_CMT(IO_DOUT, 288,'RbtTCPPosBit128', gm_status)
+  SET_PORT_CMT(IO_DOUT, 289,'NewRack1CheckOK', gm_status)
+  SET_PORT_CMT(IO_DOUT, 290,'NewRack2CheckOK', gm_status)
+  SET_PORT_CMT(IO_DOUT, 291,'Rack1Clear', gm_status)
+  SET_PORT_CMT(IO_DOUT, 292,'Rack2Clear', gm_status)
+  SET_PORT_CMT(IO_DOUT, 293,'CurRackTypeBit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 294,'CurRackTypeBit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 295,'CurRackTypeBit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 296,'CurRackTypeBit8', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 297,'AdvPrevPrsAV1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 298,'AdvPrevPrsAV2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 299,'AdvPrevPrsAV3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 300,'AdvPrevPrsAV4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 301,'RetPrevPrsAV1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 302,'RetPrevPrsAV2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 303,'RetPrevPrsAV3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 304,'RetPrevPrsAV4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 305,'AdvNextPrsAV1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 306,'AdvNextPrsAV2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 307,'AdvNextPrsAV3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 308,'AdvNextPrsAV4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 309,'RetNextPrsAV1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 310,'RetNextPrsAV2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 311,'RetNextPrsAV3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 312,'RetNextPrsAV4', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 313,'ClearOfPick', gm_status)
+  SET_PORT_CMT(IO_DOUT, 314,'ClearOfDrop', gm_status)
+  SET_PORT_CMT(IO_DOUT, 315,'PrsCycleAtClear', gm_status)
+  SET_PORT_CMT(IO_DOUT, 316,'PrsCycleAtDrop', gm_status)
+  SET_PORT_CMT(IO_DOUT, 317,'ActPickZoneBit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 318,'ActPickZoneBit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 319,'ActPickZoneBit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 320,'ActPickZoneBit8', gm_status)
+  SET_PORT_CMT(IO_DOUT, 321,'OpenAirNozzle1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 322,'OpenAirNozzle2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 323,'OpenAirNozzle3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 324,'OpenAirNozzle4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 325,'OpenAirNozzle5', gm_status)
+  SET_PORT_CMT(IO_DOUT, 326,'OpenAirNozzle6', gm_status)
+  SET_PORT_CMT(IO_DOUT, 327,'OpenAirNozzle7', gm_status)
+  SET_PORT_CMT(IO_DOUT, 328,'OpenAirNozzle8', gm_status)
+
+  IF (Chk_Feature('R886')) THEN -- Press Sync Option
+    SET_PORT_CMT(IO_DOUT, 329,'Upstream PKPOK', gm_status) -- RK Added per Leo Keselman
+  ELSE
+    SET_PORT_CMT(IO_DOUT, 329,'Press Reserved', gm_status)
+  ENDIF
+
+  SET_PORT_CMT(IO_DOUT, 330,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 331,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 332,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 333,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 334,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 335,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 336,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 337,'ToolChangeFault', gm_status)
+  SET_PORT_CMT(IO_DOUT, 338,'ToolPresOnRobot', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 339,'Press Reserved', gm_status)
+  SET_PORT_CMT(IO_DOUT, 340,'Press Reserved', gm_status)
+
+ -- SET_PORT_CMT(IO_DOUT, 328,'ClearOfPick', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 341,'ActualOffseTx', gm_status)
+  SET_PORT_CMT(IO_DOUT, 342,'ActualOffseTy', gm_status)
+  SET_PORT_CMT(IO_DOUT, 343,'ActualOffsetRz', gm_status)
+  SET_PORT_CMT(IO_DOUT, 344,'ActualOffsetSign', gm_status)
+  SET_PORT_CMT(IO_DOUT, 345,'ActualOffBit1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 346,'ActualOffBit2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 347,'ActualOffBit4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 348,'ActualOffBit8', gm_status)
+  SET_PORT_CMT(IO_DOUT, 349,'ActualOffBit16', gm_status)
+  SET_PORT_CMT(IO_DOUT, 350,'ActualOffBit32', gm_status)
+  SET_PORT_CMT(IO_DOUT, 351,'ActualOffBit64', gm_status)
+  SET_PORT_CMT(IO_DOUT, 352,'ActualOffBit128', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 353,'LPT_Trq_Alert', gm_status)
+  SET_PORT_CMT(IO_DOUT, 354,'doLPTMaintReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 355,'doLPTDataRdy', gm_status)
+  SET_PORT_CMT(IO_DOUT, 356,'doEarlyOpnRec1', gm_status)
+  SET_PORT_CMT(IO_DOUT, 357,'doEarlyClsRec2', gm_status)
+  SET_PORT_CMT(IO_DOUT, 358,'LPT1CarLubeReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 359,'LPT1PayLubeReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 360,'LPT1RackLubeReq', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 361,'LPT1BeltInspReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 362,'LPT1PinInspReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 363,'LPT1CCarInspReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 364,'LPT1BeltReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 365,'LPT1BearingReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 366,'LPT1DriveReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 367,'LPT1PinionReq', gm_status)
+  SET_PORT_CMT(IO_DOUT, 368,'LPT1OdoReq', gm_status)
+
+  SET_PORT_CMT(IO_DOUT, 369,'do_LearnMode', gm_status)
+  SET_PORT_CMT(IO_DOUT, 370,'do_SyncMode', gm_status)
+  SET_PORT_CMT(IO_DOUT, 371,'do_DPLearnMode', gm_status)
+  SET_PORT_CMT(IO_DOUT, 372,'do_Pick Learned', gm_status)
+  SET_PORT_CMT(IO_DOUT, 373,'do_Drop Learned', gm_status)
+
+ -- Reseved Section for Future PLC
+  SET_PORT_CMT(IO_DOUT, 374,'Sync_ENABLED Acknowledge', gm_status)
+ -- SET_PORT_CMT(IO_DOUT, 375,'CycDrp Prs_Signal', gm_status) -- RK added per BKroll 8-3-17
+ -- SET_PORT_CMT(IO_DOUT, 376,'Dp Press Estop', gm_status)    -- RK added per BKroll 8-3-17
+  FOR I = 375 to 376 DO -- RK added per BKroll 8-3-17
+    SET_PORT_CMT(IO_DOUT,I,'(Reserved)',gm_status)         -- Reserve IO for Future
+  ENDFOR
+
+  SET_PORT_CMT(IO_DOUT, 377,'IIC_PickPress', gm_status)
+  SET_PORT_CMT(IO_DOUT, 378,'IIC_DropPress', gm_status)
+  SET_PORT_CMT(IO_DOUT, 379,'IIC_Zone3', gm_status)
+  SET_PORT_CMT(IO_DOUT, 380,'IIC_Zone4', gm_status)
+  SET_PORT_CMT(IO_DOUT, 381,'IIC_Zone5', gm_status)
+  SET_PORT_CMT(IO_DOUT, 382,'IIC_Zone6', gm_status)
+  SET_PORT_CMT(IO_DOUT, 383,'IIC_Zone7', gm_status)
+  SET_PORT_CMT(IO_DOUT, 384,'IIC_Zone8', gm_status)
+
+-- setup the IIC outputs for signiture
+  FOR i = 385 TO 400 DO
+    SET_PORT_CMT(IO_DOUT, i,'IIC_ToolBit'+int2str((i-384)), gm_status)
+  ENDFOR --
+  FOR i = 401 TO 416 DO
+    SET_PORT_CMT(IO_DOUT, i,'IIC_ObstBit'+int2str((i-400)), gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(IO_DOUT, 423,'doProfTrigger', gm_status)
+  SET_PORT_CMT(IO_DOUT, 424,'IIC Heart Beat', gm_status)
+
+
+
+--  SET_PORT_CMT(IO_DOUT, 433,'doHome1 LPTRobot', gm_status)
+--  SET_PORT_CMT(IO_DOUT, 434,'Reserved for LPT', gm_status)
+
+--  do_OV_spd_t = 2
+--  do_OV_spd_i = 465          -- Robot Override Speed 100%
+ -- Comment for above is in standard Cell interface GMCELLIO.KL
+
+  SET_PORT_CMT(IO_DOUT, 473,'do_HMI_Pk_Done', gm_status)
+  SET_PORT_CMT(IO_DOUT, 474,'HMI_DO_DoneExctd', gm_status)
+  SET_PORT_CMT(IO_DOUT, 475,'LPT1 RelCushHold', gm_status) -- RK added per BKroll 8-3-17
+
+  SET_PORT_CMT(IO_DOUT, 521,'doMHRecActive', gm_status) -- this is also in GMCEllIO
+  SET_PORT_CMT(IO_DOUT, 522,'doMHAutoRetryAct', gm_status)-- this is also in GMCEllIO
+
+WriteLog('  Press Digital Outputs completed', FALSE)
+
+---------------------------------------------------------------------
+WriteLog('  Setting Up Press Group Outputs', FALSE)
+
+SET_PORT_CMT(io_gpout,70,'CurrentToolType',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,70,CellCommType,CellSlotNmbr,265,-3) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+--go_msgtran_t = 19
+--go_msgtran_i =  71
+SET_PORT_CMT(io_gpout,71,'ApplFaultNumber',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,71,CellCommType,CellSlotNmbr,449,-8) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+--go_TCPpos_t = 19
+--go_TCPpos_i = 72
+SET_PORT_CMT(io_gpout,72,'RobotTCPPosition',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,72,CellCommType,CellSlotNmbr,281,-8) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+IF (UseToolChngr = TRUE) AND (fanuc3dl = TRUE) THEN
+  SET_PORT_CMT(io_gpout,73,'ToolTypeInNest1',gm_status)
+  IF NOT Cnfg_Grp(IO_GPOUT,73,CellCommType,CellSlotNmbr,258,-3) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+  SET_PORT_CMT(io_gpout,74,'ToolTypeInNest2',gm_status)
+  IF NOT Cnfg_Grp(IO_GPOUT,74,CellCommType,CellSlotNmbr,262,-3) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+ENDIF
+
+SET_PORT_CMT(io_gpout,76,'ActRobotOvrde',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,76,CellCommType,CellSlotNmbr,457,-8) THEN --RK changed 447 to 457 10-31-16
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpout,77,'ActPickOffset',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,77,CellCommType,CellSlotNmbr,345,-8) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpout,78,'Press RESERVED',gm_status)
+SET_PORT_CMT(io_gpout,79,'Press RESERVED',gm_status)
+SET_PORT_CMT(io_gpout,80,'Press RESERVED',gm_status)
+SET_PORT_CMT(io_gpout,81,'Press RESERVED',gm_status)
+SET_PORT_CMT(io_gpout,82,'Press RESERVED',gm_status)
+
+SET_PORT_CMT(io_gpout,83,'CurrentRackType',gm_status)
+
+IF (PresLineType = 4) THEN -- Racking Robot
+  IF NOT Cnfg_Grp(IO_GPOUT,83,CellCommType,CellSlotNmbr,293,-4) THEN
+    ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+  ENDIF
+ENDIF
+
+SET_PORT_CMT(io_gpout,84,'Actual Pick Zone',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,84,CellCommType,CellSlotNmbr,316,-4) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpout,85,'Press RESERVED',gm_status)
+SET_PORT_CMT(io_gpout,86,'Press RESERVED',gm_status)
+
+SET_PORT_CMT(io_gpout,87,'IIC Tool Sig.',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,87,CellCommType,CellSlotNmbr,385,-16) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpout,88,'IIC Obs&Cmb Sig',gm_status)
+IF NOT Cnfg_Grp(IO_GPOUT,88,CellCommType,CellSlotNmbr,401,-16) THEN
+  ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+ENDIF
+
+SET_PORT_CMT(io_gpout,89,'Press RESERVED',gm_status)
+
+-- configure the EGD IO for IIC
+SET_PORT_CMT(io_gpout,90,'EGD(Press Sync)',gm_status)
+-- IF NOT Cnfg_Grp(io_gpout,88,88,CellSlotNmbr,xyz,-16) THEN
+--   ErrsInShop.ErrorsIOCom = ErrsInShop.ErrorsIOCom + 1
+--  ENDIF
+
+WriteLog('  Press Group Outputs completed', FALSE)
+
+
+ -- Press Handling Input Block1  801-816 STEPS ON MH input block#1 -- set in MH GRIP
+--  SET_PORT_ASG(IO_DIN,801,CellCommType,34,IO_DIN,1,-16, gm_status)
+
+  SET_PORT_CMT(IO_DIN,801, 'RbtPartPresentF1',gm_status)     -- Robot Part Present Sensor Front-Left F1
+  SET_PORT_CMT(IO_DIN,802, 'RbtPartPresentR1', gm_status)    -- Robot Part Present Sensor Rear-Left R1
+  SET_PORT_CMT(IO_DIN,803, 'RbtPartPresentF2', gm_status)    -- Robot Part Present Sensor Front-Left F2
+  SET_PORT_CMT(IO_DIN,804, 'RbtPartPresentR2', gm_status)    -- Robot Part Present Sensor Rear-Left R2
+  SET_PORT_CMT(IO_DIN,805, '(Reserved Press)', gm_status)    -- PtHolder 3 In A Position
+  SET_PORT_CMT(IO_DIN,806, '(Reserved Press)', gm_status)    -- PtHolder 3 In B Position
+  SET_PORT_CMT(IO_DIN,807, '(Reserved Press)', gm_status)    -- PtHolder 4 In A Position
+  SET_PORT_CMT(IO_DIN,808, '(Reserved Press)', gm_status)    -- PtHolder 4 In B Position
+  SET_PORT_CMT(IO_DIN,809, '(Reserved Press)', gm_status)    -- PtHolder 5 In A Position
+  SET_PORT_CMT(IO_DIN,810, '(Reserved Press)', gm_status)    -- PtHolder 5 In B Position
+  SET_PORT_CMT(IO_DIN,811, '(Reserved Press)', gm_status)    -- PtHolder 6 In A Position
+  SET_PORT_CMT(IO_DIN,812, '(Reserved Press)', gm_status)    -- PtHolder 6 In B Position
+  SET_PORT_CMT(IO_DIN,813, '(Reserved Press)', gm_status)     -- Part Present 1
+  SET_PORT_CMT(IO_DIN,814, '(Reserved Press)', gm_status)     -- Part Present 2
+  SET_PORT_CMT(IO_DIN,815, '(Reserved Press)', gm_status)     -- Part Present 3
+  SET_PORT_CMT(IO_DIN,816, '(Reserved Press)' , gm_status)     -- Vacuum Made 1
+
+-- Below just needs to be added to the block that GMMHGPIO sets up
+
+  SET_PORT_CMT(IO_DOUT,  817, 'do817Valve06ToA',  gm_status)
+  SET_PORT_CMT(IO_DOUT,  818, 'do818Valve06ToB',  gm_status)
+
+
+
+END Prs_Cell_IO
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+-- Check these here instead of a routine so can return to calling routine
+IF UNINIT(Use_Press) THEN
+  POST_ERR(38000, 'Use_Press not setup in GMPRESIO program', 0, 0) --
+  RETURN
+ENDIF
+IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+  ErrsInShop.ErrorsIOCom = 0
+ENDIF
+
+IF UNINIT(Pres_IO_Done) THEN
+  Pres_IO_Done = FALSE
+ENDIF
+
+  IF (Pres_IO_Done = TRUE) THEN -- setup has already been setup
+      WriteLog(' Press I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Press Shop I/O') THEN -- ask user if they want to setup again
+      Pres_IO_Done = FALSE
+    ELSE
+      WriteLog(' Press Shop I/O already Complete', FALSE)
+      WriteLog(' GMPRESIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog(' Starting the Press I/O setup Program', FALSE)
+
+ load_prs_IO
+ Prs_Cell_IO
+
+ ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+   POST_ERR(38000, 'GMPRESIO had '+int2str((ErrsInShop.ErrorsIOCom - StrtinErs))+' Errors while executing',0, 0) --
+   WriteLog('Press I/O setup Program GMPRESIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog(' Press I/O setup Program completed', FALSE)
+   Pres_IO_Done = TRUE -- 11-19-16 RK fixed was FALSE
+ ENDIF
+
+
+END GMPRESIO

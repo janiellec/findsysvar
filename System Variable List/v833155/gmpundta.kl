@@ -1,0 +1,708 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPUNDTA.KL
+--   TITLE:          PUN_DATA PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  2/9/18
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GMPT Pontiac Crew
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: This program has the routine to send and receive PUN information
+--                      from the ROBOT to SpinTop
+--
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--                    10-11-18    R.Kosaski       edits the initialization of pad for robot was incorrect.
+--
+--                    11-01-18    R.Kosaski       Changed variables to SHADOW instead of Dram
+--                                                Added timer to timeout wating for the RETURN string
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMPUNDTA
+
+%ENVIRONMENT SYSDEF  -- needed for $TP_INUSER
+%ENVIRONMENT FLBT  -- needed for message ping
+%ENVIRONMENT ioblt -- needed for the IOVALSET builtin
+%ENVIRONMENT regope  -- needed for SET_STR_REG
+
+%NOLOCKGROUP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT = 'PUN DATA SM Prog'
+%ALPHABETIZE
+%INCLUDE KLEVCCDF
+%INCLUDE KLIOTYPS -- needed for the IO_DOUT constant
+CONST
+
+Version = '2018-11-01 RK'
+
+VAR
+
+Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+
+SM_Port_Cfgd IN SHADOW : BOOLEAN -- if the connection port was done set to TRUE
+VMTTalking   IN SHADOW : BOOLEAN -- Used for if the Robot has C3: connection Open
+SndRcv_VMT   IN SHADOW : BOOLEAN -- identifies if Send and Recieve was succesfull
+
+debug_it  : BOOLEAN -- Used for displaying debug info
+i,
+status,
+ping_status,
+Connctn_Num,                   -- the number to be used for the socket connection in the CLIENTS setup menu
+PLC_PunStrRg IN SHADOW : INTEGER -- Used for the string register the PLC will place the PUN
+VMT_PunStrRg IN SHADOW : INTEGER -- Used for the string register the VMT will place the PUN
+PLC_PUN_Str IN SHADOW : STRING[32]-- Place holder to put into after converting PLC sent
+
+VMTPUNSubStr IN SHADOW : STRING[32]-- Place holder to put VMT PUN AFTER stripping header data
+Connctn_Name IN SHADOW : STRING[3] -- used for the connection name in the connection and disconnection for SM
+
+VMT_PUN_Str IN SHADOW : STRING[64]-- Place holder to put into after converting VMT sent
+Trash_Str   IN SHADOW : STRING[128]-- Place holder to read the data VMT has on the line, NOT needed
+VMTStrPrePad IN SHADOW : STRING[24] -- what VMT will Pad the beginning of the String tranfer
+VMTStrPstPad IN SHADOW : STRING[24] -- what VMT will Pad the end of the String tranfer
+RbtStrPrePad IN SHADOW : STRING[24] -- what VMT will Pad the beginning of the String tranfer
+RbtStrPstPad IN SHADOW : STRING[24] -- what VMT will Pad the end of the String tranfer
+ReturnIP,                         -- used for the retruned value when reading the system variable for finding unused loc
+SocketIPAdrs IN SHADOW : STRING[20] -- what IP address to use for the socket messaging address
+ReturnName,                       -- used for the retruned value when reading the system variable for finding unused loc
+SocketIPName IN SHADOW : STRING[10] -- used for hostname so can PING using MSG_PING builtin
+SocketPrtNum IN SHADOW : INTEGER -- the port number assigned in the PC for socket messaging.
+HostShrdLoc, -- where in the sysvar the host shared variables will be set.
+VMTPreStrLen,-- Used for the value of PreStrlen when parsering VMT read string to remove header
+VMTPstStrLen,--
+PLCPunStrLen,
+VMTPunStrLen : INTEGER -- used for the string len the VMT sent back after removing file padding
+
+ReplyTimer,   -- used for timer to time the response back from device
+ReplyTimeMax, -- used for the timeout period of replytimer
+
+PLC_PUN_Rdy, -- used for DI from PLC to identify PUN IS READY TO PASS to VMT
+PLC_PUN_Pasd,  -- used for DO to PLC to identify Pun Passed to VMT and Read back COmplete
+PLC_PUN_Fltd IN SHADOW :INTEGER -- Used for Interface to PLC to idicate Fault trying to pass PUN
+
+-- Routines copied
+VAR
+file_var : FILE
+tmp_int : INTEGER
+tmp_str : STRING[128]
+num_bytes,
+entry : INTEGER
+done_connect,
+loop1 : BOOLEAN
+
+VMT_file : FILE -- file to open to SEND/RECIEVE PUN data to VMT SpinTop
+
+-----------------------------------------------------------
+ROUTINE int2str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-----------------------------------------------------------
+VAR
+  l_string: STRING[9]
+BEGIN
+  l_string = ''
+IF UNINIT(p_integer) THEN
+  p_integer = 0
+ENDIF
+
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int2str
+-----------------------------------------------------------------------------
+ROUTINE Init_punVars
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(debug_it) THEN
+  debug_it = FALSE
+ENDIF
+
+IF UNINIT(PLC_PunStrRg) THEN
+  PLC_PunStrRg = 2
+ENDIF
+IF UNINIT(VMT_PunStrRg) THEN
+  VMT_PunStrRg = 3
+ENDIF
+
+IF UNINIT(PLC_PUN_Str) THEN
+  PLC_PUN_Str = ''
+ENDIF
+IF UNINIT(VMT_PUN_Str) THEN
+  VMT_PUN_Str = ''
+ENDIF
+IF UNINIT(VMTStrPrePad) THEN
+  VMTStrPrePad = '<SpinTop>'
+ENDIF
+IF UNINIT(VMTStrPstPad) THEN
+  VMTStrPstPad = '</SpinTop>'
+ENDIF
+IF UNINIT(RbtStrPrePad) THEN
+  RbtStrPrePad = '<Robot>'
+ENDIF
+IF UNINIT(RbtStrPstPad) THEN  -- RK 10-11-18 updated was VMTStrPstPad !
+  RbtStrPstPad = '</Robot>'
+ENDIF
+IF UNINIT(SocketIPAdrs) THEN
+  SocketIPAdrs = '192.168.1.163'
+ENDIF
+IF UNINIT(SocketIPName) THEN
+  SocketIPName = 'SpinTopPUN'
+ENDIF
+IF UNINIT(SocketPrtNum) THEN -- the port number on the socket setup in the PC to use
+  SocketPrtNum = 59002
+ENDIF
+IF UNINIT(Connctn_Num) THEN -- Changed to 5 default was 3, G3 uses 3 for plant stuff
+  Connctn_Num = 5
+ENDIF
+
+-- set the connection name
+Connctn_Name = 'C'+int2str(Connctn_Num)+':'
+
+IF UNINIT(PLCPunStrLen) THEN
+  PLCPunStrLen = 0
+ENDIF
+IF UNINIT(VMTPunStrLen) THEN
+  VMTPunStrLen = 0
+ENDIF
+IF UNINIT(VMTPreStrLen) THEN
+  VMTPreStrLen = 0
+ENDIF
+IF UNINIT(VMTPUNSubStr) THEN
+  VMTPUNSubStr = ''
+ENDIF
+IF UNINIT(VMTTalking) THEN
+  VMTTalking = FALSE
+ENDIF
+
+IF UNINIT(SM_Port_Cfgd) THEN -- wheather port was ever setup
+  SM_Port_Cfgd = FALSE
+ENDIF
+
+SndRcv_VMT = FALSE -- set to false every start of program
+
+IF UNINIT(PLC_PUN_Rdy) THEN
+  PLC_PUN_Rdy = 190
+ENDIF
+IF UNINIT(PLC_PUN_Pasd) THEN
+  PLC_PUN_Pasd = 190
+ENDIF
+IF UNINIT(PLC_PUN_Fltd) THEN
+  PLC_PUN_Fltd = 192
+ENDIF
+
+IF UNINIT(ReplyTimeMax) THEN
+  ReplyTimeMax = 5000
+ENDIF
+
+  RETURN
+END Init_punVars
+-----------------------------------------------------------------------------
+ROUTINE PingFailure(p_host_name:STRING;p_status:INTEGER)
+-- PURPOSE:  to post to the operator that the host setup and ping cannot communicate
+--           to the robot.
+--
+-- INPUT:    the host name to read the IP Address attempting to ping
+--           the status of the PING request to share with User -
+--            -
+-- CALLED BY:
+--
+----------------------------------------------------------------------------
+
+BEGIN
+-- check host name is in table
+
+ReturnName =''
+ReturnIP   = ''
+
+FOR i = 1 TO 20 DO -- search all 20 locations for empty or matching
+  GET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(i)+'].$H_NAME',ReturnName , status)
+    IF UNINIT(ReturnName) THEN -- if status =12311, then will be uninit
+      ReturnName = ''
+    ENDIF
+    IF ((Status=0) AND (ReturnName = p_host_name)) THEN -- Now get the address
+      GET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(i)+'].$H_ADDR', ReturnIP, status)
+        IF UNINIT(ReturnIP) THEN -- if status =12311, then will be uninit
+          ReturnIP = ''
+        ENDIF
+        IF (Status=0)THEN -- this should be the IP address associated with the host Name
+          i=20 -- set to end loop
+        ELSE
+          IF ((status <> 12311) AND (status<>0)) THEN
+            POST_ERR(38000, 'Get $HOST_SHARED['+int2str(i)+'].$H_ADDR FAILED in PingFailure', status, 0) --
+          ENDIF
+        ENDIF
+    ELSE --
+      IF ((status <> 12311) AND (status<>0)) THEN
+        POST_ERR(38000, 'Get $HOST_SHARED['+int2str(i)+'].$H_NAME FAILED in PingFailure', status, 0) --
+      ENDIF
+    ENDIF
+ENDFOR --
+
+IF ($TP_INUSER=FALSE) THEN
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+ENDIF
+
+--post the the Host Name and IP address for user to review
+--    CLR_STND_SCR(gm_status)
+    WRITE(cr,cr,cr,cr,cr,cr,cr,cr,cr)
+
+    WRITE(p_host_name,' has failed a PING request',cr)
+    WRITE ('Returned a status of ',p_status,'.',cr)
+    WRITE('The IP address ',ReturnIP,' is being',cr)
+    WRITE('used to communicate with ',p_host_name,'.',cr,cr)
+
+    WRITE('Please check cables and the setup',cr)
+    WRITE('in the HOST Shared SETUP menu.',cr)
+
+END PingFailure
+-----------------------------------------------------------------------------
+ROUTINE ping_it(p_host_name:STRING):BOOLEAN
+-- PURPOSE: to Verify basic communications with passed device
+--
+-- INPUT: the host name to ping, must be name in Host table setup
+--            -
+-- OUTPUT: the success of the ping
+--            -
+-----------------------------------------------------------------------------
+VAR
+Success :BOOLEAN
+
+BEGIN
+
+  Success = FALSE
+
+  MSG_PING(p_host_name,ping_status)--
+
+  IF (ping_status= 0) THEN
+    Success = TRUE -- set True
+  ELSE
+    POST_ERR(38000, 'Ping for '+p_host_name+ ' FAILED', ping_status, 0) --
+    PingFailure(p_host_name,ping_status)-- go report the failure to user log page
+  ENDIF
+
+  RETURN(success)
+
+END ping_it
+-----------------------------------------------------------------------------
+ROUTINE findMTLoc:BOOLEAN
+-- PURPOSE: to find the empty location for putting SpinTop to be able to ping a HOST
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:   Boolean to identify if succesfully able to find an empty variable
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+ReturnName =''
+ReturnIP   = ''
+
+FOR i = 1 TO 20 DO -- search all 20 locations for empty or matching
+  GET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(i)+'].$H_NAME',ReturnName , status)
+    IF UNINIT(ReturnName) THEN -- if status =12311, then will be uninit
+      ReturnName = ''
+    ENDIF
+    --12311 -- Uninit is good meaning never set, or already set equal to name is good
+    IF ((status = 12311) OR ((Status=0) AND ((ReturnName = SocketIPName)OR (ReturnName='')))) THEN -- Now check the address
+      GET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(i)+'].$H_ADDR', ReturnIP, status)
+        IF UNINIT(ReturnIP) THEN -- if status =12311, then will be uninit
+          ReturnIP = ''
+        ENDIF
+        IF ((status = 12311) OR ((Status=0) AND ((ReturnIP = SocketIPAdrs) OR (ReturnIP = ''))))THEN --
+          HostShrdLoc = i
+          RETURN(TRUE)
+        ELSE
+          POST_ERR(38000, 'Get $HOST_SHARED['+int2str(i)+'].$H_ADDR FAILED in findMTLoc', status, 0) --
+        ENDIF
+    ELSE
+      POST_ERR(38000, 'Get $HOST_SHARED['+int2str(i)+'].$H_NAME FAILED in findMTLoc', status, 0) --
+    ENDIF
+ENDFOR --
+
+  RETURN(FALSE)
+
+END findMTLoc
+-----------------------------------------------------------------------------
+ROUTINE Read_Pun(P_Pun_array:ARRAY OF INTEGER;P_PUN_Str:STRING;P_GINStrtpt:INTEGER;P_Read_Hndsk:INTEGER)
+-- PURPOSE:
+--
+-- INPUT:   P_Pun_array - the array that is to be read into
+--          P_PUN_STR   - the String where the result of the read is to be placed
+--          P_GIN_STR   - the group input to start reading the ACSii from
+--          P_Read_Hndsk  - the DIN and DOUT to be used for read handshakes
+--          P_PUN_Strreg -- the string register to place result
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+VAR
+tmp_str : STRING[1]
+BEGIN
+
+
+FOR i = 1 TO ARRAY_LEN(P_PUN_Array) DO
+  IF Debug_it THEN
+    WRITE TPERROR(CHR(cc_clear_win),'Reading PUN #',i)
+    DELAY 500
+  ENDIF
+  WAIT FOR (DIN[P_Read_Hndsk]=ON) -- Wait for Sender to sent another
+  P_PUN_Array[i] = 0
+  P_PUN_Array[i] = GIN[P_GINStrtpt]
+  DOUT[P_Read_Hndsk]= ON
+  IF Debug_it THEN
+    CNV_INT_STR(P_PUN_Array[i], 1, 0, tmp_str)
+    WRITE TPERROR(CHR(cc_clear_win),'PUN#',i, 'Read ',P_PUN_Array[i],'ASCI=',tmp_str)
+    DELAY 500
+  ENDIF
+  WAIT FOR (DIN[P_Read_Hndsk]=OFF) -- Wait for Sender to see the read
+  DOUT[P_Read_Hndsk]= OFF
+  DELAY 50 -- let system breath
+ENDFOR --
+
+-- convert the integer array to string
+P_PUN_Str = ''
+FOR i = 1 TO ARRAY_LEN(P_PUN_Array) DO
+  CNV_INT_STR(P_PUN_Array[i], 1, 0, tmp_str)
+  P_PUN_Str = P_PUN_Str + tmp_str
+ENDFOR --
+
+IF debug_it THEN
+ WRITE TPERROR(CHR(cc_clear_win),'PUN=',P_PUN_Str)
+ DELAY 1000
+ENDIF
+
+  RETURN
+END Read_Pun
+-----------------------------------------------------------------------------
+ROUTINE SetupSMPort
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+SM_Port_Cfgd = FALSE -- set false
+-- Set the Port Comment
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$COMMENT', 'SpinTop PC for PUN', status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$HOSTC_CFG['+int2str(Connctn_Num)+'].$COMMENT FAILED', status, 0) --
+   ENDIF
+-- Set the Port ProtoCol
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$PROTOCOL', 'SM', status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$HOSTC_CFG['+int2str(Connctn_Num)+'].$PROTOCOL = SM FAILED', status, 0) --
+   ENDIF
+
+-- Set the Port IP/HostName
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$REMOTE', SocketIPAdrs, status)-- '192.168.1.163'
+   IF status <> 0 THEN
+     POST_ERR(38000, '$HOSTC_CFG['+int2str(Connctn_Num)+'].$REMOTE = '+SocketIPAdrs+' FAILED', status, 0) --
+   ENDIF
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$STRT_REMOTE',SocketIPAdrs , status) --'192.168.1.163'
+   IF status <> 0 THEN
+     POST_ERR(38000, '$HOSTC_CFG['+int2str(Connctn_Num)+'].$STRT_REMOTE ='+SocketIPAdrs+' FAILED', status, 0) --
+   ENDIF
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$SERVER_PORT',SocketPrtNum , status)-- 59002
+   IF status <> 0 THEN
+     POST_ERR(38000, '$HOSTC_CFG[3].$SERVER_PORT ='+int2str(SocketPrtNum)+' FAILED', status, 0) --
+   ENDIF
+
+-- Setup the host Name
+   HostShrdLoc = 0
+   IF findMTLoc THEN -- call routine to find where this can be added
+    SET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(HostShrdLoc)+'].$H_NAME', SocketIPName, status)
+      IF status <> 0 THEN
+        POST_ERR(38000, '$HOST_SHARED['+int2str(HostShrdLoc)+'].$H_NAME='+SocketIPName+' FAILED', status, 0) --
+      ENDIF
+    SET_VAR(entry, '*SYSTEM*' , '$HOST_SHARED['+int2str(HostShrdLoc)+'].$H_ADDR', SocketIPAdrs, status)
+      IF status <> 0 THEN
+        POST_ERR(38000, '$HOST_SHARED['+int2str(HostShrdLoc)+'].$H_ADDR='+SocketIPAdrs+' FAILED', status, 0) --
+      ENDIF
+   ELSE
+     POST_ERR(38000, 'Could not set HOSTSHARED for PINGING GMPUNDTA', 0, 0) --
+   ENDIF
+
+-- Set the Port Operation Startup State to "Start"
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$OPER', 3, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$HOSTC_CFG['+int2str(Connctn_Num)+'].$OPER = 3 FAILED', status, 0) --
+   ENDIF
+-- Set the Port Operation Current State to "Defined"
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$STATE', 2, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$HOSTC_CFG['+int2str(Connctn_Num)+'].$STATE = 2 FAILED', status, 0) --
+   ENDIF
+
+  DELAY 100
+-- Set the Port Operation Current State to "Start"
+ SET_VAR(entry, '*SYSTEM*' , '$HOSTC_CFG['+int2str(Connctn_Num)+'].$STATE', 3, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$HOSTC_CFG['+int2str(Connctn_Num)+'].$STATE = 3 FAILED', status, 0) --
+   ENDIF
+
+   IF Ping_it(SocketIPName) THEN
+     SM_Port_Cfgd = TRUE -- set false
+   ELSE
+     POST_ERR(38000, 'Failed to Setup SMPORT C'+int2str(Connctn_Num)+':', 0, 0) --
+   ENDIF
+
+END SetupSMPort
+-----------------------------------------------------------------------------
+ROUTINE SortVMTStr
+-- PURPOSE: to strip off the data
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+VMTPreStrLen = STR_LEN(VMTStrPrePad) -- get the header string len to remove
+
+  VMTPUNSubStr = SUB_STR(VMT_PUN_Str, (VMTPreStrLen+1),PLCPunStrLen)
+  IF (VMTPUNSubStr = PLC_PUN_Str)  THEN -- Check the strings match EXACTLY
+    SET_STR_REG(VMT_PunStrRg, VMTPUNSubStr, status)
+    IF (status<>0) THEN
+      POST_ERR(38000, 'Failed SR['+int2str(VMT_PunStrRg)+']'+VMT_PUN_Str, status, 0) --
+    ENDIF
+  ELSE
+    POST_ERR(38000, 'PLC='+PLC_PUN_Str+'<> VMT'+tmp_str, 0, 0) --
+  ENDIF
+
+END SortVMTStr
+-----------------------------------------------------------------------------
+ROUTINE ConctToVMT:BOOLEAN
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:   NotTalking
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+   VMTTalking = FALSE
+
+   SET_VAR(entry, '*SYSTEM*','$HOSTC_CFG['+int2str(Connctn_Num)+'].$SERVER_PORT',59002,status)
+     IF status <> 0  THEN
+       POST_ERR(38000, 'Failed to Set C'+int2str(Connctn_Num)+': server Port'+int2str(59002), status, 0) --
+       RETURN(VMTTalking)
+     ENDIF
+
+   MSG_DISCO(Connctn_Name,status) --'C3:' disconnect incase aborted in middle last comm
+   WHILE (VMTTalking = FALSE) DO --
+
+    -- Connect the tag
+     IF Debug_it THEN; WRITE('Connecting..',Connctn_Name,cr); ENDIF
+
+    MSG_CONNECT(Connctn_Name,status)--'C3:'
+      IF Debug_it THEN; WRITE(Connctn_Name,' Connect Status = ',status,cr);ENDIF
+    IF (Status= 0) THEN
+      VMTTalking = TRUE
+    ELSE
+      POST_ERR(38000, 'SM '+Connctn_Name+' Connect FAILED', status, 0) -- C3:
+
+      MSG_DISCO(Connctn_Name,status) --'C3:'
+      IF status <>0 THEN
+        POST_ERR(38000, 'DisConnect SM '+Connctn_Name+' Failed', status, 0) -- C3:
+      ENDIF
+      DELAY 2000
+    ENDIF
+
+   ENDWHILE --
+
+  RETURN(VMTTalking)
+
+END ConctToVMT
+-----------------------------------------------------------------------------
+ROUTINE sendtofrmVMT: BOOLEAN
+-- PURPOSE: to send the PUN to VMT and Read it back from them
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-------------------------------------------------------------------------------
+--------------------------------------------------------
+BEGIN
+    SndRcv_VMT = FALSE
+
+    IF Debug_it THEN; WRITE(cr,cr,cr,cr,cr,cr,cr,cr);ENDIF
+
+    SET_FILE_ATR(VMT_file, ATR_IA) --force reads to completion
+
+    IF ConctToVMT THEN
+        IF Debug_it THEN;WRITE('Opening File.."VMT_file"',cr);ENDIF
+        OPEN FILE VMT_file('rw',Connctn_Name) -- 'C3:'
+        status = IO_STATUS(VMT_file)
+          IF status = 0 THEN
+          -- check the buffer is empty
+            num_bytes = (-1)
+            status = 0     -- get number of bytes ahead on the port
+            IF Debug_it THEN; WRITE ('Clearing in BYTES_AHEAD',cr); ENDIF
+            WHILE ((num_bytes=(-1)) AND (status = 0)) DO --
+              BYTES_AHEAD(VMT_file, num_bytes, status)
+              DELAY 50
+            ENDWHILE --
+            IF (num_bytes>0) THEN
+              READ VMT_file(Trash_Str::num_bytes)-- Clear buffer and trash
+            ENDIF
+          ELSE
+            POST_ERR(38000, 'Open "VMT_File" Failed', status, 0) --
+            RETURN(SndRcv_VMT)
+          ENDIF
+
+        IF status = 0 THEN
+          WRITE VMT_file(RbtStrPrePad)--'<Robot>'
+          WRITE VMT_file(PLC_PUN_Str) -- Write value read from String Register set by PLC
+          WRITE VMT_file(RbtStrPstPad)--'</Robot>'
+          IF Debug_it THEN; WRITE('Wrote "',PLC_PUN_Str,'" to VMT PC',cr);ENDIF
+        ELSE
+          IF Debug_it THEN;WRITE('BYTES_AHEAD Status ',status,cr);ENDIF
+        ENDIF
+
+        -- get number of bytes ahead on the port
+          num_bytes = 0
+          status = 0
+          ReplyTimer = 0
+          IF Debug_it THEN;WRITE ('Waiting in BYTES_AHEAD',cr);ENDIF
+
+          CONNECT TIMER TO ReplyTimer -- start timeout for response back
+
+          WHILE (num_bytes=0) AND (status = 0) AND (ReplyTimer < ReplyTimeMax) DO --
+            BYTES_AHEAD(VMT_file, num_bytes, status)
+            IF status = 0 THEN
+              IF (num_bytes = 0) THEN
+                DELAY 50
+              ENDIF
+            ELSE
+              POST_ERR(38000, 'Bytes_ahead Failed in GMPUNDTA', status, 0) --
+            ENDIF
+          ENDWHILE --
+
+          DISCONNECT TIMER ReplyTimer --
+       IF (ReplyTimer < ReplyTimeMax) OR (num_bytes >0) THEN
+
+          IF Debug_it THEN;WRITE ('NUM_BYTES =',num_bytes,' in ',ReplyTimer,' msec response, starting read',cr);ENDIF
+          READ VMT_file(VMT_PUN_Str::num_bytes)
+          status = IO_STATUS(VMT_file)
+          IF status = 0 THEN
+            SndRcv_VMT = TRUE
+            IF Debug_it THEN;WRITE (CR, 'Read:',VMT_PUN_Str);ENDIF
+          ELSE
+            POST_ERR(38000, 'Read PUN from VMT_FILE Failed', status, 0) --
+            IF Debug_it THEN;WRITE('Read Status ',status,cr);ENDIF
+          ENDIF
+       ELSE --
+         POST_ERR(38000, 'No Data Returned from '+Connctn_Name+' in GMPUNDTA', 0, 0) --
+         DELAY 2000
+       ENDIF
+
+      IF Debug_it THEN;WRITE('Closed "VMT_file" File',cr);ENDIF
+      CLOSE FILE VMT_file
+    ELSE
+      IF Debug_it THEN;WRITE('Error Connecting to ',Connctn_Name,cr);ENDIF--Connctn_Name
+    ENDIF
+
+      IF Debug_it THEN;WRITE('Disconnecting..',Connctn_Name,cr);ENDIF
+      MSG_DISCO(Connctn_Name,status)-- 'C3:'
+      IF Debug_it THEN;WRITE('Done.',cr);ENDIF
+    --  SndRcv_VMT = TRUE
+
+RETURN(SndRcv_VMT)
+
+END sendtofrmVMT
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+BEGIN
+
+Init_punVars -- Setup the Variables to be used
+
+-- Check if Port has ever been configured
+IF SM_Port_Cfgd = FALSE THEN
+  SetupSMPort -- Setup socket messaging port and Ping it
+ENDIF
+
+-- Clear old pun recieved
+SET_STR_REG(VMT_PunStrRg, '', status)
+
+PLC_PUN_Str = ''
+-- Read PLC input
+
+GET_STR_REG(PLC_PunStrRg, PLC_PUN_Str, status)
+
+IF (status =0) THEN
+  PLCPunStrLen = STR_LEN(PLC_PUN_Str) -- get length for comparing later
+  --
+  IF ping_it(SocketIPName) THEN -- if PING succesful, send data, need to check ping
+                                -- so if the communications goes down, can't MSG_CONNECT.
+    -- Send the Data to the PC for VMT (spintop)
+    IF sendtofrmVMT THEN -- pass and read pun back from VMT
+      SortVMTStr -- call routine to parser out Padding
+    ELSE
+      POST_ERR(38000, 'PUN exchange with VMT FAILED', 0, 0) --
+    ENDIF
+  ENDIF
+ELSE
+  POST_ERR(38000, 'Failed to read SR['+int2str(PLC_PunStrRg)+'] in GMPUNDTA', status, 0) --
+ENDIF
+
+-- Send to the PLC
+IF (SndRcv_VMT = TRUE) THEN
+  status = iovalset(IO_DOUT , PLC_PUN_Pasd, 1)
+  status = iovalset(IO_DOUT , PLC_PUN_Fltd, 0)
+ELSE -- Something Failed
+  status = iovalset(IO_DOUT , PLC_PUN_Pasd, 0)
+  status = iovalset(IO_DOUT , PLC_PUN_Fltd, 1)
+ENDIF
+
+END GMPUNDTA

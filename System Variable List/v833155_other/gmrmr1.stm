@@ -1,0 +1,322 @@
+<html>
+
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="GENERATOR" content="Microsoft FrontPage 12.0">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Reamer Status</title>
+<style type="text/css">
+.auto-style2 {
+	text-align: center;
+}
+.auto-style3 {
+	text-align: justify;
+}
+.auto-style5 {
+	text-align: right;
+}
+.auto-style7 {
+	color: #FFFFFF;
+	text-align: right;
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: x-small;
+}
+.auto-style8 {
+	border-style: solid;
+	border-color: #FFFFFF;
+	color: #000000;
+	text-align: right;
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: x-small;
+	background-color: #FFFFFF;
+}
+.auto-style9 {
+	color: #000000;
+}
+.auto-style10 {
+	color: #000000;
+	text-align: right;
+	font-family: Arial, Helvetica, sans-serif;
+	font-size: x-small;
+}
+</style>
+</head>
+
+<body style="color: #000000; ">
+
+<div align="left">
+  <table border="0" cellspacing="0" width="628" height="365" cellpadding="0">
+    <tr>
+      <td width="100%" class="auto-style3">
+              						<table width="628" height="365" align="center">										
+										<tr>
+											<td height="20" width="100" class="auto-style7">
+											<strong><span class="auto-style9">Cycle Count</span></strong></td>
+											<td height="20" width="100" class="auto-style8">
+											<strong>Clean Freq.</strong></td>
+											<td height="20" width="2" align="center" valign="middle">
+											</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle" style="width: 2px">
+											</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+										</tr>						
+										<tr>
+										<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel28">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="485">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel29">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="486">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="2" align="center" valign="middle">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" align="center" style="width: 2px">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>																					
+										</tr>
+										<tr>
+											<td height="20" width="100" class="auto-style7">
+											<strong><span class="auto-style9">Reamer Count</span></strong></td>
+											<td height="20" width="100" class="auto-style10">
+											<strong>Reamer Limit</strong></td>
+											<td width="2" align="center" valign="middle" style="height: 26px">
+											</td>
+											<td align="center" valign="middle" width="100" style="height: 26px">
+											</td>
+											<td align="center" valign="middle" style="width: 2px; height: 26px">
+											</td>
+											<td width ="100" align="center" valign="middle" style="height: 26px">
+											</tr>
+										<tr>
+										<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel30">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="487">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel31">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="488">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="2" align="center" valign="middle">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" align="center" style="width: 2px">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;</tr>
+										<tr>
+											<td height="20" width="100" class="auto-style10">
+											<strong>Cutter Count</strong></td>
+											<td height="20" width="100" class="auto-style10">
+											<strong>Cutter Limit</strong></td>
+											<td width="2" align="center" valign="middle" style="height: 24px">
+											</td>
+											<td width="100" style="height: 24px">
+											</td>
+											<td align="center" valign="middle" style="width: 2px; height: 24px">
+											</td>
+											<td width="100" style="height: 24px">
+											</td>
+										</tr>
+										<tr>
+										<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel32">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="489">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width="100" class="auto-style5">
+											<object height="40" align="top" width="70"classid="clsid:7106065C-0E45-11D3-81B6-0000E206D650" id="FRIPLabel33">
+												<param name="Caption" value="485">
+												<param name="FontName" value="Courier New">
+												<param name="FontSize" value="14">
+												<param name="DataType" value="101">
+												<param name="DataIndex" value="490">
+												<param name="Interval" value="250">
+												<param name="FastLoad" value="-1">
+												<param name="BackColor" value="65535">
+												<param name="Border" value="4">
+												<param name="width" value="70">
+												<param name="height" value="40">
+												<param name="TrueFont" value="-1">
+											</object>
+											<td height="55" width ="2" align="center" valign="middle">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" align="center" valign="middle" style="width: 2px">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+										</tr>
+										<tr>
+											<td width="100" style="height: 20px">
+											</td>
+											<td width="100" style="height: 20px">
+											</td>
+											<td width="2" align="center" valign="middle" style="height: 20px">
+											</td>
+											<td width="100" style="height: 20px">
+											</td>
+											<td align="center" valign="middle" style="width: 2px; height: 20px;">
+											</td>
+											<td width="100" style="height: 20px">
+											</td>
+										</tr>
+										<tr>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+											<td height="20" width="2" align="center" valign="middle">
+											</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle" style="width: 2px">
+											</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+										</tr>
+										<tr>
+											<td width="100" valign="middle" class="auto-style2" style="height: 20px">
+																						</td>
+											<td width="100" style="height: 20px">
+											</td>
+											<td width="2" align="center" valign="middle" style="height: 20px">
+											</td>
+											<td width="100" style="height: 20px">
+											</td>
+											<td align="center" valign="middle" style="width: 2px; height: 20px">
+											</td>
+											<td width="100" style="height: 20px">
+											</td>	
+										<tr>
+											<td height="20" width="100">
+																						&nbsp;</td>
+											<td height="55" width ="100">
+											&nbsp;<td height="55" width ="2" align="center" valign="middle">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" align="center" valign="middle" style="width: 2px">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+										<tr>
+											<td height="20" width="100">
+																						&nbsp;</td>
+											<td height="20" width="100">
+											&nbsp;</td>
+											<td height="55" width ="2" align="center" valign="middle">
+											</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="20" align="center" valign="middle" style="width: 2px">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;</tr>
+										<tr>
+											<td width="100" style="height: 55px">
+											&nbsp;</td>
+											<td width="100" style="height: 55px">
+											&nbsp;</td>
+											<td width ="2" align="center" valign="middle" style="height: 55px">
+											</td>
+											<td align="center" valign="middle" width="100" style="height: 55px">
+											</td>
+											<td align="center" style="width: 2px; height: 55px">
+											</td>
+											<td width ="100" align="center" valign="middle" style="height: 55px">
+											</tr>
+										<tr>
+											<td height="20" width="100">
+											&nbsp;</td>
+											<td width="100">
+											&nbsp;</td>
+											<td height="55" width ="2" align="center" valign="middle">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;<td height="55" align="center" style="width: 2px">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;</tr>
+										<tr>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" width="100">
+											&nbsp;</td>
+											<td height="55" width ="2" align="center" valign="middle">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;<td height="55" align="center" style="width: 2px">
+											</td>
+											<td height="55" width ="100">
+											&nbsp;</tr>
+										</table>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

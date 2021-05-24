@@ -1,0 +1,93 @@
+<html>
+
+<head>
+<script>
+function loadPDFDoc(device, pdf) {
+	var xmlhttp;
+
+	xmlhttp=new XMLHttpRequest();
+
+	xmlhttp.onreadystatechange=function() {
+		if (xmlhttp.readyState==4 && xmlhttp.status==200) {
+			xmlhttp.open("GET","/SOFTPART/GENLINK?config=current&current=menupage,1606,1",true);		
+	  		xmlhttp.send();
+	  	}
+	}
+	xmlhttp.open("GET","/KCL/set%20var%20$DOCVIEWER.$CURFILE[1]='"+device+"\\"+pdf+"'",true);
+	xmlhttp.send();
+}
+</script>
+<meta http-equiv="Content-Language" content="en-us">
+<meta name="GENERATOR" content="Microsoft FrontPage 12.0">
+<meta name="ProgId" content="FrontPage.Editor.Document">
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+<title>Wizard Top Menu</title>
+<style type="text/css">
+.style1 {
+				font-size: small;
+}
+.style3 {
+				font-size: x-large;
+				font-weight: bold;
+}
+</style>
+</head>
+
+<body>
+
+<div align="left">
+  <table border="0" cellspacing="0" width="628" height="365" cellpadding="0">
+    <tr>
+      <td width="100%">
+      	<div align="center">
+      		<table border="0" cellspacing="0" cellpadding="0" width="100%">
+        		<tr>
+          			<td colspan="3" align="left" width="100%">
+          				<table border="0" cellspacing="0" cellpadding="0" style="width: 97%; height: 35px">
+            				<tr valign="center">
+              					<td valign="middle" align="center">
+          							<img border="0" src="/frh/gui/gmlogo.jpg" width="63" height="53"></td>
+              					<td valign="middle" align="center">
+              						<p valign="center" align="center"
+              						<font size="7" face="Book Antiqua"></font>
+									<font face="Book Antiqua">
+									<span class="style3">SETUP WIZARD</span></font></td>
+              					<td valign="middle" align="right">
+              						<img border="0" src="/frh/gui/gmlogo.jpg" width="63" height="53"></td>
+            				</tr>
+          				</table>
+          			</td>
+        		</tr>
+        		<tr>
+		<td colspan="4" style="height: 65px">&nbsp;<span class="style1">Robot configuration 
+		is available at Controlled Start.<br>
+		&nbsp;1. REPOWER controller depressing &lt;PREV&gt; &amp; &lt;NEXT&gt; and hold 
+		until configuration menu is posted.<br>
+		&nbsp;2.&nbsp;Select Controlled Start.<br>
+		&nbsp;3.&nbsp;From the SPOT CONFIG screen &lt;ENABLE&gt; the last item on the Screen Setup 
+		Wizard<br>
+		&nbsp;&nbsp;&nbsp; (Click Global Wizard Setup Manual link below for configuration 
+		assistance)</span></span><font size="1" class="style1"></sup></font></td>
+				</tr>
+        		<tr>
+          			<td valign="middle" align="center">
+                    <img src="/frh/gui/cstrt.jpg" width="286" height="140"></td>
+        		</tr>
+        		<tr>
+          			<td>
+          				<a target="_self" href="javascript:loadPDFDoc('frs:','GMWIZMAN.pdf')">Global Wizard Setup Manual</a><br></td>
+          			<td align="center">
+          				&nbsp;</td>
+          			<td align="center">
+          				&nbsp;</td>
+          			<td></td>
+        		</tr>
+        	</table>
+      	</div>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+
+</html>

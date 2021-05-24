@@ -1,0 +1,364 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPINIO.KL
+--   TITLE:          GMSPINIO PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  11/19/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   gm_status:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: SpinTop Shop I/O setup files. These routines will be
+--                      called from the main wizard, no prompts are in the I/O file
+--                      only the settting
+--
+--    SETUP ROUTINES INCLUDED
+--
+--    Other Application files:
+--    GMSPINIO -- program to setup and comment the SpinTop I/O GMCELLIO is also required to setup workcell interface
+--    GMSPINPG -- program for loading all unique program that are specific to SpinTop applications
+--    GMSPINRG -- program for setting registers and position registers comments and default values
+--    GMSPINVR -- program for setting variables specific to SpinTop application
+-------------------------------------------------------------------------------
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--                    12-26-16    R Kosaski       had to change comments for segments from Failed to PASS
+--                    1-12-17     R Kosaski       had to remove interconnect 3 because they are in GMSPINVR file
+--                    3-30-17     R Kosaski       had to move the Automatic back to PLC from SPintop to AFTER the For loop
+--                    9-20-18     R Kosaski       removed code with remarks to allow VMT checnges they made to configure
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPINIO
+
+%COMMENT = 'SpinTop I/O V4.1'
+
+%ENVIRONMENT IOSETUP -- Required for the I/O Builtin support
+%ENVIRONMENT tpthrdef -- Required for the $THRSDITABLE[x] variables
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+CONST
+Version = '2018-9-20'
+%INCLUDE gmcnstnt  -- used for all gm constants
+
+VAR
+
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  StrtinErs,   -- How many errors I/O error counter had when the program started
+  entry,                 -- used for the GET_VAR
+  gm_status    : INTEGER
+
+Spin_IO_Done IN SHADOW : BOOLEAN -- if the I/O has ran completly
+
+SpinTopOctet IN SHADOW : INTEGER -- used for the last octet for comm to SpinTop
+
+--  EqptStrtPnt, -- the Start point for the Equipment communications (to SpinTop PC)
+  ProcStrtPnt IN CMOS FROM GMSPINVR:INTEGER -- the Start point for the Process Reporting to the PLC
+--  ST_OStrt_Pnt, -- the SpinTop Output from Robot Start point, all are added to this
+--  ST_IStrt_Pnt, -- the SpinTop Input to Robot Start point, all are added to this
+
+--  ST_ROStrtPnt, -- the SpinTop Output from Robot to PLC for Reporting Start point
+--  ST_RIStrtPnt IN CMOS FROM GMSPINVR:INTEGER -- the SpinTop Input to Robot from PLC for PUN or Process data
+
+  -- Set SPINTOP OUTPUT to the PC FROM the Robot
+--  ST_Angl_Strt, -- The angle Start input to SpinTop
+--  ST_Angl_NumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_SyncAStrt, -- The Synconization A start number
+--  ST_SyncANumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_X_OutStrt, -- The X output start number
+--  ST_X_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_Y_OutStrt, -- The X output start number
+--  ST_Y_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_Z_OutStrt, -- The X output start number
+--  ST_Z_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_W_OutStrt, -- The X output start number
+--  ST_W_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_P_OutStrt, -- The X output start number
+--  ST_P_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_R_OutStrt, -- The X output start number
+--  ST_R_OutNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_SyncBStrt, -- The Synconization B start number
+--  ST_SyncBNumP, -- The angle Start Number of point for the Output to SPintop
+--  STCntPlnStrt, -- The Start point for the Control Plan to SpinTop PC
+--  STCntPlnNumP, -- The angle Start Number of point for the Output to SPintop
+--  ST_StartBit,  -- The Start Bit to PC for SPinTop
+--  ST_SetCnrlPn, -- The SET CONTROL PLAN out to SpinTop PC
+--  ST_Trigger,   -- The TRIGGER output to the SPinTop PC
+--  ST_PLCPUNSnt, -- The PUN NUM Send to SpinTop PC
+--  ST_ClrPUN,    -- Signal to SPinTop PC to Clear the PUN number
+--  ST_PUN_Error, -- Signal to SpinTop PUN has an Error.
+--  ST_RstResult, -- The output to the SPinTop to Reset the Results
+--  ST_Reserved1, -- A spare output to spintop
+--  BCD_Num,
+--  SetCnrlPn,
+
+  -- Set Inputs from the SpinTop TO ROBOT
+--  SpnTp_StrtPt,
+  temp_str,
+  ST_NumSgmnts IN CMOS FROM GMSPINVR:INTEGER
+--  ST_AutoActiv,
+--  ST_CntrlPnOK,
+--  ST_CntrlPSet,
+--  ST_RsltPassd,
+--  ST_RsltFaild,
+--  ST_PUNRecved,
+--  ST_PUNCleard,
+--  ST_PUNErrorT,
+--  ST_SegIDStrt,
+--  ST_SegIDNumP IN CMOS FROM GMSPINVR:INTEGER
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- variables declares for Shop specifics
+%INCLUDE gmcfgprs  -- GM wizard variables for SpinTop Applications
+%INCLUDE gmcfgtlc  -- GM wizard variables for tool changer Applications
+%INCLUDE gmcfgvis  -- GM wizard variables for vision Applications
+
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE SPINTOP(P_Con_Num:INTEGER;p_Con_Name:STRING)FROM GMENETS2-- SpinTop Config to PC setup
+-----------------------------------------------------------------
+ROUTINE Spn_Cell_IO
+-- PURPOSE: to setup the I/O comments for the spinTop to PLC interface
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ I:  INTEGER
+
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+
+ WriteLog('  Setting up SpinTop Digital Inputs', FALSE)
+
+ -- ST_OStrt_Pnt= ProcStrtPnt -- set the Robot output start point to the PLC for SpinTop Interface
+ -- ST_IStrt_Pnt= ProcStrtPnt -- set the Robot input start point from the PLC for SpinTop Interface
+
+  ST_NumSgmnts= 48  -- is the number of segments that avialable at once, could be down to 32
+
+ WriteLog('  Setting up SpinTop to PLC Digital Outputs', FALSE)
+
+  -- SET DIGITAL OUTPUTS to PLC for SpinTop gm_status
+  SET_PORT_CMT(io_dout,129,'MSS_AUTOMATIC',gm_status)      -- Process2On
+--  SET_PORT_CMT(io_dout,130,'',gm_status)         -- Process2Bypassed
+--  SET_PORT_CMT(io_dout,131,'',gm_status)  -- Process2Fault
+--  SET_PORT_CMT(io_dout,132,'',gm_status)     -- Process2Alert
+--  SET_PORT_CMT(io_dout,133,'',gm_status)        -- Process2Alert2
+--  SET_PORT_CMT(io_dout,134,'Last Result NOK',gm_status)    -- Process2OutOfTol
+  SET_PORT_CMT(io_dout,135,'Last Result OK',gm_status)     -- Proc2TaskOK
+  --SET_PORT_CMT(io_dout,136,'reserved',gm_status)         -- Proc2OneJntMade
+  SET_PORT_CMT(io_din,190,'Send PUN to VMT PC',gm_status)
+
+ --  $THRSDITABLE[3]$THR_ENB = TRUE -- this is in GMSPINVR for all interconnect
+ --  $THRSDITABLE[3]$DI_NO = 1153
+ --  $THRSDITABLE[3]$DO_no = 185
+--  SET_PORT_CMT(io_dout,186,'MSS_Busy',gm_status)
+--  SET_PORT_CMT(io_dout,187,'MSS_CPLAN_TAKEN',gm_status)
+--  SET_PORT_CMT(io_dout,188,'MSS_CPLAN_OK',gm_status)
+--  SET_PORT_CMT(io_dout,189,'MSS READY',gm_status)
+  SET_PORT_CMT(io_dout,190,'ST_Recvd_PUN_Ack',gm_status)
+ -- SET_PORT_CMT(io_dout,191,'ST_Clear_PUN_Ack',gm_status)
+  SET_PORT_CMT(io_dout,192,'ST_PUN_Error_Ack',gm_status)
+
+  -- Get where start +previous comments to start here, then add Number of segments
+  FOR i = (137) TO (137 + (ST_NumSgmnts -1)) DO
+    temp_str =(i-(136))    -- 12-26-16 RK had to change to "PASSED from FAILED"
+    SET_PORT_CMT(io_dout,i,'ST Passed Seg#'+int2str(temp_str),gm_status)
+  ENDFOR --
+
+  SET_PORT_CMT(io_dout,185,'SpinTop Ready',gm_status)
+
+   WriteLog('  Setting up SpinTop PLC I/O Completed', FALSE)
+
+END Spn_Cell_IO
+-----------------------------------------------------------------
+ROUTINE SpinTop_IO
+-- PURPOSE: to setup the I/O comments for the spinTop controller to and from robot
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ I:  INTEGER
+
+BEGIN
+
+IF UNINIT(CellCommType) THEN
+  CellCommType = Ethernet
+ENDIF
+IF UNINIT(SpinTopOctet) THEN
+  SpinTopOctet = 63
+ENDIF
+
+  -- Get where start +previous comments to start here, then add Number of segments
+  ST_NumSgmnts= 48  -- is the number of segments that avialable at once, could be down to 32
+END SpinTop_IO
+
+-----------------------------------------------------------------------------
+ROUTINE SpinTopFlags
+-- PURPOSE: to setup the flag comments for the spinTop controller
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+i :INTEGER
+
+BEGIN
+
+ WriteLog('  Setting up SpinTop Flag Comments', FALSE)
+
+   -- Setup Flags for if control plan is used when results read
+         FOR i = 291 TO 295 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#'+int2str(i-290)+' used',gm_status)
+         ENDFOR --
+
+           SET_PORT_CMT(io_flag,300,'CPlan Seg Failed',gm_status)
+
+   -- Setup comments for results Control Plans Data
+         FOR i = 301 TO 348 DO
+           SET_PORT_CMT(io_flag,i,'Sum CPlansSeg#'+int2str(i-300),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,349,'SumOf CPlans OK',gm_status)
+           SET_PORT_CMT(io_flag,350,'SumOf CPlans NOK',gm_status)
+
+   -- Setup comments for results Control Plan#1 Data
+         FOR i = 351 TO 398 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#1Seg#'+int2str(i-350),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,399,'CP#1 ALL Seg OK',gm_status)
+           SET_PORT_CMT(io_flag,400,'CP#1 ANY Seg NOK',gm_status)
+
+   -- Setup comments for results Control Plan#2 Data
+         FOR i = 401 TO 448 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#2Seg#'+int2str(i-400),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,449,'CP#2 ALL Seg OK',gm_status)
+           SET_PORT_CMT(io_flag,450,'CP#2 ANY Seg NOK',gm_status)
+
+   -- Setup comments for results Control Plan#3 Data
+         FOR i = 451 TO 498 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#3Seg#'+int2str(i-450),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,499,'CP#3 ALL Seg OK',gm_status)
+           SET_PORT_CMT(io_flag,500,'CP#3 ANY Seg NOK',gm_status)
+
+   -- Setup comments for results Control Plan#4 Data
+         FOR i = 501 TO 548 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#4Seg#'+int2str(i-500),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,549,'CP#4 ALL Seg OK',gm_status)
+           SET_PORT_CMT(io_flag,550,'CP#4 ANY Seg NOK',gm_status)
+
+   -- Setup comments for results Control Plan#5 Data
+         FOR i = 551 TO 598 DO
+           SET_PORT_CMT(io_flag,i,'ST CPlan#5Seg#'+int2str(i-550),gm_status)
+         ENDFOR --
+           SET_PORT_CMT(io_flag,599,'CP#5 ALL Seg OK',gm_status)
+           SET_PORT_CMT(io_flag,600,'CP#5 ANY Seg NOK',gm_status)
+
+ WriteLog('  SpinTop Flag Comments Set up Completed', FALSE)
+
+END SpinTopFlags
+
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+-- Check these here instead of a routine so can return to calling routine
+IF UNINIT(Use_Spin_Top) THEN
+  POST_ERR(38000, 'Use_Spin_Top not setup in GMSPINIO program', 0, 0) --
+  RETURN
+ENDIF
+
+IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+  ErrsInShop.ErrorsIOCom = 0
+ENDIF
+
+IF UNINIT(Spin_IO_Done) THEN
+  Spin_IO_Done = FALSE
+ENDIF
+
+--IF UNINIT(EqptStrtPnt) THEN -- this is where I/O start TO spinTop PC
+--  EqptStrtPnt = 1153 -- Process Controller #2 is communication to/from SpinTop PC
+--ENDIF
+--IF UNINIT(SpnTp_StrtPt) THEN  -- 1153-1408 is start point of the 2nd Process equiptment
+--  SpnTp_StrtPt = EqptStrtPnt         -- Spin-Top takes 2nd and third process equipment
+--ENDIF
+
+IF UNINIT(ProcStrtPnt) THEN -- this is where I/O start TO PLC
+  ProcStrtPnt = 129 -- process #2 start to/from PLC for 64 bits
+ENDIF
+--IF UNINIT(ST_ROStrtPnt) THEN -- Setup the Communication to the PLC Start Point
+--  ST_ROStrtPnt = ProcStrtPnt
+--ENDIF
+
+--IF UNINIT(ST_RIStrtPnt) THEN -- Setup the Communication to the PLC Start Point
+--  ST_ROStrtPnt = ProcStrtPnt
+--ENDIF
+
+  IF (Spin_IO_Done = TRUE) THEN -- setup has already been setup
+      WriteLog(' SpinTop I/O Already Setup', FALSE)
+    IF ExecSetupAgn('SpinTop I/O') THEN -- ask user if they want to setup again
+      Spin_IO_Done = FALSE
+    ELSE
+      WriteLog(' SpinTop I/O already Complete', FALSE)
+      WriteLog(' GMSPINIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog(' Starting the SpinTop I/O setup Program', FALSE)
+
+ Spn_Cell_IO  -- Setup Cell I/O comments and Configuration
+-- SpinTop_IO   -- SpinTop to/from Robot I/O
+ SpinTopFlags -- Setup Flag comments used for Spintop
+
+ ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+   POST_ERR(38000, 'GMSPINIO had '+int2str((ErrsInShop.ErrorsIOCom - StrtinErs))+' Errors while executing',0, 0) --
+   WriteLog('SpinTop I/O setup Program GMSPINIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog(' SpinTop I/O setup Program completed', FALSE)
+   Spin_IO_Done = TRUE
+ ENDIF
+
+END GMSPINIO

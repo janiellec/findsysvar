@@ -1,0 +1,7 @@
+﻿<meta http-equiv="refresh" content="0; url=http://<!--#echo var="[*SYSTEM*]$EIP_CONN[54].$HOST" -->:8080">
+
+<title>ATI TC Redirect</title>
+
+IP: <!--#echo var="[*SYSTEM*]$EIP_CONN[54].$HOST" -->:8080 <br>
+
+<a href="http://<!--#echo var="[*SYSTEM*]$EIP_CONN[54].$HOST" -->:8080">ATI TC Link</a>

@@ -1,0 +1,74 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         gm_ch_id.KL
+--   TITLE:          gm_ch_id PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  2/2/2017
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Comman Software
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Used to declare ALL GM condition handler ID numbers
+--                      allow a single location for the numbers to be declared
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--            A       2/2/2016  R.Kosaski         Made This specifically for Condition Handlers
+--                                                move from the GMATCSTM file this file is
+--                                                %included in GMCNSTNT so only need to include that file
+--            B       2/21/2018 marchaka          Added CHATWatchAbr for watch abort that is uses in custo*.pc programs
+--
+--            c       3/13/2018 R.Kosask          Added CH_SHFT_F4 for Form manager SHFT F4 is not reconized for choice
+--            d       2018/09/10 machaka          Added ch_dcsioprot to hide the write protected portion of the DCS safe io
+--                                                menu if write protection is being used
+--            e       2019/01/06 R.Kosaski        Adding CH
+--            F       09-22-2019 schoensm         Adding CH for multi-group awareness V8.33P08
+--------------------------------------------------------------------------
+
+--  Revision = '2019-09-11' please update as needed to help track
+
+
+  CH_ADAP_ON   = 677
+  CH_ADAP_ON2  = 678
+  CH_ADAP_ON_B = 679
+  CH_ToRePOST  = 680 -- RK added 2-2-17 took number from GMATCSTM for simular function.
+  CH_SPRJOGGUN = 681
+  CH_T2PROMPT  = 682
+  CH_SPRJOGGN2 = 683
+  CH_dcsioprot = 684
+  CH_GRPPROMPT = 685 -- schoensm added during V8.33P08 multi-group awareness in GMATCSTM
+  CH_GRPCHANGE = 686 -- schoensm added during V8.33P08 multi-group awareness in GMATCSTM
+
+
+  CH_AutoWatch = 688 -- REV E, added used in UserManual gripper cycling MHGRIP
+
+  CH_DO_BUTTON = 689 -- RK Added 4-4-18 for HOMEUTIL to use when DO button is pressed
+  CH_PROGABORT = 690 -- RK Added 4-4-18 for HOMEUTIL to use when an abort occurs for cleanup
+  CH_SHFT_F4   = 691 -- RK Added 3-13-18 for HOMEUTIL program in GetUserPRNum routine do to form manager
+                     -- not able to handle a SHFT +F4, maybe gets updated some day???
+  CH_CORDUPDT  = 692 -- RK Added 3-13-18 for HOMEUTIL program in MovToPounce routine wtching for COORD to change
+  CH_CORDCHNGD = 693 -- RK Added 3-19-18 for Homeutilities to watch Funxtion key selected for
+  CH_UserAbort = 694 -- RK Added 2-2-17 in ATCustom watching for USER_ABORTED = TRUE
+  CHWATCHABORT = 695 -- RK Added 2-2-17
+  CHWatchScrn  = 696 -- RK Added 2-2-17 used for watching user change of user page and post message
+  CHWatchTimer = 697 -- RK added 2-2-17 used for after the TellUser routine runs to start timer to repost
+  CHWatchWESim = 698 -- RK added 6-26-17 used for after the TellUser routine runs to start timer to repost
+
+  CHATWatchAbr = 699
+

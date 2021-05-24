@@ -1,0 +1,393 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASRG.KL
+--   TITLE:          GMLASRG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser Register Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.1   2018/03/06 marchaka         Remove unsupported configs
+--             v4.1   2018/04/30 marchaka         Add data register comments 412-414 and 416-419.  
+--             v4.2   2019/09/16 marchaka         Add IPFO RSI application data and string register comments.
+--             v4.2   2019/10/17 marchaka         Add data register comments 410-411 and 420.  Clear unused register comments
+--                                                between 421-424.  Clear register 415 for Trumpf+IPFO+RSI.
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlasrg
+
+%COMMENT = 'GM Laser REG V4.2'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas -- GM laser wizard variables
+
+
+CONST
+
+  Version = '2019-10-17'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn -- GM Arc Tool constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  LasRG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup laser register setup at least first time
+  rsi_optn		IN SHADOW FROM GMATVAR: BOOLEAN  --J802 RSI Interface software option
+
+  gm_status, status: INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_las_reg
+-- PURPOSE: to initialize variables for laser register setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+END init_las_reg
+-----------------------------------------------------------------------------
+ROUTINE set_lsln_reg
+-- PURPOSE: setup laser line registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (laser_wire = wizans_yes) THEN --wire
+    Comment_Reg(1, 35,  'Mo_Dly_As')
+    Comment_Reg(1, 36,  'Do_ON_Dly')
+    Comment_Reg(1, 37,  'Combined Dly')
+  ENDIF --wire
+  
+END set_lsln_reg
+-----------------------------------------------------------------------------
+ROUTINE set_trum_reg
+-- PURPOSE: setup Trumpf registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Comment_Reg(1,425,'Trumpf Mode')
+  Comment_Reg(1,426,'Trumpf Prg #')
+  Comment_Reg(1,427,'Trumpf Las Pwr')
+  Comment_Reg(1,428,'Trumpf Opt Ch #')
+  Comment_Reg(1,429,'Trumpf Func')
+
+END set_trum_reg
+-----------------------------------------------------------------------------
+ROUTINE set_rlsk_reg
+-- PURPOSE: setup RLSK head registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Comment_Reg(1,410,'RLSK Part #')  --GM overwrote these with common laser reg setup for v833p05
+  --Comment_Reg(1,411,'RLSK Track #')  --GM overwrote these with common laser reg setup for v833p05
+  --Comment_Reg(1,412,'RLSK Track Pnt #')  --GM overwrote these with common laser reg setup for v833p05
+  --Comment_Reg(1,413,'RLSK Seam #') --GM overwrote these with common laser reg setup for v833p05
+  --Comment_Reg(1,414,'RLSK Robot Speed') --GM overwrote these with common laser reg setup for v833p05
+
+END set_rlsk_reg
+-----------------------------------------------------------------------------
+ROUTINE set_scsn_reg
+-- PURPOSE: setup Scan Sonic head registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Comment_Reg(1, 415,  'ScanSonic')
+
+END set_scsn_reg
+-----------------------------------------------------------------------------
+ROUTINE set_ipfo_reg
+-- PURPOSE: setup IPFO head registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (rsi_optn = TRUE) THEN --RSI application
+
+    Comment_Reg(1,1,'Distbfver Stored')
+    Comment_Reg(1,2,'Timebfver Stored')
+    Comment_Reg(1,3,'Distbftts Stored')
+    Comment_Reg(1,10,'SLR SPD 1')
+    Comment_Reg(1,11,'SLR SPD 2')
+    Comment_Reg(1,12,'SLR SPD 3')
+    Comment_Reg(1,13,'SLR SPD 4')
+    Comment_Reg(1,14,'SLR SPD 5')
+
+    Comment_Reg(1,415,'')
+
+    Comment_Reg(3,1,'SLR Component ID')
+    Comment_Reg(3,2,'SLR Component SN')
+
+  ENDIF  --RSI application
+
+END set_ipfo_reg
+-----------------------------------------------------------------------------
+ROUTINE set_lesm_reg 
+-- PURPOSE: setup Lesmuller process monitor registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Comment_Reg(1,411,'LesMul HrtBt OK')
+
+END set_lesm_reg
+-----------------------------------------------------------------------------
+ROUTINE gasgmstd_reg
+-- PURPOSE: setup GM standard gasbox registers for laser
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set register comments used to chart out the Laser start command.
+  --The registers are used in Handbrk.tp in the bg logic
+  Comment_Reg(1,35,'Mo dly As')
+  Comment_Reg(1,36,'Do On Dly')
+  Comment_Reg(1,37,'Combined Dly')
+
+END gasgmstd_reg
+-----------------------------------------------------------------------------
+ROUTINE laser_reg
+-- PURPOSE: setup  registers for laser
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+i: INTEGER
+
+BEGIN
+
+  Comment_Reg(1, 132,'PMTR Laser Power')
+  Comment_Reg(1, 133,'PMTR Lasr ON Tm')
+
+  Comment_Reg(1, 410,'RLSK PART #')
+  Comment_Reg(1, 411,'RLSK TRACK #')
+  Comment_Reg(1, 412,'CurrFilterCnst')
+  SET_REAL_REG(412,0.8,gm_status)
+   IF (gm_status <> 0) THEN
+      POST_ERR(38000, 'Failed to Set R[412] to 0.8', status, 0) 
+   ENDIF 
+  Comment_Reg(1, 413,'MF1LastValue')
+  Comment_Reg(1, 414,'MDRIVELastValue')
+  Comment_Reg(1, 416,'LA Decimal Value')
+  Comment_Reg(1, 417,'TA Decimal Value')
+  Comment_Reg(1, 418,'SA Decimal Value')
+  Comment_Reg(1, 419,'WireSpeedMonitor')
+  Comment_Reg(1, 420,'ScanSonic')
+ 
+  FOR i = 421 TO 424 DO
+    Comment_Reg(1, i, '')
+  ENDFOR
+
+  --Laser Controller Registers
+  SELECT laser_ctrl OF
+    CASE(lasctrl_lsln): --LaserLine controller
+      set_lsln_reg
+    CASE(lasctrl_trmp): --Trumpf controller
+      set_trum_reg
+    --CASE(lasctrl_ipg):  --IPG laser controller
+      --set_ipg_reg
+    ELSE:
+  ENDSELECT
+
+  --Laser Head Registers
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+      set_scsn_reg
+    CASE(lashd_ipfo):
+      set_ipfo_reg
+    --CASE(lashd_rlsk):  --NOT SUPPORTED ON G4 YET
+      --set_rlsk_reg
+    --CASE(lashd_rsk):  --NOT SUPPORTED ON G4 YET
+      --set_rsk_reg
+    ELSE:
+  ENDSELECT
+
+  --Process Monitor Registers
+  SELECT procmontype OF
+    CASE(procm_lesm):
+      set_lesm_reg
+    --CASE(procm_plasm):  --NOT SUPPORTED ON G4 YET
+      --set_plasmreg
+    ELSE:
+  ENDSELECT
+
+  --Gas Box Registers
+  SELECT gasboxtype OF
+    CASE(gasbox_gmstd):
+      gasgmstd_reg
+    ELSE:
+  ENDSELECT
+
+END laser_reg
+-----------------------------------------------------------------------------
+ROUTINE set_las_reg
+-- PURPOSE: set laser registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(LasRG_Setup) OR (Reset_Cell) THEN
+    LasRG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser Register GMLASRG', FALSE)
+
+  IF (LasRG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser REG Already Setup', FALSE)
+    IF ExecSetupAgn('Laser REGs') THEN -- ask user if they want to setup again
+      LasRG_Setup = FALSE
+    ELSE
+      WriteLog('  Laser REGs already Complete', FALSE)
+      WriteLog('  GMLASRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_las_reg
+  laser_reg
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Laser REGs Setup GMLASRG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser REGs Setup completed', FALSE)
+    LasRG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_las_reg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlasrg

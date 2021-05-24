@@ -1,0 +1,1967 @@
+--    This material is the joint property of GM/Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GM/Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GM/Fanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GM/Fanuc Robotics Corporation
+--
+--    Program: gmpwrtn.kl
+--
+--    Description: This a utility program used at controlled start to load
+--                 specific programs; and set specific variables by running the
+--                 wizard. It shall be included as a utility option in the FD
+--                  program for updates.
+-----------------------------------------------------------------------------
+--    ROUTINES INCLUDED
+--    pwrtrain_set  	PowerTrain Wizard Setup File
+-----------------------------------------------------------------------------
+--
+--    Program Name: gmpwrtn.kl
+--
+--    Language: KAREL
+--
+--    Modification history:
+--    09-16-14  jja R30iB Update02 Base File Created
+--    3-15-15  RRK created GMPT wizard log and base wizard configuration
+--    5-26-15  RRK Added a call to MH_SELECT for settting up tool
+--    1-14-16  RRK Changes through for the Global 4.0 Release
+--                 Remove SetAdvncRcy routine because I/O should be set by
+--                 standard interface.
+--    5-15-16  RRK fixed PC loading issue that was using applic_PC array to load
+--                 but then loading using applic_TP adding .PC so no PC loaded
+--
+--    7-9-16   RRK had to change the device to be MED: for loading files from
+--                 card when robo-guide, had issue before with this and MED was problem???
+--    7-12-16  RRK had to change answer for RZIC to be able to accept 2 reported by NTC
+--
+--    8-21-16  RRK had to change TP files names because of the retarted way the TP files are renamed and constantly
+--                 differant thatn the actual name. obviously I dont agree and this is a nightmare for file managment.
+--
+--    9-2-16   RRK added programs and changes for the Additional Codes to be read for the REQ_CONT
+--
+--    9-17-16  RRK limited analog setup to be 2 ports, not the 4
+--
+--   11-27-16  RRK rewrote load procedure because TPU factory loading was not loading
+--                 GMPT files into the FR:/GMPWRTRN folder as desired
+--
+--   11-29-16  RRK update files for spinTop questions
+--
+--   12-4-16   RRK removed userpage calls to speed wizard function versus USERPAGE call
+--
+--    1-28-17  RRK removed mhsrchon.pc and reqcntcstm.tp from file array
+--    2-05-17  RRK Changed the Method for setting the SpinTop Mount angle
+--    3-04-17  RRK Added Fastener as an application
+--    4-30-17  RRK Added numdispctrl when USE_DISPENSE is true
+--    5-01-17  RRK Added setting $DCS_PRE_CHK.$MODE=1 to enable previolation checking
+--    10-03-17 RRK Added setting USE_VISION = FALSE if SpinTop used
+--    02-03-18 RRK added code to be able to display the FORM GMPT for wiz overview
+--    04-25-18 RRK added code to load GMPTDATA after user configures PT load for display.
+--    05-16-18 RRK Moved the SpinTop Setup so it is INSIDE Dispenser Code, if user ran the
+--                 wizard and selected spinTop, but not a dispenser, dont want to setup Spintop
+--                 so if not dispensing, and USE_SpinTop = TRUE force to false and log had to do
+--                 in the log file.
+--    05-22-18 RRK added setting disp_only from gmwizard to FALSE so PT can run setup from menu, or atleast ask question....
+--    10-10-18 RRK Edited the setting of SWWIZARD to GMWIZARD in the Display routine
+--    10-29-18 RRK Edited file name from GMVLDEND to GMDCSLOGEND in the applic_pc array
+--    11-05-18 RRK Edited applic_tp array to add ALINGCHK to the GMPT TP files to load
+--    10-16-19 RRK  gmpt_load = FALSE -- RK changed  from TRUE to FALSE due to reported issue from Bill Kroll
+--
+-----------------------------------------------------------------------------
+PROGRAM gmpwrtn
+-----------------------------------------------------------------------------
+%ALPHABETIZE
+
+%COMMENT = 'PwrtrnSetup v4.3'
+%NOLOCKGROUP
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INVISIBLE
+
+%INCLUDE klevkmsk
+%INCLUDE klevkeys
+%INCLUDE kliotyps
+%INCLUDE KLEVCCDF
+%INCLUDE gmevrlng -- Required for the language constants
+
+CONST
+
+  -- Version
+  Version = 'GMPT 10/16/2019 R.K.' -- Please change version when you make an update
+  WARN_MSG = 38000 -- make APSH-000 %s
+  ER_WARN = 0 -- used in the post error 1= Pause 2 = abort
+
+  -- Log file name
+  LOG_NAME = 'GMPTWIZLOG.DT'
+
+tp_arry_size = 25 -- number of TP files that can be loaded, 25
+pc_arry_size = 15 -- number of PC files that can be loaded, 15
+sv_arry_size = 10 -- number of SV files that can be loaded, 10
+vr_arry_size = 25 -- number of vr files that can be loaded, 25
+
+%INCLUDE gmcnstnt  -- constant file for all GM wizard
+VAR
+
+-- GM RS4 routines
+  l_idx      : INTEGER
+  l_nSkip    : INTEGER
+  l_nFiles   : INTEGER
+  l_status   : INTEGER
+
+  robot_id     : STRING[32]
+ -- install log vars
+  logEnabled   : BOOLEAN      -- install log opened
+  curTime      : INTEGER
+  errors       : INTEGER
+  errorsStr    : STRING[3]
+  logFileName  : STRING[60]
+  curTimeStr   : STRING[60]
+  appName      : STRING[60]
+  appVer       : STRING[60]
+  fNum         : STRING[30]
+  CustVer      : STRING[40]
+  logFile      : FILE         -- install log
+                           --
+  Current_Ver IN CMOS : STRING[48] -- Used for commenting this program
+
+ColGrdErr,                -- used for the collision gaurd setup menu to indicate collistion occured
+
+F_attmpted,               -- Files attempted to be loaded used for file loading management
+F_loaded IN CMOS :INTEGER -- Files succesfully loaded used for file loading management
+
+gmpt_load    IN CMOS FROM MHGRPCMN : BOOLEAN -- RK Added 4-20-16 This was moved from MHGRSET to maintian variable
+
+-- Below used for load media functions
+From_Path    IN SHADOW : STRING[40] -- used for the the deviceName and Subdirectory to load from
+To_Path      IN SHADOW : STRING[40] -- Used for the destination location that files will be sent to
+GMPT_ASI_Loc,          -- where in the ASI card the files are stored
+GMPTStor_Loc IN SHADOW : STRING[40] -- the name of where GMPT files are stored at ASI load and
+Cur_Device  IN CMOS :STRING[10] -- used as the reply for get var $device
+Cur_Path    IN CMOS :STRING[40] -- Used as the reply from teh get var $DEV_PATH variable
+Start_device IN CMOS : STRING[40] -- used for the starting device when GMPTLOAD is Started and is read from $DEVICE
+Start_path IN CMOS : STRING[40]   -- used for the starting path when GMPTLOAD is Started and is read from $DEVICE
+
+--
+Num_Groups IN SHADOW : INTEGER -- Used for the number of Groups read from system variables
+Num_Axis   IN SHADOW : INTEGER -- Used for the number of axis read from the system variables
+-- install devicepath vars
+
+screen :STRING[4] -- used for the previous screen returned from the ACT_SCREEN builtin
+pathname,
+device :STRING[10]
+rack_no, slot_no, phy_porttype,phy_port_no, n_ports,
+entry,
+i,ans,
+gm_status,
+status :INTEGER
+
+aryNames     : ARRAY[50] of STRING[20]
+
+PickTmpltPrg IN CMOS :ARRAY[10] OF STRING[16] -- Used for Pick template files to load
+PlacTmpltPrg IN CMOS :ARRAY[10] OF STRING[16] -- Used for Place template files to load
+PlltTmpltPrg IN CMOS :ARRAY[2] OF  STRING[16] -- Used for Palletizing TP Files to load
+ShelTmpltPrg IN CMOS :ARRAY[25] OF STRING[16] -- Used for SHell user Templates files to load
+FstnTmpltPrg IN CMOS :ARRAY[11] OF STRING[16] -- Used for Fastener template files to load
+
+applic_tp IN CMOS :ARRAY[tp_arry_size] OF STRING[12] -- Used for TP files to load
+applic_pc IN CMOS :ARRAY[pc_arry_size] OF STRING[12] -- Used for PC files to load
+applic_sv IN CMOS :ARRAY[sv_arry_size] OF STRING[12] -- Used for SV files to load
+applic_vr IN CMOS :ARRAY[vr_arry_size] OF STRING[12] -- Used for VR files to load
+
+ST_Mnt_Angle IN CMOS FROM GMSPINVR:REAL -- the rotation angle of the Mounting of spintop relative to Default Tool zero
+
+%INCLUDE gmcfgcel  -- used for all the workcell variables
+%INCLUDE gmcfgerr  -- used for all the error counting and status while executing the wizard
+%INCLUDE gmcfgmh   -- used for all the configuration og the material handling setup
+%INCLUDE gmcfgvis  -- has the vision vars
+%INCLUDE gmcfgtlc  -- Used for tool changer config files
+%INCLUDE gmcfgpwr  -- GMPT Configuration variables
+%INCLUDE gmcfgdsp  -- dispense variables  ADDED 4-29-17 for numdispctrl
+
+%INCLUDE klrdutil
+
+ROUTINE MHUSERCL  FROM MHUSERCL
+ROUTINE GMPTDATA  FROM GMPTDATA   -- GMPT Wizard
+
+ROUTINE mh_app_wiz  FROM GMWIZMH  -- the MH questions
+ROUTINE tlc_app_wiz FROM GMWIZTLC -- the Tool Changer questions
+ROUTINE vis_app_wiz FROM GMWIZVIS -- the Vision questions
+
+ROUTINE init_Vars  FROM GMMHVARS -- has variable setup at initialization
+
+ROUTINE GMMHGPIO FROM GMMHGPIO -- call program for all Gripper setup.
+ROUTINE GMMHPRGS FROM GMMHPRGS -- Call program to Load MH specific Programs
+ROUTINE GMMHREGS FROM GMMHREGS -- Call program to Load MH specific Register Stuff
+ROUTINE GMMHVARS FROM GMMHVARS -- Call program to Setup MH specific Variables
+
+ROUTINE GMTLCHIO FROM GMTLCHIO -- call program for all Tool Changer setup.
+
+ROUTINE GMVISNIO FROM GMVISNIO -- call program for all Gripper setup.
+ROUTINE GMVISPRG FROM GMVISPRG -- Call program to Load MH specific Programs
+ROUTINE GMVISREG FROM GMVISREG -- Call program to Load MH specific Register Stuff
+ROUTINE GMVISVAR FROM GMVISVAR -- Call program to Setup MH specific Variables
+
+ROUTINE set_disp_IO  FROM gmdispio
+ROUTINE setdispiovr  FROM gmdispio
+
+ROUTINE set_disp_pg  FROM gmdisppg
+ROUTINE initDISPREGS FROM gmdisprg
+
+ROUTINE set_disp_var FROM gmdispvr
+ROUTINE initDISPVARS FROM gmdispvr
+
+ROUTINE set_disp_reg FROM gmdisprg
+
+ROUTINE Set_english FROM GMLang1 -- used to setup language variable for displaying
+ROUTINE Set_Span FROM GMLang1 -- used to setup language variable for displaying
+ROUTINE Set_German FROM GMLang1 -- used to setup language variable for displaying
+
+ROUTINE Finish_Log FROM GMWizLog  -- Used to close the log File
+ROUTINE closeLog FROM GMWizLog  -- Used to close the log File
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWizLog  -- used to write an items to the log file
+ROUTINE Setup_Log(P_ShopLog:STRING) FROM GMWizLog -- used to Create the log file
+
+%INCLUDE gmrdutil -- has all the builtin routines i.e. Int2str, was GMUTILTY
+
+ROUTINE disp_app_wiz FROM GMWizDP -- Dispense Wizard
+-----------------------------------------------------------
+ROUTINE int_to_str(p_integer:INTEGER):STRING
+-- Routine to convert integers to string variables
+-- need this for install purposes where GMRDUTIL or GMUTILIY not loaded yet
+-----------------------------------------------------------
+VAR
+  l_string: STRING[9]
+BEGIN
+  l_string = ''
+IF UNINIT(p_integer) THEN
+  p_integer = 0
+ENDIF
+
+  CNV_INT_STR(p_integer, 0, 0, l_string)
+  RETURN(SUB_STR(l_string, 2, STR_LEN(l_string)))
+END int_to_str
+-----------------------------------------------------------------------------
+ROUTINE InitGMPTVars
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(wiz_lang) THEN
+    wiz_lang = 1 -- set Default as English
+  ENDIF
+  IF UNINIT(Use_GMPT_Log) THEN -- Set to create a log file of wizard
+    Use_GMPT_Log = TRUE
+  ENDIF
+  IF UNINIT(EnblIgnrFlts) THEN -- Dont Allow the Ignore Fault in Clamp recovery
+    EnblIgnrFlts = FALSE
+  ENDIF
+  IF UNINIT(Use_Prog_Mon) THEN -- Use Program monitor for Washer Process
+    Use_Prog_Mon = FALSE
+  ENDIF
+  IF UNINIT(Use_RZIC) THEN     --Use Rail Zone Interference
+    Use_RZIC = FALSE
+  ENDIF
+  IF UNINIT(RZIC_Type) THEN
+    RZIC_Type = 1 --- set to Left Hand default
+  ENDIF
+  IF UNINIT(DisplayStat) THEN  -- If display status in TPerror Window as setup runs
+    DisplayStat = TRUE
+  ENDIF
+  IF UNINIT(DisplayDely) THEN  -- The Delay to allow a user to see status printed to error Window
+    DisplayDely = 1000
+  ENDIF
+  IF UNINIT(Use_Dispense) THEN  -- If a dispense system is used
+    Use_Dispense = FALSE
+  ENDIF
+
+  IF UNINIT(Use_Fastener) THEN
+    Use_Fastener = FALSE
+  ENDIF
+
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = TRUE
+ENDIF
+
+  USING WizardStatus DO -- set start using WIZARDSTATUS structure vars
+    IF UNINIT(Cnfg_Is_Done) OR (Reset_Cell) THEN
+      Cnfg_Is_Done = FALSE
+    ENDIF
+    IF UNINIT(Cnfg_Status) OR (Reset_Cell) THEN
+      Cnfg_Status = 0
+    ENDIF
+    IF UNINIT(DsplyIs_Done) OR (Reset_Cell) THEN
+      DsplyIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Dsply_Status) OR (Reset_Cell) THEN
+      Dsply_Status = 0
+    ENDIF
+    IF UNINIT(SetupIs_Done) OR (Reset_Cell) THEN
+      SetupIs_Done = FALSE
+    ENDIF
+    IF UNINIT(Setup_Status) OR (Reset_Cell) THEN
+      Setup_Status = 0
+    ENDIF
+  ENDUSING -- set end the WIZARDSTATUS structure vars
+
+  FOR i = 1 TO ARRAY_LEN(PickTmpltPrg) DO
+     IF UNINIT(PickTmpltPrg[i]) THEN
+       PickTmpltPrg[i] = ''
+     ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(PlacTmpltPrg) DO
+     IF UNINIT(PlacTmpltPrg[i]) THEN
+       PlacTmpltPrg[i] = ''
+     ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(PlltTmpltPrg) DO
+     IF UNINIT(PlltTmpltPrg[i]) THEN
+       PlltTmpltPrg[i] = ''
+     ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(FstnTmpltPrg) DO
+     IF UNINIT(FstnTmpltPrg[i]) THEN
+       FstnTmpltPrg[i] = ''
+     ENDIF
+  ENDFOR --
+
+ IF UNINIT(LoadFstnTmpl) THEN
+   LoadFstnTmpl = FALSE
+ ENDIF
+
+IF UNINIT(GMPTStor_Loc) THEN
+  GMPTStor_Loc = 'FR:\GMPWRTRN'
+ENDIF
+
+IF UNINIT(LoadShelTmpl) THEN
+  LoadShelTmpl = FALSE
+ENDIF
+
+ gmpt_load = FALSE -- RK changed 10-16-2019 from TRUE to FALSE due to reported issue from Bill Kroll
+
+IF UNINIT(numdispctrl) THEN
+  numdispctrl = 0
+ENDIF
+
+ RETURN
+
+END InitGMPTVars
+-----------------------------------------------------------------------------
+ROUTINE InitGMPTprgs
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ i  : INTEGER -- Used for indexing through the array.
+
+BEGIN
+
+  FOR i = 1 TO ARRAY_LEN(PickTmpltPrg) DO
+    IF UNINIT(PickTmpltPrg[i]) THEN
+      PickTmpltPrg[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(PickTmpltPrg) DO
+    IF PickTmpltPrg[i]= '' THEN
+      PickTmpltPrg[i] = 'TMPTPICK'+int2str(i)
+    ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(PlacTmpltPrg) DO
+    IF UNINIT(PlacTmpltPrg[i]) THEN
+      PlacTmpltPrg[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(PlacTmpltPrg) DO
+    IF PlacTmpltPrg[i] = ''THEN
+       PlacTmpltPrg[i] = 'TMPTDROP'+int2str(i)
+    ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(PlltTmpltPrg) DO
+    IF UNINIT(PlltTmpltPrg[i]) THEN
+      PlltTmpltPrg[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(PlltTmpltPrg) DO -- set some sampe palletizing programs
+     IF PlltTmpltPrg[1] = '' THEN
+       PlltTmpltPrg[1] = 'TMPTPLTPICK1'
+     ENDIF
+     IF PlltTmpltPrg[2] = '' THEN
+       PlltTmpltPrg[2] = 'TMPTPLTDROP1'
+     ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO (ARRAY_LEN(FstnTmpltPrg)-1) DO -- save last one for TMPTFSTNSTYL
+    IF FstnTmpltPrg[i] = ''THEN
+       FstnTmpltPrg[i] = 'TMPTFSTN_'+int2str(i)
+    ENDIF
+  ENDFOR --
+  FstnTmpltPrg[ARRAY_LEN(FstnTmpltPrg)] = 'TMPTFSTNSTYL'
+
+  FOR i = 1 TO ARRAY_LEN(ShelTmpltPrg) DO
+    IF UNINIT(ShelTmpltPrg[i]) THEN
+      ShelTmpltPrg[i] = ''
+    ENDIF
+  ENDFOR --
+
+-- setup the shell programs
+    ShelTmpltPrg[1] = 'SHLINIT'
+    ShelTmpltPrg[2] = 'SHLPAUSE'
+    ShelTmpltPrg[3] = 'SHLRESET'
+    ShelTmpltPrg[4] = 'SHLPRERE'
+    ShelTmpltPrg[5] = 'SHLRESUM'
+    ShelTmpltPrg[6] = 'SHLSAFE'
+    ShelTmpltPrg[7] = 'SHLSTART'
+    ShelTmpltPrg[8] = 'SHLT1T2'
+    ShelTmpltPrg[9] = 'SHLERHNS'
+    ShelTmpltPrg[10] = 'SHLERHNE'
+    ShelTmpltPrg[11] = 'SHLPRMPT'
+    ShelTmpltPrg[12] = 'SHLEXIT'
+
+   -- TP files which are used for this application
+  FOR i = 1 to ARRAY_LEN(applic_tp) DO
+    IF UNINIT(applic_tp [i]) THEN
+      applic_tp [i] = ''
+    ENDIF
+  ENDFOR
+    applic_tp[1] = 'MOV_RCVY' -- used for the exit recovery
+    applic_tp[2] = 'SET_RCVY' -- Set recovery
+    applic_tp[3] = 'GM_TMP50' --RK 8-21-16 Had to change for idiotic reasons was'TEMPLA50'
+    applic_tp[4] = 'GM_TMP51' --RK 8-21-16 Had to change for idiotic reasons was'TEMPLA51'                                              'TEMPLA51'
+    applic_tp[5] = 'TMADCDDR'
+    applic_tp[6] = 'TMADCDPK'
+    applic_tp[7] = 'TMADROP'
+    applic_tp[8] = 'TMAPICK'
+    applic_tp[9] = 'TMAWASH'
+--    applic_tp[10] = 'REQCNTCSTM' -- sub program of REQ_CONT macro
+ --   applic_tp[10] = 'REQCONT' -- replacement program for REQ_CONT
+    applic_tp[11] = 'GRIPSRCH'  -- this is need for Pallet unload for Search if parts missing
+    applic_tp[12] = 'CALCPICKOFST'  -- this is need for Pallet unload calculating for Search Pos
+    applic_tp[13] = 'CALCPLACOFST'  -- this is need for Pallet unload calculating for Place Pos
+    applic_tp[14] = 'TMPTDCSVLDTN'  -- this is need for a DCS Validation Tempalte for PT use RK 10-10-18
+    applic_tp[15] = 'ALIGNCHK'  -- this is need for a Gripper alingment checks per Steve Zakula of GM, RK 11-05-18
+
+-- Add any TP files to be loaded
+
+  FOR i = 1 to ARRAY_LEN(applic_pc) DO -- check all of the array is initialized
+    IF UNINIT(applic_pc [i]) THEN
+      applic_pc [i] = ''
+    ENDIF
+  ENDFOR
+
+-- Add any PC files to be loaded
+-- 1-28-17 should not be needed because in system already
+-- applic_pc[1] ='MHSRCHON' -- 11-27-16 RK needed for a pallet unload to be able to use GRIPSRCH.TP
+                          --instead of GRIPPART.TP
+ applic_pc[1] ='GMDCSLOG' -- 10-10-18 RK needed to load for DCS Validation log program
+ applic_pc[2] ='GMDCSLOGEND' -- 10-29-18 RK needed to load for DCS Validation log program to end used in TMPTDCSVLDTN.TP
+
+
+  FOR i = 1 to ARRAY_LEN(applic_sv) DO -- check all of the array is initialized
+    IF UNINIT(applic_sv [i]) THEN
+      applic_sv [i] = ''
+    ENDIF
+  ENDFOR
+-- Add any SV files to be loaded
+
+  FOR i = 1 to ARRAY_LEN(applic_vr) DO -- check all of the array is initialized
+    IF UNINIT(applic_vr [i]) THEN
+      applic_vr [i] = ''
+    ENDIF
+  ENDFOR
+-- Add any VR files to be loaded to the array
+
+END InitGMPTprgs
+-----------------------------------------------------------------------------
+ROUTINE Sel_GMPT_App
+-- PURPOSE:  To Prompt the Operator to confirm MH was selected
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+Answer : INTEGER
+
+BEGIN
+--Call the language setup
+
+SELECT (wiz_lang) OF --
+  CASE (wiz_lang_eg): --English
+    set_english
+    writeLog('Setting Language to English', FALSE)
+  CASE (wiz_lang_sp): --Spanish
+    set_span
+    writeLog('Setting Language to Spanish', FALSE)
+  CASE (wiz_lang_gm): --German
+    set_german
+    writeLog('Setting Language to German', FALSE)
+  ELSE: --
+    POST_ERR(38000, 'Language '+int2str(wiz_lang)+' is Unknown', 0, 0) --
+    writeLog('Language is unknown so Setting to English', FALSE)
+ENDSELECT --
+
+--  IF ($TP_INUSER=FALSE) THEN
+--    FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+--  ENDIF
+
+     -- reset all the applications to false
+     Use_MH_Tool = FALSE
+     Use_Dispense = FALSE
+     Use_Fastener = FALSE
+
+    REPEAT
+      Answer = -1
+
+      WRITE(CHR(137),CHR(128));
+      WRITE TPDISPLAY(CR,'    **GMPT Application Setup**   ',cr)
+      WRITE TPDISPLAY('  Please make a selection for the    ',cr)
+      WRITE TPDISPLAY('  application you want setup.        ',cr)
+      WRITE TPDISPLAY('  ',cr)
+      WRITE TPDISPLAY('1)',mh_gmdata,cr)  -- mh_gmdata      = ' No Process(Material Handler)'
+      WRITE TPDISPLAY('2)',dis_gmdata,cr) -- dis_gmdata     = ' Dispensing '
+      WRITE TPDISPLAY('3)',dis_gmdata, '& Material Handling',cr) -- mul_gmdata     = ' Multiple Process'
+      WRITE TPDISPLAY('4) Fastener Installion',cr) -- mul_gmdata     = ' Multiple Process'
+      WRITE TPDISPLAY('                                        ',cr)
+      WRITE TPPROMPT (CR,'Enter Option,Press Enter '+CHR(129))
+
+      READ TPPROMPT(Answer)
+    UNTIL (Verify_Answr(Answer,1,4))-- Verify Answer
+
+     SELECT (Answer) OF --
+       CASE (1):  -- -- mh_gmdata      = ' No Process(Material Handler)'
+           Use_MH_Tool = TRUE
+         writeLog('User Selected to use MHGRIP', FALSE)
+
+-- RK Added 5-25-16 in case user setup in Body, then ran GMPT, don't
+
+          Use_Dispense = FALSE
+                        -- then ran this piece
+       CASE (2):  -- -- dis_gmdata     = ' Dispensing '
+           Use_Dispense = TRUE
+
+        writeLog('User Selected to use SCA Dispense', FALSE)
+
+       CASE (3):  -- -- mul_gmdata     = ' Multiple Process'
+           Use_MH_Tool = TRUE
+           Use_Dispense = TRUE
+           writeLog('User Selected both MHGRIP and SCA Dispense', FALSE)
+
+       CASE (4): -- Fastener application added 3-4-17 R.Kosaski
+           Use_MH_Tool = FALSE
+           Use_Dispense = FALSE
+
+           Use_Fastener = TRUE
+           writeLog('User Selected Fastener Application', FALSE)
+       ELSE: --
+         POST_ERR(38000, 'Unknown Applctn in SEL_GMPT_APP Routine', 0, 0) --
+         writeLog('Unknown Applctn in SEL_GMPT_APP Routine',TRUE)
+     ENDSELECT --
+
+IF Use_Dispense = TRUE THEN
+  numdispctrl = 1 -- Setup common variable have dispense reset incase user had setup
+ELSE
+  numdispctrl = 0 -- Setup common variable reset
+ENDIF
+
+END Sel_GMPT_App
+-----------------------------------------------------------------------------
+ROUTINE Cnfrm_GMPT:BOOLEAN
+-- PURPOSE:  To Prompt the Operator to confirm GMPT was selected
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+Answer : INTEGER
+
+BEGIN
+    REPEAT
+      Answer = -1
+
+  --    IF ($TP_INUSER=FALSE) THEN
+  --      FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+  --    ENDIF
+
+      WRITE(CHR(137),CHR(128));
+      WRITE TPDISPLAY(CR,'    **Powertrain Setup Wizard**   ',cr)
+      WRITE TPDISPLAY('  Please Confirm this application is ',cr)
+      WRITE TPDISPLAY('  a Powertrain Manufacturing Shop.',cr)
+      WRITE TPDISPLAY('  GMPT Settings will be applied.     ',cr)
+      WRITE TPDISPLAY('  Please make sure you have your files  ',cr)
+      WRITE TPDISPLAY('  backed-up before continuing.          ',cr)
+      WRITE TPDISPLAY('                                        ',cr)
+      WRITE TPDISPLAY('  Press 1 to Select App,or 0 to Cancel',cr)
+      WRITE TPPROMPT (CR,'Enter Option,Press Enter '+CHR(129))
+
+      READ TPPROMPT(Answer)
+    UNTIL (Verify_Answr(Answer,0,1))-- Verify Answer
+
+   IF (Answer = 0) THEN
+     WRITE(CHR(137),CHR(128));
+     POST_ERR(38000, 'User cancelled GMPT Setup',0, 0) --
+     writeLog('User cancelled GMPT Setup', FALSE)
+     RETURN(FALSE)
+   ELSE
+     gmpt_load = TRUE
+     RETURN(TRUE)
+   ENDIF
+
+END Cnfrm_GMPT
+ -----------------------------------------------------------------------------
+ ROUTINE Set_defaults
+ -- PURPOSE: to setup the default variables and setting not coverd by Standard
+ --          load of GM Spottool+ customization
+ --
+ -- INPUT:
+ --            -
+ -- OUTPUT:
+ --            -
+ -- CALLED BY: GM Wizard and Robot Setup
+ --
+ --
+ -----------------------------------------------------------------------------
+ BEGIN
+
+ writeLog('******** Setting up Defaults **************', FALSE)
+ writeLog('', FALSE)
+
+-- Set the variable for the programs to know this is a GMPT load
+-- on a GMPT_LOAD it set MH grip settings so advance recovery feature are active
+ SET_VAR(entry, 'MHGRPCMN' , 'GMPT_LOAD', TRUE, status)
+   IF status <> 0 THEN
+     writeLog('Set variable GMPT_LOAD in program MHGRPCMN to TRUE Failed', FALSE)
+       IF NOT Chk_Loaded('MHGRPCMN') THEN
+         POST_ERR(38000, '[MHGRPCMN].GMPT_LOAD TRUE Failed', 2014, 0) -- FILE-0014 File Not Found
+       ELSE -- Unknown Reason
+         POST_ERR(38000, '[MHGRPCMN].GMPT_LOAD TRUE Failed', status, 0) --
+       ENDIF
+   ELSE
+     writeLog('Set GMPT_LOAD variable in MHGRPCMN program to TRUE Complete', FALSE)
+   ENDIF
+
+ writeLog('', FALSE)
+ writeLog('******** Defaults Setup Done **************', FALSE)
+ writeLog('', FALSE)
+
+ END Set_defaults
+------------------------------------------------------------------------------
+ROUTINE copy_A_File(p_src: STRING; p_dst: STRING)
+-- this routine is same as the COPYFILE routine in the GMUTILITY, but is needed
+-- so at ASI if program is not loaded yet routine is avaialbe
+------------------------------------------------------------------------------
+BEGIN
+
+  COPY_FILE(p_src, p_dst, TRUE, FALSE, gm_status)
+  IF (gm_status <> 0) THEN
+    POST_ERR(38000, 'Copy '+p_src+' to ' + p_dst+' Failed ', gm_status, 0) --
+  ENDIF
+
+END copy_A_File
+------------------------------------------------------------------------------
+ROUTINE copyFiles(p_pathSrc: STRING; p_wildCard: STRING; p_pathDst: STRING)
+------------------------------------------------------------------------------
+--VAR
+
+BEGIN
+
+  l_nSkip = 0
+  l_nFiles = 0
+FILE_LIST(p_pathSrc + p_wildCard, l_nSkip, 3, aryNames, l_nFiles, l_status)
+  REPEAT
+    IF (l_status <> 0) THEN -- Error occurred
+      l_nFiles = 0
+      POST_ERR(38000, 'Failed CopyList '+ p_pathSrc + p_wildCard, l_status, 0) --
+   ELSE
+     IF (l_nFiles>0) THEN
+       POST_ERR(38000, 'Copy '+(int_to_str(l_nfiles))+' '+ p_wildCard+' from '+p_pathSrc , 0, 0) --
+     ELSE
+     --  POST_ERR(38000, (int_to_str(l_nfiles))+' '+ p_wildCard +' Files from '+p_pathSrc , 0, 0)
+     ENDIF
+
+      FOR l_idx = 1 TO l_nFiles DO
+        copy_A_File(p_pathSrc+aryNames[l_idx], p_pathDst+aryNames[l_idx])
+      ENDFOR
+      l_nSkip = l_nSkip + l_nFiles
+    ENDIF
+  UNTIL l_nFiles <> ARRAY_LEN(aryNames)
+
+END copyFiles
+-----------------------------------------------------------------------------
+ROUTINE GMPTLOAD
+-- PURPOSE: this program will be called from the Main ASI installation to allow the
+--          GMPT specific Files to be loaded onto the controller.
+--
+-- OUTPUT:
+--            -
+-- CALLED BY: ASI install program or COM file
+--
+-----------------------------------------------------------------------------
+VAR
+num_dreg :INTEGER -- used for the answer when getting the number of Data registers
+BEGIN
+-- make directory for the loaded files to be placed
+IF UNINIT(GMPTStor_Loc) THEN
+  GMPTStor_Loc = 'FR:\GMPWRTRN'
+ENDIF
+IF UNINIT(GMPT_ASI_Loc) THEN
+  GMPT_ASI_Loc = 'product\rs4gmpt\' -- rk 5-31-16 changed so powertrain was in product folder
+ENDIF
+
+   InitGMPTVars -- get all program names set to load, TPU can`t do *.EXT
+   InitGMPTprgs -- setup all the known default programs
+
+-- Set where on controller to load files for access later
+ GMPTStor_Loc = 'FR:\GMPWRTRN' -- needs no backslash to work for making directory
+
+  KCL ('MkDir '+GMPTStor_Loc, gm_status)
+    IF (gm_status<>0) AND (gm_status<> 2039) THEN --FILE-039 Directory already Exists
+      POST_ERR(38000, 'KCL Failed MD '+GMPTStor_Loc, gm_status, 0) --
+      RETURN  -- Cant load anything so don't blast a bunch of copy failures when Directory not there
+    ELSE
+       POST_ERR(38000,'Created directory '+GMPTStor_Loc, 0, 0)-- used for reference
+    ENDIF
+
+-- Added below because Loading files at controlled start, if a file needs
+-- Convert and Saved, this variable needs to be set Judy Evans Helped solve this
+ SET_VAR(entry, '*SYSTEM*' , '$KAREL_CFG.$CONV_CTRL', TRUE, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$KAREL_CFG.$CONV_CTRL FAILED', status, 0) --
+   ENDIF
+
+-- copy all files that are in the powertrain custom directory on the media
+  GET_VAR(entry, '*SYSTEM*' , '$DEVICE', Cur_Device, status)
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$DEVICE FAILED', status, 0) --
+    ELSE -- was good, go get original setup to use to set back after done laoding
+      GET_VAR(entry, '*SYSTEM*' , '$DEVICE', Start_Device, status)
+      IF status <> 0 THEN
+        POST_ERR(38000, '[*SYSTEM*].$DEVICE FAILED', status, 0) --
+      ENDIF
+    ENDIF
+
+    IF UNINIT(Cur_Device) THEN -- could be bad if above failed
+      Cur_Device = 'UD1:'
+    ENDIF
+
+-- go get the path to load from
+  GET_VAR(entry, '*SYSTEM*' , '$DEV_PATH', Cur_Path, status)
+    IF status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$DEV_PATH FAILED', status, 0) --
+    ELSE -- if was successful get it again for setting back when all done
+      GET_VAR(entry, '*SYSTEM*' , '$DEV_PATH', Start_path, status)
+      IF status <> 0 THEN
+        POST_ERR(38000, '[*SYSTEM*].$DEV_PATH FAILED', status, 0) --
+      ENDIF
+    ENDIF
+
+    IF UNINIT(Cur_Path) THEN
+      Cur_Path = '\'
+    ENDIF
+
+-- added the hard coding because something was changing it to not be actual device
+
+--      Cur_Device = 'UD1:'
+--      Cur_Path = '\'
+--From_Path = Cur_device + Cur_path
+
+-- need Media if from ASI load, maybe need to change for noramal load by user
+-- Changed Below because Dan Merchant informed must be MED for RobobGuide to Work loading files
+From_Path = 'MED:\'+ GMPT_ASI_Loc -- gave file - 008 illegal device name when Media:\
+
+ GMPTStor_Loc = 'FR:\GMPWRTRN\' -- needs backslash to work for directory name then adding file name to it
+
+-- Load all TP files manually, TPU does not like *.TP or other commands
+ FOR i = 1 TO ARRAY_LEN(PickTmpltPrg) DO -- All pick template programs
+   IF (PickTmpltPrg[i] <>'') THEN
+     copy_A_File(From_Path + PickTmpltPrg[i] +'.TP',GMPTStor_Loc + PickTmpltPrg[i] +'.TP')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(PlacTmpltPrg) DO -- All place template programs
+   IF (PlacTmpltPrg[i] <>'') THEN
+     copy_A_File(From_Path + PlacTmpltPrg[i] +'.TP',GMPTStor_Loc + PlacTmpltPrg[i] +'.TP')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(PlltTmpltPrg) DO -- All pallet template programs
+   IF (PlltTmpltPrg[i] <>'') THEN
+     copy_A_File(From_Path + PlltTmpltPrg[i] +'.TP',GMPTStor_Loc + PlltTmpltPrg[i] +'.TP')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(ShelTmpltPrg) DO -- All SHL_xyz template programs
+   IF (ShelTmpltPrg[i] <>'') THEN
+     copy_A_File(From_Path + ShelTmpltPrg[i] +'.TP',GMPTStor_Loc + ShelTmpltPrg[i] +'.TP')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(applic_tp) DO -- Used for TP files to load
+   IF (applic_tp[i] <>'') THEN
+     copy_A_File(From_Path + applic_tp[i] +'.TP',GMPTStor_Loc + applic_tp[i] +'.TP')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(applic_pc) DO -- Used for PC files to load
+   IF (applic_pc[i] <>'') THEN
+     copy_A_File(From_Path + applic_pc[i] +'.PC',GMPTStor_Loc + applic_pc[i] +'.PC')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(applic_sv) DO -- Used for SV files to load
+   IF (applic_sv[i] <>'') THEN
+     copy_A_File(From_Path + applic_sv[i] +'.SV',GMPTStor_Loc + applic_sv[i] +'.SV')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(applic_vr) DO -- Used for VR files to load
+   IF (applic_vr[i] <>'') THEN
+     copy_A_File(From_Path + applic_vr[i] +'.VR',GMPTStor_Loc + applic_vr[i] +'.VR')
+   ENDIF
+ ENDFOR --
+ FOR i = 1 TO ARRAY_LEN(FstnTmpltPrg) DO -- All Fastener template programs
+   IF (FstnTmpltPrg[i] <>'') THEN
+     copy_A_File(From_Path + FstnTmpltPrg[i] +'.TP',GMPTStor_Loc + FstnTmpltPrg[i] +'.TP')
+   ENDIF
+ ENDFOR --
+
+ SET_VAR(entry, '*SYSTEM*' , '$KAREL_CFG.$CONV_CTRL', FALSE, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$KAREL_CFG.$CONV_CTRL FAILED', status, 0) --
+   ENDIF
+
+-- Set the Device back to FR: THIS MAY HAVE TO CHANGE for TPU????
+-- copy all files that are in the powertrain custom directory on the media
+IF UNINIT(Start_device) THEN
+  POST_ERR(38000, 'GMPTLOAD had to set Start_Device', 0, 0) --
+  Start_device = 'UD1:'
+ENDIF
+
+ SET_VAR(entry, '*SYSTEM*' , '$DEVICE', Start_Device, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$DEVICE FAILED', status, 0) --
+   ELSE
+     POST_ERR(38000, '$Device '+Start_Device+' set by GMPTLOAD', 0, 0) --
+   ENDIF
+
+IF UNINIT(Start_path) THEN
+  POST_ERR(38000, 'GMPTLOAD had to set Start_Path', 0, 0) --
+  Start_path = '\'
+ENDIF
+
+ SET_VAR(entry, '*SYSTEM*' , '$DEV_PATH', Start_path, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$DEV_PATH FAILED', status, 0) --
+   ENDIF
+
+ POST_ERR(38000, 'GMPT Loaded '+From_Path, 0, 0) --
+
+END GMPTLOAD
+------------------------------------------------------------------------------
+ROUTINE loadFile(p_fileName: STRING; p_fileExt: STRING)--p_pathName: STRING;
+------------------------------------------------------------------------------
+VAR
+  l_status   : INTEGER
+  l_filePath : STRING[60]
+
+BEGIN
+
+ -- may want to check load status and only load if not already there? Kroll said no.
+  GMPTStor_Loc = 'FR:\GMPWRTRN\'
+  l_filePath = GMPTStor_Loc + p_fileName + p_fileExt  -- pathName
+  WRITE TPDISPLAY(CR,'Loading ' + l_filePath)
+  LOAD(l_filePath, 1, l_status)
+  IF (l_status = 0) THEN
+    writeLog('Loaded ' + l_filePath, FALSE)
+    F_loaded = F_loaded + 1
+  ELSE
+    POST_ERR(38000, 'Failed to load ' +  l_filePath, l_status, 0) --
+    writeLog(' ',FALSE)
+    writeLog('FAILED to load ' + l_filePath, TRUE)
+    writeLog(' ',FALSE)
+  ENDIF
+
+END loadFile
+-----------------------------------------------------------------------------
+ROUTINE LoadGMPTprgs
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ i  : INTEGER -- Used for indexing through the array.
+
+BEGIN
+
+ gmpt_load = TRUE
+
+IF UNINIT(GMPTStor_Loc) THEN
+  GMPTStor_Loc = 'FR:\GMPWRTRN'
+ENDIF
+
+IF UNINIT(Load_Templts) THEN
+  Load_Templts = FALSE
+ENDIF
+IF UNINIT(Num_PickTmpl) THEN
+  Num_PickTmpl = 1
+ENDIF
+
+IF UNINIT(Num_PlacTmpl) THEN
+  Num_PlacTmpl = 1
+ENDIF
+IF UNINIT(LoadPlltTmpl) THEN
+  LoadPlltTmpl = FALSE
+ENDIF
+IF UNINIT(LoadShelTmpl) THEN
+  LoadShelTmpl = FALSE
+ENDIF
+
+IF UNINIT(Num_FstnTmpl) THEN
+  Num_FstnTmpl = 0
+ENDIF
+IF UNINIT(LoadFstnTmpl) THEN
+  LoadFstnTmpl = FALSE
+ENDIF
+
+--- Load any TP files specific to the application
+
+  writeLog('', FALSE)
+  writeLog('Loading GMPT TP Files.... ', FALSE)
+  F_attmpted = 0
+  F_loaded = 0
+  FOR i = 1 to ARRAY_LEN(applic_tp) DO
+    IF (applic_tp [i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      LoadFile(applic_tp[i],'.TP')
+    ENDIF
+  ENDFOR
+    IF F_attmpted > F_loaded THEN -- check if any files failed to load
+      writeLog('FAILED to Load '+ int2str((F_attmpted - F_loaded))+' TP Files ', FALSE)
+    ELSE
+      IF (F_attmpted>0) THEN
+        writeLog('Loaded Total of '+ int2str(F_attmpted)+ ' TP Files', FALSE)
+      ELSE
+        writeLog('No TP Files configured to Load', FALSE)
+      ENDIF
+    ENDIF
+
+--- Load any PC files specific to the application
+
+  writeLog('', FALSE)
+  writeLog('Loading GMPT PC Files.... ', FALSE)
+  F_attmpted = 0
+  F_loaded = 0
+  FOR i = 1 to ARRAY_LEN(applic_pc) DO -- check all of the array is initialized
+    IF (applic_pc [i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      LoadFile(applic_pc[i],'.PC')
+    ENDIF
+  ENDFOR
+    IF (F_attmpted > F_loaded) THEN -- check if any files failed to load
+      writeLog('FAILED to Load ' + int2str((F_attmpted - F_loaded))+ ' PC Files ', FALSE)
+    ELSE
+      IF (F_attmpted>0) THEN
+        writeLog('Loaded Total of '+ int2str(F_attmpted) +' PC Files', FALSE)
+      ELSE
+        writeLog('No PC Files configured to Load', FALSE)
+      ENDIF
+    ENDIF
+
+--- Load any SV files specific to the application
+
+  writeLog('', FALSE)
+  writeLog('Loading GMPT SV Files.... ', FALSE)
+  F_attmpted = 0
+  F_loaded = 0
+  FOR i = 1 to ARRAY_LEN(applic_sv) DO -- check all of the array is initialized
+    IF (applic_sv [i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      LoadFile(applic_sv[i],'.SV')
+    ENDIF
+  ENDFOR
+    IF (F_attmpted > F_loaded) THEN -- check if any files failed to load
+      writeLog('FAILED to Load' + int2str((F_attmpted - F_loaded)) + '  SV Files ', FALSE)
+    ELSE
+      IF (F_attmpted>0) THEN
+        writeLog('Loaded Total of ' + int2str(F_attmpted) +' SV Files', FALSE)
+      ELSE
+        writeLog('No SV Files configured to Load', FALSE)
+      ENDIF
+    ENDIF
+
+--- Load any VR files specific to the application
+
+  writeLog('', FALSE)
+  writeLog('Loading VR Files.... ', FALSE)
+  F_attmpted = 0
+  F_loaded = 0
+  FOR i = 1 to ARRAY_LEN(applic_vr) DO -- check all of the array is initialized
+    IF (applic_vr [i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      LoadFile(applic_vr[i],'.VR')
+    ENDIF
+  ENDFOR
+    IF (F_attmpted > F_loaded) THEN -- check if any files failed to load
+      writeLog('FAILED to Load' + int2str((F_attmpted - F_loaded))+ '  VR Files ', FALSE)
+    ELSE
+      IF (F_attmpted>0) THEN
+        writeLog('Loaded Total of ' + int2str(F_attmpted)+' VR Files', FALSE)
+      ELSE
+        writeLog('No VR Files configured to Load', FALSE)
+      ENDIF
+    ENDIF
+
+ IF (Load_Templts = TRUE) THEN -- Use selected to laod Templates
+   IF Num_PickTmpl>0 THEN -- Need to make sure NOT Zero Pick Templates
+      writeLog('', FALSE)
+      writeLog('Loading '+int2str(num_pickTmpl)+' Pick template Files.... ', FALSE)
+     FOR i = 1 to Num_PickTmpl DO
+       IF (PickTmpltPrg[i] <> '') THEN
+         F_attmpted = F_attmpted + 1
+         Load_File(GMPTStor_Loc,PickTmpltPrg[i]+'.TP',1)
+       ENDIF
+     ENDFOR
+     writeLog('Place template Files load Complete', FALSE)
+   ELSE
+     writeLog('', FALSE)
+     writeLog('No Pick template Files selected to load', FALSE)
+   ENDIF
+   IF Num_PlacTmpl>0 THEN -- Need to make sure NOT Zero Place Templates
+      writeLog('', FALSE)
+      writeLog('Loading '+int2str(Num_PlacTmpl)+' Place template Files.... ', FALSE)
+     FOR i = 1 to Num_PlacTmpl DO
+       IF (PlacTmpltPrg[i] <> '') THEN
+         F_attmpted = F_attmpted + 1
+         Load_File(GMPTStor_Loc,PlacTmpltPrg[i]+'.TP',1)
+       ENDIF
+     ENDFOR
+     writeLog('Place template Files load Complete', FALSE)
+   ELSE
+     writeLog('', FALSE)
+     writeLog('No Place template Files selected to load', FALSE)
+   ENDIF
+   IF LoadPlltTmpl THEN -- Need to make sure NOT Zero Place Templates
+     FOR i = 1 to ARRAY_LEN(PlltTmpltPrg) DO
+      writeLog('', FALSE)
+      writeLog('Loading 2 Palletizing tempalte Files.... ', FALSE)
+       IF (PlltTmpltPrg[i] <> '') THEN
+         F_attmpted = F_attmpted + 1
+         Load_File(GMPTStor_Loc,PlltTmpltPrg[i]+'.TP',1)
+       ENDIF
+     ENDFOR
+     writeLog('Pallet template Files load Complete', FALSE)
+   ELSE
+     writeLog('', FALSE)
+     writeLog('No Pallet template Files selected to load', FALSE)
+   ENDIF
+ ENDIF
+
+IF Num_FstnTmpl>0 THEN -- Need to make sure NOT Zero Fastener Templates
+  writeLog('', FALSE)
+  writeLog('Loading '+int2str(Num_FstnTmpl)+' Fastener template Files.... ', FALSE)
+  FOR i = 1 to Num_FstnTmpl DO
+    IF (FstnTmpltPrg[i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      Load_File(GMPTStor_Loc,FstnTmpltPrg[i]+'.TP',1)
+    ENDIF
+  ENDFOR
+  writeLog('Fastener template Files load Complete', FALSE)
+ELSE
+  writeLog('', FALSE)
+  writeLog('No Fastener template Files selected to load', FALSE)
+ENDIF
+
+IF LoadShelTmpl = TRUE THEN
+  writeLog('', FALSE)
+  writeLog('Loading '+int2str(Num_PlacTmpl)+' SHL_xyz template Files.... ', FALSE)
+  FOR i = 1 to ARRAY_LEN(ShelTmpltPrg) DO
+    IF (ShelTmpltPrg[i] <> '') THEN
+      F_attmpted = F_attmpted + 1
+      Load_File(GMPTStor_Loc,ShelTmpltPrg[i]+'.TP',1)
+    ENDIF
+  ENDFOR
+  writeLog('SHL_xyz template Files load Complete', FALSE)
+ELSE
+  writeLog('', FALSE)
+  writeLog('No SHL_xyz template Files selected to load', FALSE)
+ENDIF
+
+END LoadGMPTprgs
+-----------------------------------------------------------------------------
+ROUTINE GMPT_Sub_Wiz
+-- PURPOSE: to ask questions that are not covered in other wizard questions
+--          will ask if:
+--
+--           Manual gripper to open
+--           Allow ignore Faults in alram recovery
+--           If program monitoring is required
+--           If RZIC is required, only when IIC feature is laoded will this show UP
+--           IF user wants to load completed template programs
+-----------------------------------------------------------------------------
+
+BEGIN
+
+ gmpt_load = TRUE
+
+-- Ask if the tooling will be using Analog input module
+IF use_MH_Tool THEN
+
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Analog Input Used for Gripper Position?',cr,cr)
+    WRITE('Will the gripper use the analog ' ,cr)
+    WRITE('input module for the grippers?',cr)
+    WRITE('This function will use "markers" and',cr)
+    WRITE('will require the setup for these.',cr)
+    WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+
+   IF ans = 1 THEN  -- if user want to use the analog input
+     EOATUseAnlog = TRUE
+       REPEAT -- Repeat until answered and Verified
+         CLR_STND_SCR(gm_status)
+         WRITE(cr,'How Many Analog Input Ports Used?',cr,cr)
+         WRITE('The user selected to use analog ' ,cr)
+         WRITE('input module for the grippers.',cr)
+         WRITE('Please select how many ports are used',cr)
+         WRITE('so that the setup can be configured.',cr)
+         WRITE('Enter the number of Ports.',CR,CR)
+         WRITE(gdata_ans,'(1-2): ')  -- RK changed from 4 on 9-17-16
+         READ(ans)
+       UNTIL (Verify_Answr(Ans,1,2))-- Verify answer is betweeen 1-4
+       NumAnlogInpt = Ans
+   ELSE
+     EOATUseAnlog = FALSE
+     AnlgInptBrnd = 0
+     NumAnlogInpt = 0
+   ENDIF
+
+
+   IF EOATUseAnlog = TRUE THEN  -- if user want to use the analog input
+       REPEAT -- Repeat until answered and Verified
+       CLR_STND_SCR(gm_status)
+         WRITE(cr,'Select Brand for Analog Block?',cr,cr)
+         WRITE('The user selected to use analog ' ,cr)
+         WRITE('input module for the grippers.',cr)
+         WRITE('Please select which brand is used',cr)
+         WRITE('so that the setup can be configured.',cr)
+         WRITE('Enter 1 = Turck, 2 = Baluff',CR,CR)
+         WRITE(gdata_ans,'(1-2): ')
+         READ(ans)
+       UNTIL (Verify_Answr(Ans,1,2))-- Verify answer is betweeen 1-2
+       AnlgInptBrnd  = Ans
+   ELSE
+     EOATUseAnlog = FALSE
+     AnlgInptBrnd = 0
+   ENDIF
+
+-- Ask if user to be Prompted by DMSTAT program to ensure operator is wanting to
+-- open the tooling before actually doing in DROPPART production program
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Prompt User on Manual Gripper Open?',cr,cr)
+    WRITE('Should the user be PROMPTED when' ,cr)
+    WRITE('opening the Gripper(s) in TEACH Mode',cr)
+    WRITE('This ENABLED only in teach and only',cr)
+    WRITE('when using production programs.',cr)
+    WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+
+     IF ans = 1 THEN
+       PromptToOpen = TRUE
+       WriteLog('  User ENABLED the PROMPT to Open Gripper in Manual',FALSE)
+     ELSE
+       WriteLog('  User DISABLED the PROMPT to Open Gripper in Manual',FALSE)
+       PromptToOpen = FALSE
+     ENDIF
+
+-- Ask user if Ignore Faults can be used, some plants DO NOT want to be able
+-- to have the ignore fault to be an option in the ALARM RECOVERY panel
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Allow IGNORE FAULTS in Alarm Recovery?',cr,cr)
+    WRITE('Should the user have the selection to' ,cr)
+    WRITE('IGNORE inputs when a tooling Fault',cr)
+    WRITE('recovery is presented for recovery?',cr)
+    WRITE('This maybe disabled on LARGE parts.',cr)
+    WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 allow ignore else NO
+
+    IF ans = 1 THEN
+      EnblIgnrFlts = TRUE
+      WriteLog('  IGNORE sensors remain available in Gripper Alarm Recovery',FALSE)
+    ELSE
+      EnblIgnrFlts = FALSE
+      WriteLog('  IGNORE sensors NOT available in Gripper Alarm Recovery',FALSE)
+    ENDIF
+
+ENDIF -- for use_MH_Tool , no MH Questions
+
+-- Ask User if Program Monitor is going to be used
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Program Monitoring Required ?',cr,cr)
+    WRITE('Will the process program need to be' ,cr)
+    WRITE('monitored for changes during the',cr)
+    WRITE('production Process?',cr)
+    WRITE('You will need to setup in PLC also',cr)
+    WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 allow ignore else NO
+
+     IF ans = 1 THEN
+       Use_Prog_Mon = TRUE
+       WriteLog('  Process Program Monitoring is Enabled',FALSE)
+     ELSE
+       Use_Prog_Mon = FALSE
+       WriteLog('  Process Program Monitoring Not Required',FALSE)
+     ENDIF
+
+IF Chk_Feature('R759') THEN -- Intelligent Interferance Chk (R759) RZIC is part of that option
+  -- Confirm More than 6 axis or Multiple groups
+  GET_VAR(entry, '*SYSTEM*' , '$SCR.$NUM_TOT_AXS', Num_Axis, gm_status)
+     IF gm_status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$SCR.$NUM_TOT_AXS FAILED', gm_status, 0) --
+     ENDIF
+
+   GET_VAR(entry, '*SYSTEM*' , '$SCR.$NUM_GROUP', Num_Groups, gm_status)
+      IF gm_status <> 0 THEN
+        POST_ERR(38000, '[*SYSTEM*].$SCR.$NUM_GROUP FAILED', gm_status, 0) --
+      ENDIF
+
+   IF (Num_Groups >1) OR (Num_Axis >6) THEN -- if this is the case then RZIC can be used
+       --Ask User if Rail Zone Interferance is going to be used
+      REPEAT -- Repeat until answered and Verified
+        CLR_STND_SCR(gm_status)
+        WRITE(cr,'IIC is Loaded, use Rail Zone Inter.?',cr,cr)
+        IF (num_groups = 1) THEN
+          WRITE('The system has',num_groups,' Robot group' ,cr)
+        ELSE
+          WRITE('The system has',num_groups,' Robot groups' ,cr)
+        ENDIF
+
+        WRITE('Is Rail Zone Interference Checking',cr)
+        WRITE('required for this Robot?',cr)
+        WRITE('You will need to setup Enet also.',cr)
+        WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+        WRITE(gdata_ans,'(0-1): ')
+        READ(ans)
+      UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 allow ignore else NO
+
+        IF ans = 1 THEN
+          Use_RZIC = TRUE
+          WriteLog('  User Selected Rail Zone Interferance',FALSE)
+        ELSE
+          Use_RZIC = FALSE
+          WriteLog('  User did not require Rail Zone Interferance',FALSE)
+        ENDIF
+
+         IF Use_RZIC THEN -- If using RZIC ask which Robot this is
+            REPEAT -- Repeat until answered and Verified
+              CLR_STND_SCR(gm_status)
+              WRITE(cr,'IIC selected, select which robot?',cr,cr)
+
+              WRITE('Rail Zone Interference Checking',cr)
+              WRITE('setup will comment for this Robot',cr)
+              WRITE('Please select which robot this is.',cr)
+              WRITE('Enter 1 for LH, 2 for RH',CR,CR)
+              WRITE(gdata_ans,'(1-2): ')
+              READ(ans)
+            UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer is 1 allow ignore else NO
+            RZIC_Type = Ans              -- changed above because it was 0,1 needs to be 1,2
+         ENDIF
+   ENDIF -- End if Number of Axis RZIC questions
+ENDIF
+
+-- Per Lloyd Steed do not ASk any Templates if Dispense, ONLY says R.Kosaski
+IF (use_MH_Tool= TRUE) THEN  -- 12-4-16 added no using MHtool
+-- Ask if user wants any Pick Or Drop Templates Loaded
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load GMPT Template Programs?',cr,cr)
+    WRITE('Would you like to load any of the' ,cr)
+    WRITE('GMPT specific template Programs?',cr)
+    WRITE('Any unused Templates are required ',cr)
+    WRITE('to be removed before shipment.',cr)
+    WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+
+   IF ans = 1 THEN
+     Load_Templts = TRUE
+     WriteLog('  User requested GMPT templates loaded',FALSE)
+   ELSE
+     WriteLog('  User does not require GMPT templates loaded',FALSE)
+     Load_Templts = FALSE
+     RETURN  -- If no templates Return because NO more Sub Wizard Questions
+   ENDIF
+
+
+-- Ask user wants how many Pick Templates to Load
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load Pick Template Programs?',cr,cr)
+    WRITE('How many PICK template programs  ' ,cr)
+    WRITE('would you like to be loaded?',cr)
+    WRITE('Any unused templates are required ',cr)
+    WRITE('to be removed before shipment.',cr)
+    WRITE('Enter 0 to 10 for Pick Programs',CR,CR)
+    WRITE(gdata_ans,'(0-10): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,10))-- Verify Answer is 1 use prompt else NO
+
+  Num_PickTmpl = Ans
+
+-- Ask user wants how many Place (drop) Templates to Load
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load "Drop" Template Programs?',cr,cr)
+    WRITE('How many DROP template programs  ' ,cr)
+    WRITE('would you like to be loaded?',cr)
+    WRITE('Any unused templates are required ',cr)
+    WRITE('to be removed before shipment.',cr)
+    WRITE('Enter 0 to 10 for Drop Programs',CR,CR)
+    WRITE(gdata_ans,'(0-10): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,10))-- Verify Answer is 1 use prompt else NO
+
+  Num_PlacTmpl = Ans
+
+-- RK 5/25/16 Pallet Programs need devolpment, I have TOO much work to finish
+-- RK 12/3/16 Pallet Programs basic deveolped removed comments to use again
+
+-- Ask user wants how many Palletizing Templates to Load
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load Palletize Template Programs?',cr,cr)
+    WRITE('Would you like any palletizing' ,cr)
+    WRITE('program templates to be loaded?',cr)
+    WRITE('Any unused templates are required ',cr)
+    WRITE('to be removed before shipment.',cr)
+    WRITE('Enter 0 for No or 1 Palletize Programs',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+
+     IF ans = 1 THEN
+       LoadPlltTmpl = TRUE
+       WriteLog('  User requested Palletizing templates loaded',FALSE)
+     ELSE
+       WriteLog('  User does not require Palletizing templates',FALSE)
+     LoadPlltTmpl = FALSE
+     ENDIF
+ELSE -- no templates so dont do it per Lloyd Steed
+  Load_Templts = FALSE
+  Num_PickTmpl = 0
+  Num_PlacTmpl = 0
+  LoadPlltTmpl = FALSE
+ENDIF
+
+IF (use_fastener= TRUE) THEN  -- 12-4-16 added no using MHtool
+-- Ask user wants how many Pick Templates to Load
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load Fastener Template Programs?',cr,cr)
+    WRITE('How many Fastener template programs  ' ,cr)
+    WRITE('would you like to be loaded?',cr)
+    WRITE('Any unused templates are required ',cr)
+    WRITE('to be removed before shipment.',cr)
+    WRITE('Enter 0 to 10 Fastener Programs',CR,CR)
+    WRITE(gdata_ans,'(0-10): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,10))-- Verify Answer is 1 use prompt else NO
+
+  Num_FstnTmpl = Ans
+
+ELSE -- no templates so dont do it per Lloyd Steed
+
+  Num_FstnTmpl  = 0
+  LoadFstnTmpl = FALSE
+ENDIF
+
+-- Ask user wants if they will use the Shell Templates
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    WRITE(cr,'Load SHLxyz EVENT template Programs?',cr,cr)
+    WRITE('Would you like to use the SHLxyz' ,cr)
+    WRITE('event program templates?',cr)
+    WRITE ('These are user EVENT programs.',CR)
+    WRITE('Example Events:startup,powerup,reset',cr)
+    WRITE('pause,resume,cycle end, ETC.',cr)
+    WRITE('Enter 0 for No, 1 use Shell Users Programs',CR,CR)
+    WRITE(gdata_ans,'(0-1): ')
+    READ(ans)
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+
+  IF ans = 1 THEN
+    LoadShelTmpl = TRUE
+    WriteLog('  User requested SHLxyz event templates loaded',FALSE)
+  ELSE
+    WriteLog('  User does not require SHLxyz event templates',FALSE)
+    LoadShelTmpl = FALSE
+  ENDIF
+
+END GMPT_Sub_Wiz
+-----------------------------------------------------------------------------
+ROUTINE pwrtrnDisply
+-- PURPOSE: to display the configured Powertrain setup
+--          this program called from the GMWIZARD.KL after user Configures
+--          but Prior to executing Setup.
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+   SET_VAR(entry, 'gmptdata' , 'StrtFrmWizrd', TRUE, status)
+     IF status <> 0 THEN
+       POST_ERR(38000, '[gmptdata].StrtFrmWizrd FAILED', status, 0) --
+     ENDIF
+-- check the display program is loaded
+    IF (Chk_loaded('gmptdata')) THEN -- verify program is loaded to be able to call routine
+      writeLog('Calling GMPTDATA display program', FALSE)
+        ACT_SCREEN ('TPSC', screen, gm_status) -- add to display form otherwise form ran, but not displayed in User#2
+        IF gm_status<>0 THEN
+          POST_ERR(38000, 'ACT_SCREEN TPSC failed', gm_status, 0) --
+        ELSE-- Need to ensure user menu is not displayed form REQUIRES USER 2
+          DELAY 1000
+         REPEAT
+            FORCE_SPMENU(tp_panel,962,1)-- Put the menu2 so Form can display
+            -- FORCE_SPMENU(tp_panel,spi_tpuser2, 1)
+            DELAY 8
+          UNTIL (($tp_curscrn[2].$sp_id = 962) AND ($TP_INUSER =FALSE))
+          Set_B_pVar('gmwizard','disp_only',FALSE) -- set variable so user can EXEC from form in GMPTDATA
+          gmptdata -- display the GMPT Configuration data
+        ENDIF
+
+      writeLog('GMPTDATA display program Completed', FALSE)
+      WriteLog('', FALSE)
+    ELSE -- form or dictionary not loaded
+       writeLog('GMPTDATA display NOT loaded for use', TRUE)
+       REPEAT -- Repeat until answered and Verified
+         CLR_STND_SCR(gm_status)
+
+          WRITE (CR,'GMPTDATA for the Displaying of ',CR)
+          WRITE (' Powertrain Configuration is MISSING.',CR)
+          WRITE (CR, 'Select to Return to Configuration or',CR)
+          WRITE ('Execute setup of current Configuration?',CR)
+          WRITE(CR,'Enter 0 to Return, 1 to Execute Setup ',CR)
+          WRITE(gdata_ans,'(0-1): ')
+       READ TPPROMPT (ans)
+
+       UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use prompt else NO
+        IF ans = 1 THEN
+          Set_B_PVar('GMWIZARD','display_exec',TRUE)-- Set flag so Setup can be called RK10-10-18 changed to GMWIZARD from SWWIZARD
+        ENDIF
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+    ENDIF
+
+END pwrtrnDisply
+
+-----------------------------------------------------------------------------
+ROUTINE GMPT_Setup
+-- PURPOSE: This routine will setup and execute the program files based on how
+-- the user has configured the setup. When this routine is called, the Main Cell
+-- interface has been already set by the Main cell wizard. When this returns to
+-- the calling routine, it will have completed an MH setup or the Dispense equipt
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: this routine is call from the Main GM Global Wizard.
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+--
+ writeLog('', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog(' Starting the GMPT SETUP routine    ', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('', FALSE)
+
+ -- set the system variables based on the answers above set system variable equal to them
+  Set_B_sVar('$ap_selap[2]',FALSE)        -- Spot Application
+  Set_B_sVar('$ap_selap[6]',Use_Dispense) -- Dispense Application
+  Set_B_sVar('$ap_selap[4]',Use_MH_Tool)  -- Material Handling Application
+
+IF Use_MH_Tool THEN
+--sets MH I/O
+  writeLog('Calling GMMHGPIO setup program', FALSE)
+  IF NOT (CallThisProg('gmmhgpio')) THEN  -- call the Eoat Setup
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom+1
+  ELSE
+    writeLog('GMMHGPIO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--sets MH programs
+  writeLog('Calling GMMHPRGS setup program', FALSE)
+  IF NOT (CallThisProg('gmmhprgs')) THEN -- Call the Mh Prog loading
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ELSE
+    writeLog('GMMHPRGS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--sets MH registers
+  writeLog('Calling GMMHREGS setup program', FALSE)
+  IF NOT (CallThisProg('gmmhregs')) THEN
+    ErrsInCell.ErrorsRgstrs = ErrsInCell.ErrorsRgstrs+1
+  ELSE
+    writeLog('GMMHREGS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+-- Load any specific MHVars
+  writeLog('Calling GMMHVARS setup program', FALSE)
+  IF NOT (CallThisProg('gmmhvars')) THEN -- Load any specific MHVars
+    ErrsInCell.ErrorsVarbls = ErrsInCell.ErrorsVarbls+1
+  ELSE
+    writeLog('GMMHVARS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+ -- CHeck if we have a tool changer
+    IF UseToolChngr THEN
+      writeLog('Calling GMTLCHIO setup program', FALSE)
+        -- Setup the Tool Change data
+        IF NOT (CallThisProg('gmtlchio')) THEN
+         ErrsInCell.ErrorsPrgrms  = ErrsInCell.ErrorsPrgrms+1;
+        ELSE
+          writeLog('GMTLCHIO setup program Completed', FALSE)
+          WriteLog('', FALSE)
+        ENDIF  --sets MH I/O
+     ELSE
+      writeLog('No Tool Changer was selected for Setup', FALSE)
+    ENDIF
+ ELSE
+  writeLog('No MH Gripper was selected for Setup', FALSE)
+ENDIF
+
+IF Use_Dispense THEN
+
+-- Set up the Dispense Variables
+  IF (Chk_loaded('gmdispvr')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPVR setup program', FALSE)
+    initDISPVARS      --set dispense equipment, need to do here for repower
+    set_disp_var  --sets dispense variables
+    writeLog('GMDISPVR setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF
+
+-- Set up the Dispense I/O
+  IF (Chk_loaded('gmdispio')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPIO setup program', FALSE)
+    set_disp_IO
+    setdispiovr   --sets dispense I/O setup
+    writeLog('GMDISPIO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF
+
+-- Below 2 routines get called by ATCUSTOM these run at cold start  SET_STD_COLD from GMmain1
+   -- WORK WITH KRISTIN when these are out of COLD start will need for Standing alone
+   --  Set up the Dispense Regsiters
+      IF (Chk_loaded('gmdisprg')) THEN -- verify program is loaded to be able to call routine
+        writeLog('Calling GMDISPRG setup program', FALSE)
+        initDISPREGS
+        set_disp_reg
+        writeLog('GMDISPRG setup program Completed', FALSE)
+        WriteLog('', FALSE)
+      ELSE
+        ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+      ENDIF
+
+  --   Set up the Dispense Programs
+      IF (Chk_loaded('gmdisppg')) THEN -- verify program is loaded to be able to call routine
+        writeLog('Calling GMDISPPG setup program', FALSE)
+        set_disp_pg
+        writeLog('GMDISPPG setup program Completed', FALSE)
+        WriteLog('', FALSE)
+      ELSE
+        ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+      ENDIF
+
+-- Load a couple of special programs for PT specific
+   Load_File('FRS:','proc_circle.tp',1)  -- sample programs for circle
+   Load_File('FRS:','dispns_circle.tp',1)
+
+-- 5-16-18 RK moved to be inside so spintop not loaded unless dispenser
+
+  IF Use_Spin_Top THEN -- Loading the SpinTop Data and programs
+    writeLog('Starting the SpinTop Setup', FALSE)
+
+  --Sets SpinTop programs MUST CALL Programs first so when VR runs it can use the routines from here
+    writeLog('Calling GMSPINPG setup program', FALSE)
+    IF NOT (CallThisProg('gmspinpg')) THEN
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms + 1
+    ELSE
+      writeLog('GMSPINPG setup program Completed', FALSE)
+      WriteLog('', FALSE)
+    ENDIF
+
+  --Sets SpinTop variables
+    writeLog('Calling GMSPINVR setup program', FALSE)
+    IF NOT (CallThisProg('gmspinvr')) THEN
+      ErrsInCell.ErrorsVarbls = ErrsInCell.ErrorsVarbls + 1
+    ELSE
+      writeLog('GMSPINVR setup program Completed', FALSE)
+      WriteLog('', FALSE)
+    ENDIF
+
+  --Sets SpinTop I/O
+    writeLog('Calling GMSPINIO setup program', FALSE)
+    IF NOT (CallThisProg('gmspinio')) THEN
+      ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom + 1
+    ELSE
+      writeLog('GMSPINIO setup program Completed', FALSE)
+      WriteLog('', FALSE)
+    ENDIF
+
+  --Sets SpinTop registers
+    writeLog('Calling GMSPINRG setup program', FALSE)
+    IF NOT (CallThisProg('gmspinrg')) THEN
+      ErrsInCell.ErrorsRgstrs = ErrsInCell.ErrorsRgstrs+ 1
+    ELSE
+      writeLog('GMSPINRG setup program Completed', FALSE)
+      WriteLog('', FALSE)
+    ENDIF
+    writeLog('SpinTop Setup Completed', FALSE)
+  ELSE
+    writeLog('No SpinTop was selected for Setup', FALSE)
+  ENDIF
+
+ELSE
+  writeLog('No Dispense was selected for Setup', FALSE)
+  IF Use_Spin_Top THEN
+    Use_Spin_Top = FALSE
+    writeLog('SpinTop had to be set to FALSE, no dispenser selected', FALSE)
+  ENDIF
+ENDIF
+
+-- 10-03-17 RK added because if spinTop, can't have vision per Lloyd Steed
+  IF Use_Spin_Top THEN
+    IF Use_Vision THEN
+      writeLog('SpinTop used so had to set USE_VISION = FALSE', FALSE)
+      Use_Vision = FALSE
+    ENDIF
+  ENDIF
+
+IF Use_Vision THEN
+--Sets Vision I/O
+  writeLog('Calling GMVISNIO setup program', FALSE)
+  IF NOT (CallThisProg('gmvisnio')) THEN
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom +1
+  ELSE
+    writeLog('GMVISNIO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--Sets Vision registers
+  writeLog('Calling GMVISREG setup program', FALSE)
+  IF NOT (CallThisProg('gmvisreg')) THEN
+    ErrsInCell.ErrorsRgstrs = ErrsInCell.ErrorsRgstrs+1
+  ELSE
+    writeLog('GMVISREG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--Sets Vision programs
+  writeLog('Calling GMVISPRG setup program', FALSE)
+  IF NOT (CallThisProg('gmvisprg')) THEN
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ELSE
+    writeLog('GMVISPRG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--Sets Vision variables
+  writeLog('Calling GMVISVAR setup program', FALSE)
+  IF NOT (CallThisProg('gmvisvar')) THEN
+    ErrsInCell.ErrorsVarbls = ErrsInCell.ErrorsVarbls+1
+  ELSE
+    writeLog('GMVISVAR setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+ELSE
+  writeLog('No Vision was selected for Setup', FALSE)
+ENDIF
+
+-- Load any GMPT Specific Programs
+
+  LoadGMPTprgs -- load any specific files  need to find where the files reside
+               -- load these first because the files below may need to use them or have them loaded before setting
+               -- something up.
+--sets GMPT I/O
+  writeLog('Calling GMPT_IO setup program', FALSE)
+  IF NOT (CallThisProg('gmpt_io')) THEN  -- call the Eoat Setup
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom+1
+  ELSE
+    writeLog('GMPT_IO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--sets GMPT programs
+  writeLog('Calling GMPTPRGS setup program', FALSE)
+  IF NOT (CallThisProg('gmptprgs')) THEN -- Call the Mh Prog loading
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ELSE
+    writeLog('GMPTPRGS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+--sets GMPT registers
+  writeLog('Calling GMPTREGS setup program', FALSE)
+  IF NOT (CallThisProg('gmptregs')) THEN
+    ErrsInCell.ErrorsRgstrs = ErrsInCell.ErrorsRgstrs+1
+  ELSE
+    writeLog('GMPTREGS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+-- Load any specific GMPT Vars
+  writeLog('Calling GMPTVARS setup program', FALSE)
+  IF NOT (CallThisProg('gmptvars')) THEN -- Load any specific MHVars
+    ErrsInCell.ErrorsVarbls = ErrsInCell.ErrorsVarbls+1
+  ELSE
+    writeLog('GMPTVARS setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+ writeLog('', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('  GMPT SETUP routine Completed', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('', FALSE)
+
+END GMPT_Setup
+-----------------------------------------------------------------------------
+ROUTINE GMPT_Config
+-- PURPOSE: This routine is called from the main wizard when the user has Selected
+--          GM Powertrain as the Shop. All Cell interface has been setup already when
+--          So Displaying cell setup can be done. THis is only a setup, and confirming variables
+--          NO programs or settings occur, only setting up how the load should occur
+--          The GMPT_EXECUT routine is the routine where
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  l_reload	     : INTEGER
+  success        : INTEGER
+  l_stat         : INTEGER
+  l_psve         : INTEGER
+  l_dummy        : INTEGER
+  l_ans          : INTEGER
+
+BEGIN
+
+IF UNINIT(pathName) THEN
+  pathName = 'FRS:'
+ENDIF
+IF UNINIT(GMPTStor_Loc) THEN
+  GMPTStor_Loc = 'FR:\GMPWRTRN'
+ENDIF
+
+Enable_Log = TRUE
+
+ writeLog('', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('  Starting GMPT Configuration', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('', FALSE)
+
+InitGMPTVars -- Go and initialize the GMPT Vars
+
+Init_Vars  -- Initialze the MH Vars  init_Vars
+
+IF Cnfrm_GMPT THEN -- if routine return True User confirmed to run setup
+
+  Load_File('FRS:','GMPTDATA.PC',1) -- interface for user prompts
+
+  WizardStatus.Cnfg_Is_Done = FALSE -- should already be false from Main wizard
+
+  Sel_GMPT_App -- Have User select the application.
+               -- Call routine to See which Application to setup
+
+ IF Use_Dispense THEN
+    writeLog('  Starting GMPT Dispense Wizard Menu', FALSE)
+
+    IF (Chk_loaded('gmwizdp')) THEN -- verify dispense wizard is loaded
+      disp_app_wiz   -- Prompt the Operator Questions for Dispense Setup
+      writeLog('  GMPT Dispense Wizard Menu COMPLETED ', FALSE)
+      writeLog(' ', FALSE)
+    ELSE
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+      writeLog('  GM Dispense Wizard CANNOT BE FOUND??? ', TRUE)
+      writeLog('  GMWIZDP program required DISPENSE Wizard', TRUE)
+      writeLog(' ', FALSE)
+    ENDIF
+
+    -- If using Dispense Prompt for Spin Top
+
+      REPEAT -- Repeat until answered and Verified
+        CLR_STND_SCR(gm_status)
+        WRITE(cr,'Spin Top Bead Inspector?',cr,cr)
+        WRITE('Will Dispense have a Spin-' ,cr)
+        WRITE('Top 3D bead inspection for',cr)
+        WRITE('this application?',cr)
+        WRITE('Enter 1 for Yes, 0 for No',CR,CR)
+        WRITE(gdata_ans,'(0-1): ')
+        READ(ans)
+      UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is 1 use spintop else NO
+
+     IF ans = 1 THEN
+       Use_Spin_Top = TRUE
+     ELSE
+       Use_Spin_Top = FALSE
+     ENDIF
+
+      REPEAT -- Repeat until answered and Verified
+        CLR_STND_SCR(gm_status)
+        WRITE(cr,'Spin Top Mount Angle?',cr,cr)
+        WRITE('Do you know the angle of  ' ,cr)
+        WRITE('SpinTop relative faceplate',cr)
+        WRITE('X, to put into R[41:S.T.AutoAngle]?',cr)
+        WRITE('Enter Angle if Yes, 0 for No',CR,CR)
+        WRITE(gdata_ans,'(-180 to 180): ')
+        READ(ans)
+      UNTIL (Verify_Answr(ans,-180,180))-- Verify Answer is 1 use spintop else NO
+         ST_Mnt_Angle=ans
+      -- SET_INT_REG(41,ans,gm_status)
+       writeLog('  SpinTop Auto Angle will be set to '+real2str(ST_Mnt_Angle), FALSE)
+
+  ELSE -- If not Dispense set SpinTop False RK 5-16-18
+    Use_Spin_Top = FALSE
+  ENDIF -- Endif for Use Dispense
+
+  IF Use_MH_Tool THEN
+    writeLog('  Starting GMPT MH Application Menu', FALSE)
+
+    IF (Chk_loaded('gmwizmh')) THEN
+      mh_app_wiz   -- Prompt the Operator Questions for Material Handling
+    ELSE
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+    ENDIF
+    IF (Chk_loaded('gmwiztlc')) THEN -- this will include Tool Changer
+      tlc_app_wiz  -- Ask if Tool Changer is Present
+    ELSE
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+    ENDIF
+    writeLog(' ', FALSE)
+    writeLog('  GMPT Application Menu COMPLETED ', FALSE)
+  ENDIF
+
+  -- initialize Programs
+  InitGMPTprgs -- setup all GMPT specific files that are critical to operation
+
+ELSE -- user did not confirm GMPT MH Application
+  writeLog('  User DID NOT select GMPT MH application', FALSE)
+  IF WizardStatus.SetupIs_Done THEN -- if already setup before reset so display will work
+    WizardStatus.Cnfg_Is_Done = TRUE
+  ENDIF
+  RETURN
+ENDIF
+
+-- Per Lloyd Steed no vision if SpinTop
+IF Use_Spin_Top = FALSE THEN
+
+ -- Always Prompt for Vision,Prompt the Operator Questions for Vision Setup
+ -- Need to ensure GMWIZVIS is loaded and available for use
+    IF (Chk_loaded('gmwizvis')) THEN
+      Vis_app_wiz -- call Vision Wizard to get the common questions answered
+    ELSE
+      ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1 -- indicated Cell Wizard has missing files
+    ENDIF
+
+ENDIF
+
+ writeLog('  GMPT Specific Wizard Questions', FALSE)
+   GMPT_Sub_Wiz
+ writeLog('  GMPT Specific Wizard Completed', FALSE)
+
+ writeLog('************************************', FALSE)
+ writeLog('  GMPT Configuration Completed', FALSE)
+ writeLog('************************************', FALSE)
+ writeLog('', FALSE)
+
+ POST_ERR(38000, 'GMPT Configuration Finished ', 0, 0) --
+    WizardStatus.Cnfg_Status = 0
+    WizardStatus.Cnfg_Is_Done = TRUE
+  RETURN
+
+
+END GMPT_Config
+------------------------------------------------------------------------------------------------
+
+BEGIN
+
+--  IF TP_Enabled THEN
+--    GMPT_Config
+--  ENDIF
+ pwrtrnDisply
+--GMPT_Setup
+
+END gmpwrtn

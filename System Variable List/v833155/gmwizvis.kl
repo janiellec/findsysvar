@@ -1,0 +1,348 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: swwizmh
+--
+--    Description:
+--
+--    SWWIZMH configure the robot and loads a specific I/O file based
+--    on answers to questions asked by the robot controller to the robot user.
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: GMWIZVIS.kl    02-FEB-06   03:33PM
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           01/12/16  KosaskiR Change I/O to reflect new G4 Standard
+--           12/05/16  KosaskiR added logging to the answers
+--           2017/03/12 marchaka Modifications to support ArcTool wizard
+--           2017/04/30 KosaskiR added VisOrdrNums to search array of vision options to determine if it is loaded
+--                               added VisIsLoaded routine to check and set variable
+--           2018/16/05 R.Kosaski        Removed forceing fo the user page because causing forms
+--                                                to not display
+-------------------------------------------------------------------
+PROGRAM GMWIZVIS
+-------------------------------------------------------------------------------------------------------------
+%ALPHABETIZE
+%NOLOCKGROUP
+--%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT='GM VisionWizG4.1'
+
+%INCLUDE gmevrlng -- Required for the language constants
+CONST
+
+Version = '2018/16/05 RK'
+%INCLUDE gmcnstnt -- used for all of the constants for GM wizard
+
+VAR
+  ans          : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded
+  VisOrdrNums  IN SHADOW :ARRAY[25] OF STRING[4] -- used for the feature list to search to determine vision is loaded
+  VisIsLoaded  IN SHADOW :BOOLEAN -- indicates that one of the Vision features is loaded
+ -- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications
+
+-- Routines
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil -- Required for the many GM builting created and used throughout wizard(s)
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWizLog  -- used to write an items to the log file
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+-----------------------------------------------------------------------------
+ROUTINE VisStat_Incr
+-- PURPOSE: to increment the particular shop and vision status, so the status can be
+--          used to trouble shoot or track wizard execution.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF (arc_optn = FALSE) THEN --SpotTool
+
+  IF UNINIT(mfg_area) THEN
+    POST_ERR(38000, 'Man_Area set=0 in GMWIZVIS', 0, 0) --
+    mfg_area = 0
+  ENDIF
+  IF UNINIT(VisWizStatus.Cnfg_Status) THEN
+    VisWizStatus.Cnfg_Status = 0
+  ENDIF
+  IF UNINIT(Press_Status.Cnfg_Status) THEN
+    Press_Status.Cnfg_Status = 0
+  ENDIF
+  IF UNINIT(GMPT_Status.Cnfg_Status) THEN
+    GMPT_Status.Cnfg_Status = 0
+  ENDIF
+
+  -- Each shop should take care of their loading requirements
+  SELECT mfg_area OF -- Increment the status based on Shop
+    CASE(mfg_area_bs): -- Body Shop
+
+    CASE(mfg_area_ps): -- Press Shop
+      Press_Status.Cnfg_Status = Press_Status.Cnfg_Status + 1 -- user answered another question
+    CASE(mfg_area_pt): -- Powertrain Shop
+      GMPT_Status.Cnfg_Status = GMPT_Status.Cnfg_Status + 1  -- user answered another question
+    CASE(mfg_area_pn): -- Paint Shop
+  ELSE:
+    POST_ERR(38000, 'MFG_AREA '+int2str(mfg_area)+' INVALID in VisIncrement routine in GMWIZVIS', 0, 0) --
+  ENDSELECT
+ENDIF --SpotTool
+
+  VisWizStatus.Cnfg_Status = VisWizStatus.Cnfg_Status + 1  -- user answered another question
+
+END VisStat_Incr
+
+-----------------------------------------------------------------------------
+ROUTINE IsVisLoaded
+-- PURPOSE: to verify the vision is loaded, and if not tell user and log
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  Return if the status is vision is loaded
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+VAR
+i  : INTEGER -- Used for LOOP
+
+BEGIN
+
+FOR i = 1 TO ARRAY_LEN(VisOrdrNums) DO
+  IF UNINIT(VisOrdrNums[i]) THEN
+    VisOrdrNums[i] = ''
+  ENDIF
+ENDFOR --
+
+-- setup the vision options that GM orders and check at least on is loaded
+-- or when SETUP code runs it blows alot of errors
+ VisOrdrNums[1] = 'R858' -- iRVision 2D Basic Package
+ VisOrdrNums[2] = 'R685' -- iRVision 2D Package
+ VisOrdrNums[3] = 'R686' -- iRVision 3D Laser Package
+ VisOrdrNums[4] = 'J902' -- iRVision 3DL
+ VisOrdrNums[5] = 'R737' -- iRVision 2D Barcode
+
+VisIsLoaded = FALSE -- set it to false, for loop will set to true if one is loaded
+  FOR i = 1 TO ARRAY_LEN(VisOrdrNums) DO
+    IF VisOrdrNums[i] <>'' THEN
+      IF (Chk_Feature(VisOrdrNums[i])) THEN -- check if option is loaded
+        VisIsLoaded = TRUE
+      ENDIF
+    ENDIF
+  ENDFOR --
+
+  IF (VisIsLoaded = TRUE) THEN -- its all good something loaded
+    RETURN
+  ELSE
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'User selected iRVision needed,but')
+      WRITE (CR,'NO iRVision options are Loaded',CR) -- Do you have a Vision System?
+      WRITE (CR, 'Options:',VisOrdrNums[2],',',VisOrdrNums[3],',',VisOrdrNums[1],',',VisOrdrNums[4],' or ')
+      WRITE (CR,VisOrdrNums[5],' required for iRVision.')
+      WRITE (CR,'Select 1 to continue, 2 Cancel Vision')
+      WRITE (CR,'1.',yes_gmdata)     -- 1. Yes
+      WRITE (CR,'2.',no_gmdata)   -- 2. No
+      WRITE(CR,CR,gdata_ans,'(1-2):')      -- Answer 1-2:
+      READ TPPROMPT(ans)
+    UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+    IF Ans =1 THEN
+      WriteLog('  User understands NO iRVision features loaded',FALSE)
+      WriteLog('  selected to continue anyway loading vision data',FALSE)
+    ELSE
+      WriteLog('  User cancelled iRVision due to no Options',FALSE)
+      WriteLog('  '+VisOrdrNums[2]+','+VisOrdrNums[3]+','+VisOrdrNums[1]+','+VisOrdrNums[4]+' or '+VisOrdrNums[5]+'Loaded',FALSE)
+      -- Reset vars so no vision stuff is triggered
+      Use_Vision = FALSE
+      iRtype = 0
+      fanuciR = FALSE
+      fanuc3dl = FALSE
+    ENDIF
+  ENDIF
+
+END IsVisLoaded
+-------------------------------------------------------------------
+ROUTINE Vis_app_wiz
+
+BEGIN
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF
+
+  IF UNINIT(VisIsLoaded) THEN
+    VisIsLoaded = FALSE
+  ENDIF
+
+Current_Ver = Version -- save current version for use in backup
+--**********************************************************************
+--- Prompt User for the Vision to be mapped by the robot
+--**********************************************************************
+ -- 12-3-16 RK added for if ran and not on user screen, looks like code is hung
+--  IF ($TP_INUSER=FALSE) THEN
+--    FORCE_SPMENU(tp_panel,SPI_TPUSER,1) -- force the user screen to display forms
+--  ENDIF
+-- 12-3-16 end of RK changes
+
+        VisWizStatus.Cnfg_Status = 0 -- zero until start of vision questions
+        REPEAT
+          CLR_STND_SCR(gm_status)
+          WRITE (CR,visq1_gmdata,'?',CR) -- Do you have a Vision System?
+          WRITE ('',CR)                  --
+          WRITE ('1.',yes_gmdata,CR)     -- 1. Yes
+          WRITE ('2.',no_gmdata,CR,CR)   -- 2. No
+          WRITE(gdata_ans,'(1-2):')      -- Answer 1-2:
+          READ (ans)
+        UNTIL (Verify_Answr(Ans,1,2))-- Verify Answer
+
+        IF Ans = 1 THEN -- has vision
+          writeLog('  User confirmed Vision is required', FALSE)
+          Use_Vision = TRUE
+          VisWizStatus.Cnfg_Is_Done = FALSE
+          VisStat_Incr -- Set stage to one
+        ELSE
+          writeLog('  User confirmed NO Vision required', FALSE)
+          CLR_STND_SCR(gm_status)
+          Use_Vision = FALSE
+          VisLghtType = 0
+          VisWizStatus.Cnfg_Is_Done = TRUE
+          RETURN
+        ENDIF
+
+        REPEAT
+          CLR_STND_SCR(gm_status)
+          WRITE (CR,visq2_gmdata,'?',CR) -- Select Vision System ?
+          WRITE ('',CR)                  --
+          WRITE ('1.',fss_gmdata ,CR)    -- 1. Flexible Scanning (FSS)
+          WRITE ('2.',fms_gmdata ,CR)    -- 2. Flexible Measuring (FMS)
+          WRITE ('3.',guid_gmdata,CR)    -- 3. Robot Guidence
+          WRITE ('4.',in_gmdata,CR,CR)   -- 4. Fanuc iRVision
+          WRITE (gdata_ans,'(1-4):')
+          READ (ans)
+        UNTIL (Verify_Answr(Ans,1,4))-- Verify Answer
+          VisSys_Type = Ans
+          VisStat_Incr -- Set stage to one
+
+        IF VisSys_Type <> 4 THEN -- Not iRVision System Return
+          -- Clear the Screen
+          CLR_STND_SCR(gm_status)
+          VisWizStatus.Cnfg_Is_Done = TRUE -- indicate vision has ended
+          VisWizStatus.Cnfg_Status = 0 -- indicate done and OK
+          RETURN
+        ELSE
+          IsVisLoaded -- go check if vision is loaded
+          IF use_vision=FALSE THEN -- above determined
+            RETURN
+          ENDIF
+        ENDIF
+
+        REPEAT
+          -- System Type for IRVISION Asking 2D or 3DL
+          CLR_STND_SCR(gm_status)
+          WRITE (CR,visq2_gmdata,'?',CR)
+          WRITE ('',CR)
+          WRITE ('1.',ir2dgmdata ,CR)   --1. iRVision 2D System
+          WRITE ('2.',ir3dgmdata ,CR)   --2. iRVision 3D System
+          WRITE ('3.',irbthgdata ,CR)   --3. iRVision 2D & 3D System(s)
+          WRITE (gdata_ans,'(1-3):')
+          READ (ans)
+        UNTIL (Verify_Answr(Ans,1,3))-- Verify Answer
+
+         iRtype = ans  -- Set Vision Type
+         SELECT (iRtype) OF --
+         CASE (1):  --
+            fanuciR = TRUE
+            fanuc3dl = FALSE
+            writeLog('  User confirmed iR 2D Vision', FALSE)
+         CASE (2):  --
+            fanuciR =  TRUE
+            fanuc3dl = TRUE
+            writeLog('  User confirmed iR 3DL Vision', FALSE)
+         CASE (3):  --
+            fanuciR = TRUE
+            fanuc3dl = TRUE
+            writeLog('  User confirmed 2D&3DL Vision', FALSE)
+         ENDSELECT --
+       --  fanuciR = TRUE
+        -- fanuc3dl = FALSE
+         VisStat_Incr -- Set stage to one
+
+     -- iRVision Lighting
+       REPEAT
+          -- Vision Lighting
+          CLR_STND_SCR(gm_status)
+          WRITE (CR,irlight,'?',CR,CR)
+          WRITE ('1. ',irlight2 ,CR)   -- 1. Remote Mounted
+          WRITE ('2. ',irlight3 ,CR)   -- 2. Robot Mounted
+          WRITE ('3. ',irlight4 ,CR)   -- 3. Remote & Robot Mounted
+          WRITE ('4. ',irlight5 ,CR)   -- 4. No Lighting
+          WRITE (gdata_ans,' (1-4): ')
+          READ (ans)
+       UNTIL (Verify_Answr(Ans,1,4))-- Verify Answer
+
+       VisLghtType = ans
+       SELECT (VisLghtType) OF --
+         CASE (1):  --Remote Mounted
+            writeLog('  User confirmed Remote Mounted Lighting', FALSE)
+         CASE (2):  --Robot Mounted
+            writeLog('  User confirmed Robot Mounted Lighting', FALSE)
+         CASE (3):  --Remote & Robot Mounted
+            writeLog('  User confirmed Remote & Robot Mounted Lighting', FALSE)
+         CASE (4):  --No Lighting
+            writeLog('  User confirmed no lighting', FALSE)
+       ENDSELECT --
+      -- Clear the Screen
+      CLR_STND_SCR(gm_status)
+
+      VisWizStatus.Cnfg_Is_Done = TRUE -- indicate vision Wizard ended
+      VisWizStatus.Cnfg_Status = 0 -- indicate done and OK
+
+END Vis_app_wiz
+-------------------------------------------------------------------
+BEGIN
+-- set_fanuciR
+
+Vis_app_wiz
+
+END GMWIZVIS
+

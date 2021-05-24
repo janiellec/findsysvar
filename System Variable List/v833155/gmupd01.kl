@@ -1,0 +1,107 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: GMUPD01
+--
+--    Description:
+--
+--    GM G4 Rev01 Update
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--    Other Application files:
+--    
+--    
+--    
+-------------------------------------------------------------------------------
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--    2019/04/11  marchaka  v833p06 rev01
+--    2019/04/18  marchaka  Clear run_fix[1].  We cannot clear run_fix[28] because that
+--                          SPR fix isn't part of the rev01 update.  There were not other
+--                          run fixes every released on G4.
+--    2019/05/15  marchaka  IMPORTANT!!  Rev01 contained just fixes to the full load media.  The content of this update will
+--                          be in update 02.  This file is no longer used (v833p06).
+
+----------------------------------------------------------
+PROGRAM GMUPD01
+-----------------------------------------------------------------------------
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+%ENVIRONMENT proddef
+
+CONST
+Revision='2019-04-18'
+
+VAR
+  gm_status:  INTEGER
+  psve:  INTEGER
+  temp_str:  STRING[25]
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  run_fix      IN SHADOW FROM RUNFIX   : ARRAY[30] OF STRING[25]
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines
+
+ROUTINE dcsio_prot FROM gmdcsprot
+-----------------------------------------------------------------------------
+ROUTINE run_update01
+-- PURPOSE:  Run update 01 setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Revision
+
+  dcsio_prot --run DCS I/O protection update
+
+  --clear run_fix array item 1, need to make sure variable structure exists
+  GET_VAR(psve, 'runfix', 'run_fix[1]', temp_str, gm_status)
+  IF (gm_status = 0) THEN --variable structure exists
+    Set_S_PVar('runfix', 'run_fix[1]', '   ')
+  ENDIF
+
+  --set Hints screen version
+  $application[8] = 'GM Global 4 Rev01'  
+
+END run_update01
+-----------------------------------------------------------------------------
+BEGIN
+
+  run_update01
+
+END GMUPD01
+

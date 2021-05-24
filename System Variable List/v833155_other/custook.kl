@@ -1,0 +1,470 @@
+-------------------------------------------------------------------------------
+--	  Provides User with 20 Y/N Menus  1-10  GRS4 Standards.
+--									   11-20 Custom Applications for user.
+--
+--    ok_menu[1,1] = Menu Title 		[40 Characters MAX]
+--    ok_menu[1,2] = Menu Prompt 		[40 Characters MAX]
+--    ok_menu[1,3] = Menu Prompt  	        [40 Characters MAX]
+--    ok_menu[1,4] = Menu Acknowledge Line      [40 Characters MAX]
+--
+--    Example:
+--    ok_menu[10,1] = '---        TIP DRESS DUMP 1          ---'
+--    ok_menu[10,2] = '---         NOT ADVANCED             ---'
+--    ok_menu[10,3] = '---                                  ---'
+--    ok_menu[10,4] = '---      PRESS [1] to RETRY          ---'
+--
+-------------------------------------------------------------------------------
+--    10/23/13   JJA R30iB Development
+--    12/03/13   GJK Revised for R30iB
+--    02-19-17 Kosaski a lot of changes and added user menu array
+--    2017/03/28 marchaka Changed name of menu_screen routine to menu_scrn_ok.  
+--                        Change made so gmcellvr can initialize variable settings
+--                        for the menu edit webscreens.  All three custo* programs
+--                        had the name menu_screen, had to differentiate the routine 
+--                        between all the programs.
+--    2018/01/29 marchaka Added check for ArcTool.  If ArcTool is loaded need to call recovery
+--                        menu clean up from atshcust instead of atcustom.
+--    2019/07/08 marchaka Check if it is ArcTool in post_custok routine.  This is to fix an issue where arctoolopt
+--                        is uninitialized during a cold start.
+--    2019/08/03 marchaka User prompt box digital output will be used in stead of the system.
+--    2019/08/25 marchaka Add double blank sensor items in array 40.
+--    2020/10/07 schoensm V8.33P10 add item 9.   
+-------------------------------------------------------------------------------
+PROGRAM custook
+-------------------------------------------------------------------------------
+
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='GRS4CustOK V4.5'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+
+-- Softpart built-ins
+%ENVIRONMENT SYSDEF -- needed for setting the $SCAN_TIME
+%ENVIRONMENT REGOPE -- needed for the set register builtin
+%ENVIRONMENT ioblt  -- needed for iovalset
+
+%INCLUDE kliotyps
+
+CONST
+
+%INCLUDE gmcnstnt  -- Constant file for GM, including CH declarations from GM_CH_ID
+
+  ER_WARN       =  0
+  ER_PAUSE      =  1
+  ER_ABORT      =  2
+  TPI_ENABLE    = 249
+  TPI_EDIT      = 145
+  TPI_RESET     = 153  -- TP RESET
+  CLR_SCRN			= 128 	--clear the screen
+  CRSR_HOME			=	137 	--moves cursor to home position
+
+  Revision = '2020-10-07'
+
+VAR
+
+ Cur_Revision IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  User_ok_menu  IN SHADOW FROM custook: ARRAY[25,5] OF STRING[40]
+  ok_menu       IN SHADOW FROM custook: ARRAY[40,4] OF STRING[40] --jja  R30iB Update02 was ARRAY[20,4]
+  ok_menunum    IN SHADOW FROM custook: INTEGER
+  ok_answer     IN SHADOW FROM custook: INTEGER
+  check_val     IN SHADOW FROM custook: BOOLEAN
+  prmpt_back    IN SHADOW FROM GMCUSTO  : BOOLEAN
+  dnet64size    IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+  User_Aborted  , -- Used for identifying if the program was aborted or finished CH runing in ATCUSTOM to clean up
+  Rcvry_Active IN SHADOW from ATCUSTOM : BOOLEAN -- Used for menu program indicating they are active
+
+  user_abortat  , -- ArcTool --Used for identifying if the program was aborted or finished
+  rcvry_act_at IN SHADOW FROM GMATVAR: BOOLEAN -- ArcTool Used for if the user recovery is being executed to start CH  
+
+  Curnt_UMenu,  -- Used for the result of subtracting the users past arguments when greater than standard, menaing next array
+  max_menu,     -- Indicates the max menu avaialble between  USER_YN_MENU and YN_MENU
+  ans    				IN SHADOW : INTEGER
+  ansd_ok       IN SHADOW : INTEGER
+  ok_flag			IN SHADOW : BOOLEAN
+  l_i     : INTEGER
+  l_j     : INTEGER
+  status  : INTEGER
+  g_status: INTEGER
+  psve    : INTEGER
+  real_value : REAL
+  real_value2: REAL
+  str_value  : STRING[10]
+  str_value2 : STRING[10]
+  gm_status  : INTEGER
+
+  arctoolopt:  BOOLEAN --Check if ArcTool
+  prmp_dout IN SHADOW FROM GMVARS: INTEGER  --User Prompt Box DO
+
+%INCLUDE klrdutil -- Need for the CLR_STND_SCR routine
+%INCLUDE gmrdutil  -- Need for the GM utility builins like Set_B_Svar)
+
+ROUTINE ClnUpRcvyMnu FROM ATCUSTOM
+ROUTINE ATClnRcvyMnu FROM atshcust
+-----------------------------------------------------------------------------
+ROUTINE init_menus
+-- PURPOSE: set verify the variables used have beeen setup prior to using
+--
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+           -- Reset Menu Title, Line1, Line 2, Response
+  FOR l_i = 1 to (ARRAY_LEN(ok_menu)) DO --jja  R30iB Update02 was 20
+    FOR l_j = 1 to 4 DO
+      IF UNINIT (ok_menu[l_i,l_j]) THEN
+        IF l_j=1 THEN
+          ok_menu[l_i,l_j] = 'OK menu ' +int2str(l_i) + ' has NOT been Setup'
+        ELSE
+          ok_menu[l_i,l_j] = ''
+        ENDIF
+      ENDIF
+    ENDFOR
+  ENDFOR
+   FOR l_i = 1 to (ARRAY_LEN(User_ok_menu)) DO --jja  R30iB Update02 was 20
+    FOR l_j = 1 to 4 DO
+      IF UNINIT (User_ok_menu[l_i,l_j]) THEN
+        IF l_j=1 THEN
+          User_ok_menu[l_i,l_j] = 'USER OK menu ' +int2str(l_i) + ' has NOT been Setup'
+        ELSE
+          User_ok_menu[l_i,l_j] = ''
+        ENDIF
+      ENDIF
+    ENDFOR
+  ENDFOR
+
+END init_menus
+-----------------------------------------------------------------------------
+ROUTINE init_arc_ok
+-- PURPOSE: Initialize Arc Variables on power up
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(arctoolopt) THEN --ArcTool?
+    arctoolopt = FALSE --reset to FALSE
+    IF Chk_Feature('H541') THEN -- is the Arc Tool option loaded
+      arctoolopt = TRUE
+    ENDIF
+    IF Chk_Feature('H574') THEN -- is the LR Arc Tool option loaded
+      arctoolopt = TRUE
+    ENDIF
+  ENDIF --ArcTool?
+
+END init_arc_ok
+-----------------------------------------------------------------------------
+ROUTINE menu_scrn_ok
+-- DESCRIPTION:
+--   This routine is to define the GM USer Menu Screen
+-----------------------------------------------------------------------------
+VAR
+  l_status: INTEGER
+BEGIN
+
+    -- CUSTONY / CUST LST									 1234567890123456789012345678901234567890
+    Set_S_PVar('CUSTOOK', 'ok_menu[9,1]', '---  HAS THE CALIBRATION BLOCK BEEN  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[9,2]', '--REMOVED AND RIVET TAPE RE-INSTALLED---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[9,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[9,4]', '---    PRESS [1] to ACKNOWLEDGE      ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[10,1]', '---        TIP DRESS DUMP 1          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[10,2]', '---         NOT ADVANCED             ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[10,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[10,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[11,1]', '---        TIP DRESS DUMP 2          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[11,2]', '---         NOT ADVANCED             ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[11,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[11,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[12,1]', '---        TIP DRESS DUMP 3          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[12,2]', '---         NOT ADVANCED             ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[12,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[12,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[13,1]', '---        TIP DRESS DUMP 4          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[13,2]', '---         NOT ADVANCED             ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[13,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[13,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[14,1]', '---        TIP DRESS DUMP 1          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[14,2]', '---         NOT RETRACTED            ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[14,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[14,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[15,1]', '---        TIP DRESS DUMP 2          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[15,2]', '---         NOT RETRACTED            ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[15,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[15,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[16,1]', '---        TIP DRESS DUMP 3          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[16,2]', '---         NOT RETRACTED            ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[16,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[16,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[17,1]', '---        TIP DRESS DUMP 4          ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[17,2]', '---         NOT RETRACTED            ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[17,3]', '---                                  ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[17,4]', '---      PRESS [1] to RETRY          ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[18,1]', '--           WARNING!!                --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[18,2]', '-- TIP DRESSER DUMP IS ABOUT TO MOVE  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[18,3]', '--    DUMP WILL ATTEMPT TO RETURN     --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[18,4]', '--      PRESS [1] to ACKNOWLEDGE      --')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[19,1]', '-- YOU ARE ABOUT TO UNLATCH THE TOOL  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[19,2]', '---       PLEASE USE CAUTION         ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[19,3]', '---  BE AWARE OF YOUR HAZARD AREA     ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[19,4]', '---     PRESS [1] to ACKNOWLEDGE     ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[20,1]', '-- YOU ARE ABOUT TO LATCH THE TOOL  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[20,2]', '---       PLEASE USE CAUTION         ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[20,3]', '---  BE AWARE OF YOUR HAZARD AREA     ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[20,4]', '---     PRESS [1] to ACKNOWLEDGE     ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[21,1]', '-- YOU ARE ABOUT TO UNLATCH THE TOOL  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[21,2]', '---  CAUTION SafeSwitch Missing      ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[21,3]', '---  BE AWARE OF YOUR HAZARD AREA     ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[21,4]', '---     PRESS [1] to ACKNOWLEDGE     ---')
+
+    Set_S_PVar('CUSTOOK', 'ok_menu[22,1]', '-- YOU ARE ABOUT TO LATCH THE TOOL  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[22,2]', '---  CAUTION SafeSwitch Missing      ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[22,3]', '---  BE AWARE OF YOUR HAZARD AREA     ---')
+    Set_S_PVar('CUSTOOK', 'ok_menu[22,4]', '---     PRESS [1] to ACKNOWLEDGE     ---')
+
+    --jja  R30iB Update02
+    Set_S_PVar('CUSTOOK', 'ok_menu[31,1]', '--      3DL Calibration Within    --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[31,2]', '--           Tolerance     --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[31,3]', '--      PRESS [1] to ACKNOWLEDGE  --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[32,1]', '--      3DL Calibration NOT    --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[32,2]', '--        Within Tolerance     --')
+    Set_S_PVar('CUSTOOK', 'ok_menu[32,3]', '--      PRESS [1] to ACKNOWLEDGE  --')
+
+    --double blank sensor
+    Set_S_PVar('CUSTOOK', 'ok_menu[40,1]', 'Verify Double-Part Condition')
+    Set_S_PVar('CUSTOOK', 'ok_menu[40,2]', 'has been Corrected')
+    Set_S_PVar('CUSTOOK', 'ok_menu[40,3]', '')
+    Set_S_PVar('CUSTOOK', 'ok_menu[40,4]', 'Press [1], ENTER to Continue')
+
+END menu_scrn_ok
+-----------------------------------------------------------------------------
+ROUTINE ShowSetings
+-- PURPOSE: to show the user the proper settings
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+     WRITE TPERROR(CHR(129))-- Clear line from previous writing
+     WRITE TPDISPLAY (CHR(CLR_SCRN),CHR(CRSR_HOME))
+     WRITE TPPROMPT(CHR(129))-- Clear line from previous writing
+     CANCEL FILE TPPROMPT -- Need to cancel read if aborting
+
+  --Custom List Prompts
+            --1234567890123456789012345678901234567890
+      WRITE ('The Call to the CUSTOOK program has an',cr)
+      WRITE ('error. To use the CUSTOOK program you',cr)
+      WRITE ('have to pass 1 argument to tell the',cr)
+      WRITE ('program what you want to do:',cr,cr)
+
+      WRITE ('AR[1]= OK Menu Text to Display.(1-',max_menu,')',cr)
+      WRITE ('The program has to ABORT because of',cr)
+      WRITE ('this error to allow correcting.',cr)
+
+      WRITE TPPROMPT(CR,'Please Correct Program and Start Again')
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+       DELAY 5000
+
+END ShowSetings
+-----------------------------------------------------------------------------
+ROUTINE Post_Custok
+-- DESCRIPTION:
+--   This routine Clears the user screen and Posts Custookt to it
+-----------------------------------------------------------------------------
+VAR
+  l_status: INTEGER
+
+BEGIN
+
+IF dnet64size = FALSE THEN
+  gm_status = iovalset(2, prmp_dout, 1)
+  IF (gm_status <> 0) THEN 
+    POST_ERR(38000, 'Failed to set User Manual Inteverntion DO to ON', 0, 0)
+  ENDIF 
+ENDIF
+
+ IF UNINIT(ok_menunum) THEN
+   ok_menunum = 1
+ ENDIF
+
+ init_menus -- need to ensure menus are setup
+
+ init_arc_ok --initialize ArcTool VAR not stored on memory on power up
+
+     WRITE TPERROR(CHR(129))-- Clear line from previous writing
+     WRITE TPDISPLAY (CHR(CLR_SCRN),CHR(CRSR_HOME))
+     WRITE TPPROMPT(CHR(129))-- Clear line from previous writing
+     CANCEL FILE TPPROMPT -- Need to cancel read if aborting
+
+      --Custom YN or Skip/Retry Prompts
+                 -- 1234567890123456789012345678901234567890
+      WRITE (cr,cr,'----------------------------------------',cr)
+        IF (ok_menunum <= ARRAY_LEN(ok_menu)) THEN
+          WRITE (ok_menu[ok_menunum,1],cr)
+          WRITE (ok_menu[ok_menunum,2],cr)
+          WRITE (ok_menu[ok_menunum,3],cr)
+          WRITE (ok_menu[ok_menunum,4],cr)
+        ELSE -- need to post users menu
+          IF (ok_menunum > ARRAY_LEN(ok_menu)) THEN
+            Curnt_UMenu = 0
+            Curnt_UMenu = ok_menunum - (ARRAY_LEN(ok_menu))
+            IF (Curnt_UMenu >0) AND (Curnt_UMenu <=(ARRAY_LEN(User_ok_menu)))  THEN
+              WRITE (User_ok_menu[Curnt_UMenu,1],cr)
+              WRITE (User_ok_menu[Curnt_UMenu,2],cr)
+              WRITE (User_ok_menu[Curnt_UMenu,3],cr)
+              WRITE (User_ok_menu[Curnt_UMenu,4],cr)
+            ELSE
+              POST_ERR(38000, 'Unknown USER menu'+int2str(Curnt_UMenu), 0, 0) --
+            ENDIF
+          ENDIF
+        ENDIF
+      WRITE ('----------------------------------------',cr )
+      WRITE TPPROMPT(CR,'Press 1, ENTER when OK to continue ')
+
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+
+  IF (arctoolopt = TRUE) THEN --ArcTool
+    rcvry_act_at = TRUE --set flag for atshcust to know started this
+  ELSE
+    Rcvry_Active = TRUE -- set flag for GMATCSTM to know started this
+  ENDIF --ArcTool
+
+END Post_Custok
+
+-----------------------------------------------------------------------------
+-- custook
+-----------------------------------------------------------------------------
+
+BEGIN --custook
+
+  ok_flag = FALSE
+  Cur_Revision = Revision
+
+  init_arc_ok
+
+ init_menus -- need to ensure menus are setup
+
+  IF UNINIT(ok_answer) THEN
+    ok_answer = 40
+  ENDIF
+  IF UNINIT(check_val) THEN
+    check_val = TRUE
+  ENDIF
+
+    ansd_ok = -1
+
+  GET_TPE_PRM(1,1, ok_menunum, real_value, str_value, status)   -- Get the MENU Number
+
+ -- Checks to make sure your using valid arguements.
+  max_menu = (ARRAY_LEN(User_ok_menu)) + (ARRAY_LEN(ok_menu))
+
+  -- turn off the parameter checking.
+  IF check_val = TRUE THEN
+    IF (ok_menunum < 1) OR (ok_menunum > max_menu)THEN
+      ShowSetings
+      POST_ERR(38000,'CUSTOOK AR[1]='+int2str(ok_menunum)+' Must be < '+int2str(max_menu),0,2)
+    ENDIF
+  ENDIF
+
+  IF (arctoolopt = TRUE) THEN --ArcTool
+    PURGE CONDITION[CHATWatchAbr] -- Purge to clear condition uses same one in All CUSTO 3 programs
+    CONDITION[ChATWatchAbr]: --
+      WHEN (ABORT) DO --
+        user_abortat = TRUE -- trigger routine in ATCUSTOM to clean up
+     ENDCONDITION --
+     ENABLE CONDITION[ChATWatchAbr]
+  ELSE --SpotTool+
+    PURGE CONDITION[CHWatchAbort] -- Purge to clear condition uses same one in All CUSTO 3 programs
+    CONDITION[ChWatchAbort]: --
+      WHEN (ABORT) DO --
+        user_aborted = TRUE -- trigger routine in ATCUSTOM to clean up
+     ENDCONDITION --
+     ENABLE CONDITION[ChWatchAbort]
+  ENDIF
+
+menu_scrn_ok
+
+IF (ok_menunum <= ARRAY_LEN(ok_menu)) THEN
+  POST_ERR(38000, ok_menu[ok_menunum,1], 0, 0) -- post the header to alarm screen
+ELSE
+  IF (ok_menunum > ARRAY_LEN(ok_menu)) THEN
+    Curnt_UMenu = 0
+    Curnt_UMenu = ok_menunum - (ARRAY_LEN(ok_menu))
+    IF (Curnt_UMenu >0) AND (Curnt_UMenu <=(ARRAY_LEN(User_ok_menu)))  THEN
+      POST_ERR(38000, User_ok_menu[Curnt_UMenu,1], 0, 0) -- post the header to alarm screen
+    ELSE
+      POST_ERR(38000, 'Unknown USER menu'+int2str(Curnt_UMenu), 0, 0) --
+    ENDIF
+  ENDIF
+ENDIF
+
+IF status = 0 THEN
+
+  REPEAT
+
+     ok_flag = TRUE
+     Post_Custok
+     READ TPPROMPT(ansd_ok)
+
+      IF (UNINIT(ansd_ok)) THEN -- Had to add this because if previous ran abort before
+        ansd_ok = -1          -- getting answer, then will have uninit data BANDAID
+        DELAY 1000           -- this does not seem to fix it, it keeps returning UNINIT
+      ELSE                   -- but returns without any key strokes?????
+        IF (ansd_ok <> 1) THEN
+          WRITE TPPROMPT(ansd_ok,' is NOT valid, please enter 1 when OK')
+          DELAY 3000
+        ENDIF
+      ENDIF
+
+  UNTIL (ansd_ok = 1 )
+
+   IF (ansd_ok = 1) THEN
+       -- Set R[X] for answer
+       --SET_INT_REG(yn_answer, ansd_ok, status)
+     --  ok_flag = FALSE -- Need to leave True so CLEANUP routine in GMATCSTM can use
+
+	 ENDIF
+
+    IF (arctoolopt = TRUE) THEN  --ArcTool
+      DISABLE CONDITION[ChATWatchAbr]
+      ATClnRcvyMnu -- Reset all variables and log the user answer
+    ELSE --SpotTool+
+      DISABLE CONDITION[ChWatchAbort]
+      ClnUpRcvyMnu -- Reset all variables and log the user answer
+    ENDIF 
+
+ENDIF
+
+END custook
+
+
+
+
+
+
+
+
+

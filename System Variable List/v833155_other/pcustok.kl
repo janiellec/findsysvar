@@ -1,0 +1,191 @@
+-------------------------------------------------------------------------------
+--	  Provides User with 40 Y/N Menus  1-20  GRS4 Press standards.
+--									   21-40 Custom Applications for user.
+--
+--    ok_menu[1,1] = Menu Title 	      [40 Characters MAX]
+--    ok_menu[1,2] = Menu Prompt 		  [40 Characters MAX]
+--    ok_menu[1,3] = Menu Prompt  	      [40 Characters MAX]
+--    ok_menu[1,4] = Menu Acknowledge Line[40 Characters MAX]
+--
+--    Example:
+--    ok_menu[10,1] = '---        TIP DRESS DUMP 1          ---'
+--    ok_menu[10,2] = '---         NOT ADVANCED             ---'
+--    ok_menu[10,3] = '---                                  ---'
+--    ok_menu[10,4] = '---      PRESS [1] to RETRY          ---'
+--
+-------------------------------------------------------------------------------
+--    10/23/13   JJA R30iB Development
+--    12/03/13   GJK Revised for R30iB
+--	  10/4/14    Steedlj Initial Press G3 / G4 Release
+-------------------------------------------------------------------------------
+PROGRAM pcustok
+-------------------------------------------------------------------------------
+
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='GRS4PCustOK V4.0'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+
+-- Softpart built-ins
+%ENVIRONMENT SWGDEF
+%ENVIRONMENT SGDEF1
+%ENVIRONMENT proddef
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT strng
+%ENVIRONMENT REGOPE
+%ENVIRONMENT UIF
+%ENVIRONMENT ioblt
+%ENVIRONMENT IOSETUP
+
+%INCLUDE kliotyps
+
+CONST
+
+  ER_WARN       =  0
+  ER_PAUSE      =  1
+  ER_ABORT      =  2
+  TPI_ENABLE    = 249 
+  TPI_EDIT      = 145
+  TPI_RESET     = 153   -- TP RESET
+  CLR_SCRN		= 128 	--clear the screen
+  CRSR_HOME		= 137 	--moves cursor to home position
+
+VAR
+
+  ok_menu       IN SHADOW FROM PCUSTOK	: ARRAY[40,4] OF STRING[40] 
+  ok_menunum    IN SHADOW FROM PCUSTOK	: INTEGER
+  ok_answer     IN SHADOW FROM PCUSTOK	: INTEGER
+  check_val     IN SHADOW FROM PCUSTOK	: BOOLEAN
+  prmpt_back    IN SHADOW FROM GMCUSTO  : BOOLEAN
+  dnet64size    IN SHADOW FROM GMCUSTO  : BOOLEAN
+
+  ans    	IN SHADOW : INTEGER
+  ok_flag	IN SHADOW : BOOLEAN
+  l_i     : INTEGER
+  l_j     : INTEGER
+  status  : INTEGER
+  g_status: INTEGER 
+  psve    : INTEGER
+  real_value : REAL
+  real_value2: REAL
+  str_value  : STRING[10]
+  str_value2 : STRING[10]
+  gm_status  : INTEGER
+
+%INCLUDE kliosop  
+%INCLUDE etdcapsh
+%INCLUDE klrdutil
+%INCLUDE klrdread
+
+-----------------------------------------------------------------------------
+ROUTINE Menu_Screen
+-- DESCRIPTION: 
+--   This routine is to define the GM USer Menu Screen 
+-----------------------------------------------------------------------------
+VAR
+  l_status: INTEGER
+BEGIN
+
+    -- PCUSTNY /        					  1234567890123456789012345678901234567890
+    SET_VAR(psve, 'PCUSTOK', 'ok_menu[1,1]', '---        CONTINUE MOVE           ---', gm_status)
+    SET_VAR(psve, 'PCUSTOK', 'ok_menu[1,2]', '---         		                  ---', gm_status)
+    SET_VAR(psve, 'PCUSTOK', 'ok_menu[1,3]', '---                                ---', gm_status)
+    SET_VAR(psve, 'PCUSTOK', 'ok_menu[1,4]', '---      ENTER [1] to Continue     ---', gm_status)
+
+END Menu_Screen
+
+-----------------------------------------------------------------------------
+ROUTINE Post_Custok 
+-- DESCRIPTION: 
+--   This routine Clears the user screen and Posts Custookt to it 
+-----------------------------------------------------------------------------
+VAR
+  l_status: INTEGER
+  
+BEGIN
+
+  SET_VAR(psve, '*system*', '$PRMPDSPON', TRUE, gm_status)
+  prmpt_back = TRUE
+
+     WRITE TPDISPLAY (CHR(CLR_SCRN),CHR(CRSR_HOME))
+
+      --Custom YN or Skip/Retry Prompts
+                 -- 1234567890123456789012345678901234567890
+      WRITE (cr,cr,'----------------------------------------',cr)
+      WRITE (ok_menu[ok_menunum,1],cr)
+      WRITE (ok_menu[ok_menunum,2],cr)             
+      WRITE (ok_menu[ok_menunum,3],cr)             
+      WRITE (ok_menu[ok_menunum,4],cr)                          
+      WRITE ('----------------------------------------',cr )
+     
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+
+END Post_Custok      
+   
+-----------------------------------------------------------------------------
+-- pcustok
+-----------------------------------------------------------------------------
+
+BEGIN --custook
+
+  ok_flag = FALSE
+
+  -- Reset Menu Title, Line1, Line 2, Response
+  FOR l_i = 1 to 40 DO --jja  R30iB Update02 was 20
+    FOR l_j = 1 to 4 DO 
+      IF UNINIT (ok_menu[l_i,l_j]) THEN
+	 ok_menu[l_i,l_j] = ''  
+      ENDIF
+    ENDFOR
+  ENDFOR
+  
+  IF UNINIT(ok_answer) THEN
+    ok_answer = 40
+  ENDIF 
+  IF UNINIT(check_val) THEN
+    check_val = TRUE
+  ENDIF
+  IF UNINIT(ans) THEN
+    ans = 1
+  ENDIF
+ 
+  GET_TPE_PRM(1,1, ok_menunum, real_value, str_value, status)   -- Get the MENU Number
+
+-- Checks to make sure your using valid arguements.
+-- turn off the parameter checking.
+IF check_val = TRUE THEN  
+    IF (ok_menunum > 40) THEN --jja  R30iB Update02 was 20
+      POST_ERR(ER_TYPEER,'Invalid parameters AR[1]',0,2 )
+      ABORT
+    ELSE
+    ENDIF
+ENDIF
+
+Menu_Screen
+
+IF status = 0 THEN
+  FORCE_SPMENU(tp_panel,SPI_TPUSER,1)
+
+  REPEAT
+
+     ok_flag = TRUE
+     Post_Custok
+     READ (ans)
+     
+  UNTIL (ans = 1 )
+     
+	 IF (ans = 1) THEN
+       -- Set R[X] for answer
+       --SET_INT_REG(yn_answer, ans, status)
+         ok_flag = FALSE
+         SET_VAR(psve, '*system*', '$PRMPDSPON', FALSE, gm_status)
+         prmpt_back = FALSE
+	 ENDIF
+
+      FORCE_SPMENU(tp_panel,SPI_TPTCH,1)
+  
+ENDIF
+
+END pcustok

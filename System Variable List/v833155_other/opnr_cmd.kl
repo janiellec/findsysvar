@@ -1,0 +1,567 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--    +
+--    Program:   opnr_cmd - requests openers to perform various operations 
+--    
+--    Description:
+--    
+--    Language: KAREL
+--    
+--    Source File:   opnr_cmd.kl   18-JUN-06   04:05PM
+--    
+--    Author: David R. Friedeman               
+--            Fanuc Robotics Corporation
+--            2000 South Adams Road
+--            Auburn Hills, Michigan    48326-2800
+--    
+--    Modification history:
+--
+--   18-JUN-06 FRIEDEMAN V640/01 File created.
+--
+--   15-SEP-06 FRIEDEMAN V640/02 Numerous updates.  Include 'DL' (Decklid)
+--                       as a valid string option, since car bodies do not
+--                       technically have 'Lift Gates'.
+--
+--   21-SEP-06 FRIEDEMAN V640/03 Totally rewrote program based on a number of
+--                       factors related to complex functions, changing
+--                       needs/features, and a request from the Process Group.
+--
+--   28-SEP-06 FRIEDEMAN V720/01 Port for R-J3iC
+--
+--   24-JAN-08 FRIEDEMAN V730/02 Added support for rear doors, plus NOWAIT
+--                       macros.
+--
+--   05-APR-08 FRIEDEMAN V730/03 They didn't like the NOWAIT macros, but
+--                       preferred two separate calls - a REQUEST and a WAIT.
+--                       Modified the code to support the "preferred" method.
+--
+--   28-OCT-08 FRIEDEMAN V730/04 Added Hood Opener Function.
+--
+--   18-MAR-10 FRIEDEMAN 750/01 Port
+--
+--   24-Aug-10 FRIEDEMAN 770/01 Updated to Spot+ V7.7X
+--
+--   23-JUN-15 FRIEDEMAN 820/01 Moved I/O around for RS4
+--
+--   29-NOV-16 FRIEDEMAN 833/01 Modified for RS4, G4.
+--
+--   12-MAR-18 FRIEDEMAN 833/02 Moved I/O points to match map layout change.
+--
+------------------------------------------------------------------
+PROGRAM opnr_cmd
+----------------------------------------------------------------------
+%ENVIRONMENT ioblt 
+%environment sysdef
+%environment regope
+%environment multi
+%ENVIRONMENT STRNG
+%environment errs
+%environment iosetup
+
+%COMMENT='OpenerComnd V4.1'
+%system
+%nopause = ERROR + COMMAND + TPENABLE
+%noabort = ERROR + COMMAND
+%nobusylamp
+%nolockgroup
+
+CONST
+ 
+  ER_WARN      = 0
+  ER_PAUSE     = 1
+  ER_ABORT     = 2
+ 
+  PARM_INTEGER = 1
+  PARM_REAL    = 2
+  PARM_STRING  = 3
+
+  WAIT_OPEN    =  1  -- Waits for the opened signal to be 1/0
+  WAIT_CLOSED  =  2  -- Waits for the closed signal to be 1/0
+  WAIT_OP_REQ  =  3  -- Waits for the open request bit to be 1/0
+  WAIT_CL_REQ  =  4  -- Waits for the close request bit to be 1/0
+  OP_REQ_NW    =  5  -- Sends an open request 1/0 without waiting.
+  CL_REQ_NW    =  6  -- Sends a close request 1/0 without waiting.
+  HELD_CLOSED  =  7  -- Sends the CLOSED output when the door is in position.
+  HELD_OPEN    =  8  -- Sends the OPEN output when the door is in position.
+
+  -- ***********************************************************************
+  -- *****    INPUTS                                                   *****
+  -- ***********************************************************************
+
+  -- I/O Index Point Constants
+  -- Wait for Door/Deck Held Open Input bit
+  WHO_LF = 290
+  WHO_LR = 292
+  WHO_RF = 294
+  WHO_RR = 296
+  WHO_DL = 297
+  WHO_HD = 298
+
+  -- Wait for Door Held Closed Input bit
+  WHC_LF = 289
+  WHC_LR = 291
+  WHC_RF = 293
+  WHC_RR = 295
+  -- No deck closed bit
+
+  -- Wait for Door/Deck Held Open Request Input bit
+  WHOR_LF = 300
+  WHOR_LR = 302
+  WHOR_RF = 304
+  WHOR_RR = 306
+  WHOR_DL = 307
+  WHOR_HD = 308
+
+  -- Wait for Hold Door Closed Request Input bit
+  WHCR_LF = 299
+  WHCR_LR = 301
+  WHCR_RF = 303
+  WHCR_RR = 305
+
+  -- No Hold Deck closed request bit
+
+  -- Cancel Opener Process I/O bit
+  CNCL_OP_TASK = 310
+
+  -- ***********************************************************************
+  -- *****    OUTPUTS                                                  *****
+  -- ***********************************************************************
+
+  -- Request to have the Door/Deck Held Closed Output bit
+  RHC_DF = 257
+  RHC_DR = 259
+  RHC_PF = 261
+  RHC_PR = 263
+
+  -- Request to have the Door/Deck Held Open Output bit
+  RHO_DF = 258
+  RHO_DR = 260
+  RHO_PF = 262
+  RHO_PR = 264
+  RHO_DL = 265
+  RHO_HD = 266
+
+  -- Output indicating that the Door/Deck is held CLOSED
+  DHC_DF = 267
+  DHC_DR = 269
+  DHC_PF = 271
+  DHC_PR = 273
+
+  -- Output indicating that the Door/Deck is held OPEN
+  DHO_DF = 268
+  DHO_DR = 270
+  DHO_PF = 272
+  DHO_PR = 274
+  DHO_DL = 275
+  DHO_HD = 276
+
+  -- Robot is waiting for a door to be held open/closed or it is waiting
+  -- for an open/close request from another robot.
+  WAIT_REQUEST = 280
+
+  -- Use APSH-100 (User Defined Alarm)
+  ER_OPNR_CNCL = 38100 --          "Opener Operation Canceled"
+  ER_WAIT_OPNR = 38100 --          "Wait For %s" * -- Wait For DF Opener Open 
+  ER_OPNR_OKAY = 38100 --          "%s Opener In Position"
+  ER_OPGENERAL = 38100 --          "%s"       *General Opener Alarm
+
+VAR                                                
+  io_status:    INTEGER
+  posted:       BOOLEAN
+  status:       INTEGER
+  data_type:    INTEGER
+  int_value:    INTEGER
+  real_value:   REAL
+  string_value: STRING[16]
+  counter:      INTEGER
+  opener_name:  STRING[2]
+  opener_index: INTEGER
+  opener_stat:  INTEGER
+  command_type: INTEGER
+  opener_timer: INTEGER
+  requested_io: INTEGER
+  req_io_state: BOOLEAN
+  io_index_inp: INTEGER
+  io_index_out: INTEGER
+
+ %include klrdutil
+
+BEGIN
+
+  -- Get the instruction type.
+  GET_TPE_PRM(1, data_type, command_type,real_value,string_value,status)
+  IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+    POST_ERR(ER_OPGENERAL, 'Opener Command Parameter Missing', 0, ER_ABORT)
+  ELSE
+    IF (data_type <> PARM_INTEGER) OR (command_type > 8) THEN
+      -- Opener command incorrect
+      POST_ERR(ER_OPGENERAL, 'Opener Command Parameter Invalid', 0, ER_ABORT)
+      ABORT
+    ENDIF
+  ENDIF
+
+  -- get second tp parameter. (DF,PF,DL)
+  GET_TPE_PRM(2, data_type, int_value,real_value,opener_name,status)
+  IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+    POST_ERR(ER_OPGENERAL, 'Opener Name Parameter Missing', 0, ER_ABORT)
+  ELSE
+    IF (data_type <> PARM_STRING) OR ((opener_name <> 'LF') AND
+       (opener_name <> 'LR') AND (opener_name <> 'RF') AND
+       (opener_name <> 'RR') AND (opener_name <> 'DL') AND
+       (opener_name <> 'HD')) THEN
+      -- opener name incorrect
+      POST_ERR(ER_OPGENERAL, 'Opener Name Parameter Invalid', 0, ER_ABORT)
+      ABORT
+    ENDIF
+  ENDIF
+
+  -- Get the requested I/O state.
+  -- 1 = ON; 0 = OFF
+  GET_TPE_PRM(3, data_type, requested_io,real_value,string_value,status)
+  IF status<>0 THEN  -- 17042 "ROUT-042 TPE parameters do not exist"
+    POST_ERR(ER_OPGENERAL, 'I/O State Parameter Missing', 0, ER_ABORT)
+  ELSE
+    IF (data_type <> PARM_INTEGER) OR (requested_io > 1) THEN
+      -- Opener command incorrect
+      POST_ERR(ER_OPGENERAL, 'Opener Command Parameter Invalid', 0, ER_ABORT)
+      ABORT
+    ELSE -- requested_io = 0/1.  Set a boolean equivalent
+      IF (requested_io = 1) THEN
+        req_io_state = TRUE
+      ELSE
+        req_io_state = FALSE
+      ENDIF
+    ENDIF
+  ENDIF
+
+  IF ((command_type = WAIT_CLOSED) OR (command_type = WAIT_CL_REQ)) AND
+      (opener_name = 'DL') THEN
+    POST_ERR(ER_OPGENERAL, 'Close Command Invalid For DL', 0, ER_ABORT)
+    ABORT
+  ENDIF
+
+  IF ((command_type = WAIT_CLOSED) OR (command_type = WAIT_CL_REQ)) AND
+      (opener_name = 'HD') THEN
+    POST_ERR(ER_OPGENERAL, 'Close Command Invalid For HD', 0, ER_ABORT)
+    ABORT
+  ENDIF
+
+  DOUT[WAIT_REQUEST] = ON
+
+  SELECT command_type OF
+    CASE(WAIT_OPEN, OP_REQ_NW): -- Open
+
+      -- Set up the I/O indices
+      IF (opener_name = 'LF') THEN
+        io_index_inp = WHO_LF
+        io_index_out = RHO_DF
+      ELSE
+        IF (opener_name = 'LR') THEN
+          io_index_inp = WHO_LR
+          io_index_out = RHO_DR
+        ELSE
+          IF (opener_name = 'RF') THEN
+            io_index_inp = WHO_RF
+            io_index_out = RHO_PF
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_inp = WHO_RR
+              io_index_out = RHO_PR
+            ELSE
+              IF (opener_name = 'DL') THEN
+                io_index_inp = WHO_DL
+                io_index_out = RHO_DL
+              ELSE
+                IF (opener_name = 'HD') THEN
+                  io_index_inp = WHO_HD
+                  io_index_out = RHO_HD
+                ELSE
+                  DOUT[WAIT_REQUEST] = OFF
+                  ABORT  -- Illegal string
+                ENDIF
+              ENDIF
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      -- If this is a "No Wait", return without waiting...
+      IF (command_type = OP_REQ_NW) THEN
+        -- Only send the request bit for the "Request" macro.  The "Wait"
+        -- macro doesn't send the request bit - it just waits.
+        DOUT[io_index_out] = req_io_state
+        DOUT[WAIT_REQUEST] = OFF
+        RETURN
+      ENDIF
+
+      IF(DIN[io_index_inp] <> req_io_state) AND (DIN[CNCL_OP_TASK] = FALSE) THEN
+        posted = FALSE
+        opener_timer = 0
+        CONNECT TIMER TO opener_timer
+        REPEAT
+          DELAY 100              --Give up CPU time
+          IF (opener_timer > 20000) AND (NOT posted) THEN
+            IF (req_io_state = FALSE) THEN
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Held Open = 0',0,ER_WARN)
+            ELSE
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Held Open = 1',0,ER_WARN)
+            ENDIF
+            posted = TRUE       --Remember this was posted
+          ENDIF
+        UNTIL (DIN[io_index_inp] = req_io_state) OR (DIN[CNCL_OP_TASK] = TRUE)
+        DISCONNECT TIMER opener_timer
+        IF posted AND (DIN[CNCL_OP_TASK] <> TRUE) THEN
+          -- Don't say it was okay if we got out by canceling...
+          POST_ERR(ER_OPNR_OKAY, opener_name + ' Opener In Position', 0, ER_WARN)
+        ENDIF
+      ENDIF
+
+      -- Notify the user if we skipped this step because it was canceled
+      IF (DIN[CNCL_OP_TASK] = TRUE) THEN
+        POST_ERR(ER_OPNR_CNCL,'Opener Operation Canceled', 0, ER_WARN) 
+      ENDIF  
+
+    CASE(WAIT_CLOSED, CL_REQ_NW): -- Wait for CLOSED bit = 0/1
+
+      -- Set up the I/O indices
+      IF (opener_name = 'LF') THEN
+        io_index_inp = WHC_LF
+        io_index_out = RHC_DF
+      ELSE
+        IF (opener_name = 'LR') THEN
+          io_index_inp = WHC_LR
+          io_index_out = RHC_DR
+        ELSE
+          IF (opener_name = 'RF') THEN
+            io_index_inp = WHC_RF
+            io_index_out = RHC_PF
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_inp = WHC_RR
+              io_index_out = RHC_PR
+            ELSE
+              DOUT[WAIT_REQUEST] = OFF
+              POST_ERR(ER_OPGENERAL, 'Use OPEN REQ For DECKLID RAISED', 0, ER_ABORT)
+              ABORT  -- Illegal string
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      -- If this is a "No Wait", return without waiting...
+      IF (command_type = CL_REQ_NW) THEN
+        -- Only send the request bit for the "Request" macro.  The "Wait"
+        -- macro doesn't send the request bit - it just waits.
+        -- If this is not a decklid/Hood, send the request output to the PLC
+        IF (opener_name <> 'DL') AND (opener_name <> 'HD') THEN
+          DOUT[io_index_out] = req_io_state
+        ENDIF
+        DOUT[WAIT_REQUEST] = OFF
+        RETURN
+      ENDIF
+
+      IF(DIN[io_index_inp] <> req_io_state) AND (DIN[CNCL_OP_TASK] = FALSE) THEN
+        posted = FALSE
+        opener_timer = 0
+        CONNECT TIMER TO opener_timer
+        REPEAT
+          DELAY 100              --Give up CPU time
+          IF (opener_timer > 20000) AND (NOT posted) THEN
+            IF (req_io_state = FALSE) THEN
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Held Closed = 0',0,ER_WARN)
+            ELSE
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Held Closed = 1',0,ER_WARN)
+            ENDIF
+            posted = TRUE       --Remember this was posted
+          ENDIF
+        UNTIL (DIN[io_index_inp] = req_io_state) OR (DIN[CNCL_OP_TASK] = TRUE)
+        DISCONNECT TIMER opener_timer
+        IF posted AND (DIN[CNCL_OP_TASK] <> TRUE) THEN
+          -- Don't say it was okay if we got out by canceling...
+          POST_ERR(ER_OPNR_OKAY, opener_name + ' Opener In Position', 0, ER_WARN)
+        ENDIF
+      ENDIF
+
+      -- Notify the user if we skipped this step because it was canceled
+      IF (DIN[CNCL_OP_TASK] = TRUE) THEN
+        POST_ERR(ER_OPNR_CNCL,'Opener Operation Canceled', 0, ER_WARN) 
+      ENDIF  
+
+    CASE(WAIT_OP_REQ): -- Wait for OPEN REQUEST bit = 0/1
+      -- Set the appropriate I/O point to monitor
+      IF (opener_name = 'LF') THEN
+        io_index_inp = WHOR_LF
+      ELSE
+        IF (opener_name = 'RF') THEN
+          io_index_inp = WHOR_RF
+        ELSE
+          IF (opener_name = 'LR') THEN
+            io_index_inp = WHOR_LR
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_inp = WHOR_RR
+            ELSE
+              IF (opener_name = 'DL') THEN
+                io_index_inp = WHOR_DL
+              ELSE
+                io_index_inp = WHOR_HD
+              ENDIF
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      IF(DIN[io_index_inp] <> req_io_state) AND (DIN[CNCL_OP_TASK] = FALSE) THEN
+        posted = FALSE
+        opener_timer = 0
+        CONNECT TIMER TO opener_timer
+        REPEAT
+          DELAY 100              --Give up CPU time
+          IF (opener_timer > 20000) AND (NOT posted) THEN
+            IF (req_io_state = FALSE) THEN
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Hold Open Req = 0',0,ER_WARN)
+            ELSE
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Hold Open Req = 1',0,ER_WARN)
+            ENDIF
+            posted = TRUE       --Remember this was posted
+          ENDIF
+        UNTIL (DIN[io_index_inp] = req_io_state) OR (DIN[CNCL_OP_TASK] = TRUE)
+        DISCONNECT TIMER opener_timer
+--        IF posted AND (DIN[CNCL_OP_TASK] <> TRUE) THEN
+--          -- Don't say it was okay if we got out by canceling...
+--          POST_ERR(ER_OPNR_OKAY, opener_name, 0, ER_WARN)
+--        ENDIF
+      ENDIF
+
+      -- Notify the user if we skipped this step because it was canceled
+      IF (DIN[CNCL_OP_TASK] = TRUE) THEN
+        POST_ERR(ER_OPNR_CNCL,'Opener Operation Canceled', 0, ER_WARN) 
+      ENDIF  
+
+    CASE(WAIT_CL_REQ): -- Wait for CLOSE REQUEST bit = 0/1
+      -- Set the appropriate I/O point to monitor
+      IF (opener_name = 'LF') THEN
+        io_index_inp = WHCR_LF
+      ELSE
+        IF (opener_name = 'RF') THEN
+          io_index_inp = WHCR_RF
+        ELSE
+          IF (opener_name = 'LR') THEN
+            io_index_inp = WHCR_LR
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_inp = WHCR_RR
+            ELSE
+              DOUT[WAIT_REQUEST] = OFF
+              POST_ERR(ER_OPGENERAL, 'Use OPEN REQ For DECKLID RAISED', 0, ER_ABORT)
+              ABORT  -- Illegal string
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      IF(DIN[io_index_inp] <> req_io_state) AND (DIN[CNCL_OP_TASK] = FALSE) THEN
+        posted = FALSE
+        opener_timer = 0
+        CONNECT TIMER TO opener_timer
+        REPEAT
+          DELAY 100              --Give up CPU time
+          IF (opener_timer > 20000) AND (NOT posted) THEN
+            IF (req_io_state = FALSE) THEN
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Hold Clos Req = 0',0,ER_WARN)
+            ELSE
+              POST_ERR(ER_WAIT_OPNR,'Wait For ' + opener_name + ' Hold Clos Req = 1',0,ER_WARN)
+            ENDIF
+            posted = TRUE       --Remember this was posted
+          ENDIF
+        UNTIL (DIN[io_index_inp] = req_io_state) OR (DIN[CNCL_OP_TASK] = TRUE)
+        DISCONNECT TIMER opener_timer
+--        IF posted AND (DIN[CNCL_OP_TASK] <> TRUE) THEN
+--          -- Don't say it was okay if we got out by canceling...
+--          POST_ERR(ER_OPNR_OKAY, opener_name, 0, ER_WARN)
+--        ENDIF
+      ENDIF
+
+      -- Notify the user if we skipped this step because it was canceled
+      IF (DIN[CNCL_OP_TASK] = TRUE) THEN
+        POST_ERR(ER_OPNR_CNCL,'Opener Operation Canceled', 0, ER_WARN) 
+      ENDIF  
+
+    CASE(HELD_CLOSED): -- Sets the "Held Closed" output = 0/1
+
+      -- Set up the I/O indices
+      IF (opener_name = 'LF') THEN
+        io_index_out = DHC_DF
+      ELSE
+        IF (opener_name = 'LR') THEN
+          io_index_out = DHC_DR
+        ELSE
+          IF (opener_name = 'RF') THEN
+            io_index_out = DHC_PF
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_out = DHC_PR
+            ELSE
+              DOUT[WAIT_REQUEST] = OFF
+              POST_ERR(ER_OPGENERAL, 'Use HELD OPEN For DECKLID RAISED', 0, ER_ABORT)
+              ABORT  -- Illegal string
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      DOUT[io_index_out] = req_io_state
+
+    CASE(HELD_OPEN): -- Sets the "Held Closed" output = 0/1
+
+      -- Set up the I/O indices
+      IF (opener_name = 'LF') THEN
+        io_index_out = DHO_DF
+      ELSE
+        IF (opener_name = 'LR') THEN
+          io_index_out = DHO_DR
+        ELSE
+          IF (opener_name = 'RF') THEN
+            io_index_out = DHO_PF
+          ELSE
+            IF (opener_name = 'RR') THEN
+              io_index_out = DHO_PR
+            ELSE
+              IF (opener_name = 'DL') THEN
+                io_index_out = DHO_DL
+              ELSE
+                IF (opener_name = 'HD') THEN
+                  io_index_out = DHO_HD
+                ELSE
+                  DOUT[WAIT_REQUEST] = OFF
+                  ABORT  -- Illegal string
+                ENDIF
+              ENDIF
+            ENDIF
+          ENDIF
+        ENDIF
+      ENDIF
+
+      DOUT[io_index_out] = req_io_state
+
+    ELSE:
+      DOUT[WAIT_REQUEST] = OFF
+      ABORT -- Illegal command
+  ENDSELECT
+
+  DOUT[WAIT_REQUEST] = OFF
+
+END opnr_cmd    
+

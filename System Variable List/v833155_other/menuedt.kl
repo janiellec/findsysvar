@@ -1,0 +1,373 @@
+PROGRAM MENUEDT
+
+-- This program was created by GENE Siegle for GM Global 4
+
+ 
+%PRIORITY = 50
+%SYSTEM
+%ALPHABETIZE
+%NOLOCKGROUP
+%RWACCESS
+%NOBUSYLAMP
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOABORT = ERROR + COMMAND
+%COMMENT = 'GM Menu Edit V4.0'
+%NOPAUSESHFT
+--%ENVIRONMENT FDEV
+--%ENVIRONMENT REGOPE
+--%ENVIRONMENT IOBLT.EV
+%ENVIRONMENT uif
+
+%INCLUDE klevkmsk
+%INCLUDE klevkeys
+%INCLUDE kliotyps
+%INCLUDE KLEVCCDF   -- allows use of 'cc_clear_win' command
+%INCLUDE kliosop    --(OPIN[sopi_remote]=ON)
+
+ CONST
+   VARS_UP = 100
+   CH_VIEW = 101
+   CH_CAPT = 102
+   CH_NEDT = 103
+   CH_NUPD = 104
+
+ VAR
+ 
+ status,entry,success : INTEGER    -- returns status of attempted operation
+ view,accept IN SHADOW FROM MENUEDT	:BOOLEAN
+ n,n_edt,m_num,max IN SHADOW FROM MENUEDT	: INTEGER
+ line1,line2,line3,line4,line5,line6,line7,line8,line9 IN SHADOW FROM MENUEDT	:STRING[40]
+ t1,t2,t3,t4,t5,t6,t7,t8,t9,n_tmp,max_tmp IN SHADOW FROM MENUEDT	:STRING[40]
+ HFO,OK	:BOOLEAN
+ str	:STRING[128]
+ scrn_mode	:INTEGER
+ scrn_url,m_page	:STRING[60]
+ frame_data	:STRING[41]
+ APSH_PAUSE	:INTEGER
+ term_char: INTEGER
+ n_chng	:INTEGER
+
+------------------------------------------------------------------------------
+ROUTINE main
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  ENABLE CONDITION[VARS_UP]
+  ENABLE CONDITION[CH_VIEW]
+  ENABLE CONDITION[CH_CAPT]
+  ENABLE CONDITION[CH_NUPD]
+
+  GET_VAR(status,'*SYSTEM*','$UI_CONFIG.$MODE[1]',scrn_mode,success) --get the number of screens
+  GET_VAR(entry, '*system*', '$UI_PANEDATA[1].$PAGEURL', scrn_url, status) --get screen id
+  GET_VAR(entry, '*system*', '$UI_PANEDATA[1].$Frame', frame_data, status) --get frame data
+
+  IF scrn_url = '/frh/cgtp/CustoYN.stm' THEN  --yes no page
+    max = 50
+  ENDIF
+  IF scrn_url = '/frh/cgtp/CustoOK.stm' THEN  --yes no page
+     max = 40
+  ENDIF
+  IF scrn_url = '/frh/cgtp/CustoLst.stm' THEN  --yes no page
+    max = 50
+  ENDIF
+
+
+--Read the Custo YN vars 
+  IF (view = TRUE) AND (scrn_url = '/frh/cgtp/CustoYN.stm') THEN
+    IF n > 50 THEN
+      m_num = (n - 50)
+      CNV_INT_STR(m_num, 1, 0, n_tmp)
+      t1 = 'User_yn_menu['+ n_tmp+ ',1]'
+      t2 = 'User_yn_menu['+ n_tmp+ ',2]'
+      t3 = 'User_yn_menu['+ n_tmp+ ',3]'
+      t4 = 'User_yn_menu['+ n_tmp+ ',4]'
+      t5 = 'User_yn_menu['+ n_tmp+ ',5]'
+    ENDIF
+    IF n <51 THEN
+      CNV_INT_STR(n, 1, 0, n_tmp)
+      t1 = 'YN_MENU['+ n_tmp+ ',1]'
+      t2 = 'YN_MENU['+ n_tmp+ ',2]'
+      t3 = 'YN_MENU['+ n_tmp+ ',3]'
+      t4 = 'YN_MENU['+ n_tmp+ ',4]'
+      t5 = 'YN_MENU['+ n_tmp+ ',5]'
+    ENDIF
+    m_page = 'CustoYN'
+    GET_VAR(status,'CUSTOYN', t1, line1, success)
+    GET_VAR(status,'CUSTOYN', t2, line2, success)
+    GET_VAR(status,'CUSTOYN', t3, line3, success)
+    GET_VAR(status,'CUSTOYN', t4, line4, success)
+    GET_VAR(status,'CUSTOYN', t5, line5, success)
+  ENDIF
+
+--Read the Custo OK vars 
+  IF (view = TRUE) AND (scrn_url = '/frh/cgtp/CustoOK.stm') THEN
+    IF n > 40 THEN
+      m_num = (n - 40)
+      CNV_INT_STR(m_num, 1, 0, n_tmp)
+      t1 = 'User_ok_menu['+ n_tmp+ ',1]'
+      t2 = 'User_ok_menu['+ n_tmp+ ',2]'
+      t3 = 'User_ok_menu['+ n_tmp+ ',3]'
+      t4 = 'User_ok_menu['+ n_tmp+ ',4]'
+      t5 = 'User_ok_menu['+ n_tmp+ ',5]'
+    ENDIF
+    IF n <41 THEN
+      CNV_INT_STR(n, 1, 0, n_tmp)
+      t1 = 'OK_MENU['+ n_tmp+ ',1]'
+      t2 = 'OK_MENU['+ n_tmp+ ',2]'
+      t3 = 'OK_MENU['+ n_tmp+ ',3]'
+      t4 = 'OK_MENU['+ n_tmp+ ',4]'
+    ENDIF
+    m_page = 'CustoOK'
+    GET_VAR(status,'CUSTOOK', t1, line1, success)
+    GET_VAR(status,'CUSTOOK', t2, line2, success)
+    GET_VAR(status,'CUSTOOK', t3, line3, success)
+    GET_VAR(status,'CUSTOOK', t4, line4, success)
+  ENDIF
+
+--Read the Custo LST vars 
+  IF (view = TRUE) AND (scrn_url = '/frh/cgtp/CustoLst.stm') THEN
+    IF n > 50 THEN
+      m_num = (n - 50)
+      CNV_INT_STR(m_num, 1, 0, n_tmp)
+      t1 = 'USERLST_MENU['+ n_tmp+ ',1]'
+      t2 = 'USERLST_MENU['+ n_tmp+ ',2]'
+      t3 = 'USERLST_MENU['+ n_tmp+ ',3]'
+      t4 = 'USERLST_MENU['+ n_tmp+ ',4]'
+      t5 = 'USERLST_MENU['+ n_tmp+ ',5]'
+    ENDIF
+    IF n <51 THEN
+      CNV_INT_STR(n, 1, 0, n_tmp)
+      t1 = 'LST_MENU['+ n_tmp+ ',1]'
+      t2 = 'LST_MENU['+ n_tmp+ ',2]'
+      t3 = 'LST_MENU['+ n_tmp+ ',3]'
+      t4 = 'LST_MENU['+ n_tmp+ ',4]'
+      t5 = 'LST_MENU['+ n_tmp+ ',5]'
+      t6 = 'LST_MENU['+ n_tmp+ ',6]'
+      t7 = 'LST_MENU['+ n_tmp+ ',7]'
+      t8 = 'LST_MENU['+ n_tmp+ ',8]'
+      t9 = 'LST_MENU['+ n_tmp+ ',9]'
+    ENDIF
+    m_page = 'CustoLST'
+    GET_VAR(status,'CUSTOLST', t1, line1, success)
+    GET_VAR(status,'CUSTOLST', t2, line2, success)
+    GET_VAR(status,'CUSTOLST', t3, line3, success)
+    GET_VAR(status,'CUSTOLST', t4, line4, success)
+    GET_VAR(status,'CUSTOLST', t5, line5, success)
+    GET_VAR(status,'CUSTOLST', t6, line6, success)
+    GET_VAR(status,'CUSTOLST', t7, line7, success)
+    GET_VAR(status,'CUSTOLST', t8, line8, success)
+    GET_VAR(status,'CUSTOLST', t9, line9, success)
+  ENDIF
+
+------------------------------------------------------------------------------
+END main
+-----------------------------------------------------------------------------
+
+------------------------------------------------------------------------------
+ROUTINE write_vars
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF scrn_url = '/frh/cgtp/CustoYN.stm' THEN
+    SET_VAR(status,'CUSTOYN', t1, line1, success)
+    SET_VAR(status,'CUSTOYN', t2, line2, success)
+    SET_VAR(status,'CUSTOYN', t3, line3, success)
+    SET_VAR(status,'CUSTOYN', t4, line4, success)
+    SET_VAR(status,'CUSTOYN', t5, line5, success)
+    DELAY 100
+    str = 'refresh=prim'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=dual'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=third'
+    FORCE_LINK(tp_panel, str)
+  ENDIF
+  IF scrn_url = '/frh/cgtp/CustoOK.stm' THEN
+    SET_VAR(status,'CUSTOOK', t1, line1, success)
+    SET_VAR(status,'CUSTOOK', t2, line2, success)
+    SET_VAR(status,'CUSTOOK', t3, line3, success)
+    SET_VAR(status,'CUSTOOK', t4, line4, success)
+    DELAY 100
+    str = 'refresh=prim'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=dual'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=third'
+    FORCE_LINK(tp_panel, str)
+  ENDIF
+  IF scrn_url = '/frh/cgtp/CustoLst.stm' THEN
+    SET_VAR(status,'CUSTOLST', t1, line1, success)
+    SET_VAR(status,'CUSTOLST', t2, line2, success)
+    SET_VAR(status,'CUSTOLST', t3, line3, success)
+    SET_VAR(status,'CUSTOLST', t4, line4, success)
+    SET_VAR(status,'CUSTOLST', t5, line5, success)
+    SET_VAR(status,'CUSTOLST', t6, line6, success)
+    SET_VAR(status,'CUSTOLST', t7, line7, success)
+    SET_VAR(status,'CUSTOLST', t8, line8, success)
+    SET_VAR(status,'CUSTOLST', t9, line9, success)
+    DELAY 100
+    str = 'refresh=prim'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=dual'
+    FORCE_LINK(tp_panel, str)
+    str = 'refresh=third'
+    FORCE_LINK(tp_panel, str)
+  ENDIF
+  ENABLE CONDITION[VARS_UP]
+------------------------------------------------------------------------------
+END write_vars
+-----------------------------------------------------------------------------
+------------------------------------------------------------------------------
+ROUTINE view_only
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  View = TRUE
+  CNV_INT_STR(max, 1, 0, max_tmp)
+  POST_ERR(38000,'GRS4 Menus 1-'+max_tmp+' are Read ONLY', 0, APSH_PAUSE)
+  DISCTRL_DIAG('frh:\cgtp\RangeOK.XML', kc_enter_key, term_char, status)
+  IF status <> 0 THEN
+    POST_ERR(38000,'status is not 0' , 0, APSH_PAUSE)
+  ENDIF
+  IF term_char = ky_enter THEN
+    OK = TRUE
+  ENDIF
+  str = 'refresh=prim'
+  FORCE_LINK(tp_panel, str)
+  --str = 'refresh=prim'
+  ENABLE CONDITION[CH_VIEW]
+
+------------------------------------------------------------------------------
+END view_only
+-----------------------------------------------------------------------------
+------------------------------------------------------------------------------
+ROUTINE dis_edit
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  View = TRUE
+  n_edt = n
+  str = 'refresh=prim'
+  FORCE_LINK(tp_panel, str)
+
+------------------------------------------------------------------------------
+END dis_edit
+-----------------------------------------------------------------------------
+------------------------------------------------------------------------------
+ROUTINE n_up
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF n_chng = 1 THEN
+    n = n + 1
+    n_chng = 0
+  ENDIF
+  IF n_chng = -1 THEN
+    n = n - 1
+    n_chng = 0
+  ENDIF
+  ENABLE CONDITION[CH_NUPD]
+
+------------------------------------------------------------------------------
+END n_up
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  IF UNINIT (line1) THEN
+    line1 = ''
+  ENDIF
+  IF UNINIT (line2) THEN			
+    line2 = ''
+  ENDIF
+  IF UNINIT (line3) THEN
+    line3 = ''
+  ENDIF
+  IF UNINIT (line4) THEN
+    line4 = ''
+  ENDIF
+  IF UNINIT (line5) THEN
+    line5 = ''
+  ENDIF
+  IF UNINIT (line6) THEN
+    line6 = ''
+  ENDIF
+  IF UNINIT (line7) THEN
+    line7 = ''
+  ENDIF
+  IF UNINIT (line8) THEN
+    line8 = ''
+  ENDIF
+  IF UNINIT (line9) THEN
+    line9 = ''
+  ENDIF
+  IF UNINIT (str) THEN
+    str = ''
+  ENDIF
+  IF UNINIT (n) THEN
+    n = 36
+  ENDIF
+  IF UNINIT (APSH_PAUSE) THEN
+    APSH_PAUSE = 0
+  ENDIF
+  IF UNINIT (n_edt) THEN
+    n_edt = 36
+  ENDIF
+  IF UNINIT (n_chng) THEN
+    n_chng = 0
+  ENDIF
+  IF UNINIT (m_page) THEN
+    m_page = 'CustoYN'
+  ENDIF
+
+
+  HFO = FALSE
+  view = TRUE
+  accept = FALSE
+  OK = FALSE
+
+--Triggerd when the Save button is pressed
+  CONDITION[VARS_UP]:
+    WHEN (accept = TRUE) DO
+      write_vars
+      accept = FALSE
+      View = TRUE
+  ENDCONDITION
+
+--Triggered when the user tries to edit a menu less than the max value
+  CONDITION[CH_VIEW]:
+    WHEN (n <= max) AND (VIEW = FALSE)DO
+      view_only
+  ENDCONDITION
+  ENABLE CONDITION[CH_VIEW]
+
+--Trieggerd when edit is enabled. This save the current menu being displayed
+  CONDITION[CH_CAPT]:
+    WHEN (VIEW = FALSE)DO
+      n_edt = n
+  ENABLE CONDITION[CH_NEDT]
+  ENDCONDITION
+
+-- Triggerd when the menu number is changed while in edit mode
+  CONDITION[CH_NEDT]:
+    WHEN n_edt <> n DO
+      dis_edit
+  ENDCONDITION
+
+-- Triggerd when the menu number is changed while in edit mode
+  CONDITION[CH_NUPD]:
+    WHEN n_chng <> 0 DO
+      n_up
+  ENDCONDITION
+
+REPEAT
+  main
+  DELAY 500
+UNTIL ((HFO = TRUE))
+
+END MENUEDT

@@ -1,0 +1,799 @@
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: dmstat
+--
+--    Description: This a utility program, to check 24V power.
+-------------------------------------------------------------------------------------------------------------
+--    ROUTINES INCLUDED
+--    squeeze
+-------------------------------------------------------------------------------------------------------------
+--
+--    dmstat
+--
+--    Language: KAREL
+--
+--    Source File: dmstat
+--
+--    Author: Lloyd Steed
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--       09-04-07   Deadman squeezed or NOT status
+--       10-31-08   Global2
+--       10-15-13   jja R30iB Development
+--        1-30-16   RKosaski update for G4
+--        6-12-16   RKosaski changed verbage for user from Opening to Cycle
+--        6-16-16   RKosaski changed verbage for user from Opening to Cycle missed one
+--        8-28-18   SSchoenberg updated for V8.33P06
+--     2018/11/30   marchaka Do not check DI[2009] in chk_safe_pwr if the external I/O 
+--                           power supply is used.  DI[2009] can be ON if SPO[1] is OFF, eventhough the breaker is okay.
+--                           It is okay to skip this check because if there is a problem with the 24 V breaker, the customized
+--                           power supply alarms in grs_breaker will fault the robot.  DMSTAT can't run when
+--                           the robot is faulted either.
+--     2019/01/10   marchaka Changed external I/O power check functionality to occur to occur whether in teach or auto
+--                           Power check  will now fault the robot if SPO[1] is off.  The robot will go into dual pane mode
+--                           and on the right pane the user screen will be displayed with fault information.  The left pane
+--                           will be the active alarm screen. Re-initate the program to continue.  Robot will not continue
+--                           in the program until SPO[1] is achieved.
+--     2019/10/04   marchaka Add a check if All_Safe_ok is initialized before the UNTIL read of that variable in the Chk_Safe_Pwr routine.
+--                           This is to protect an UNINIT data error if the power was cycled while the robot was in that routine.
+-------------------------------------------------------------------------------------------------------------
+PROGRAM dmstat
+-------------------------------------------------------------------------------------------------------------
+%ENVIRONMENT ioblt
+%ENVIRONMENT IOSETUP
+
+%NOLOCKGROUP
+%INVISIBLE -- make invisiable for release
+
+%COMMENT = 'LivManEnbv4.2'
+%RWACCESS
+
+%INCLUDE kliotyps -- KL IO TYPEs is for teh DIN,DOUT etc declarations
+%INCLUDE KLEVCCDF
+
+CONST
+Version = '2019-10-04'
+Nted_di_num   = 2003 -- Used for the input of status of I safe NTED
+MCC_di_num    = 2008 -- Used for the MCC status input to read
+Ot24V_di_num  = 2009 -- Used for what input the Output status of 24 volts for tooling
+OtBrk_di_num  = 2010 -- Used for what input the Breaker status for 24V comes in on
+ExIO_di_num   = 2011 -- Remap Alias for DI[2011] External IO Interlock 24V Power Check, SPO[1]
+english       = 1    -- English language is used in dmstat
+german 	      = 2    -- German language is used in dmstat
+spanish       = 3    -- Spanish language is used in dmstat
+
+%INCLUDE GMCNSTNT -- Used for the constants of MFG_AREA vars and other GM constants
+
+ VAR
+  Current_Ver IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  dmstat_lang IN SHADOW :INTEGER
+  gm_status :INTEGER
+  e_number  :INTEGER
+  err_txt   :STRING[40]
+  l_ignore  :INTEGER
+  data_type, Open_check	:INTEGER -- used for the GET_TPEE_PRM
+  rel_value :REAL -- Used for real Parameter passed
+  str_value :STRING[16] -- used for the String value passed
+
+  --From Other programs
+  frvrc IN CMOS from ATSHELL :BOOLEAN -- indicates virtual robot
+  Prmpt_open,  -- If the user is to be prompted by TP when enabled. Currently gettting from GMCFGPWR vars
+  TP_isEnabled IN CMOS :BOOLEAN	-- indicating the Teach pendant is enable
+  globalctrl IN SHADOW FROM GMVARS :INTEGER -- Type of controller hardware (e.g. G4)
+  pwrs_extinlk IN SHADOW FROM GMVARS  :BOOLEAN
+  Err_Str :ARRAY[5] OF STRING[40] -- used for writing to the screen current errors
+  All_Safe_ok, -- used for if all saftey is OK
+  wiz_not_done,	-- used for get var reset_cell from gmcfgcel to see if user ran wizard
+  Safe_NTED,	-- Used for the None Teach Enabling Device
+  Safe_MCC,
+  Safe_IDNSOut, -- Used for the 24 volt Output power is available
+  Safe_Stat,	-- Used foe the saftey Status of variable $MOR.$SAFETY_STAT = a value then setting TRUE
+  Safe_IDNSBrk :BOOLEAN	-- Used for the 24 volt BREAKER is avaialble
+  Safe_Number, -- Used for the returned value of the GET_VAR of Mor$Safety_stat variable
+  entry,i :INTEGER -- Used for builtins and for loops
+  wiz_run_Rcvy,	-- used for the post err built in for if to abort pause or just post
+  told_user,	-- how many time told user to run wizard
+  Total_Safe,	-- the total safety that are good
+  Saf_Stat_Val IN SHADOW :INTEGER -- this is true when the $MOR.$SAFTEY_STAT = the vaule required(G3=544)
+  PwrTrnErrSvr,
+  PrsShpErrSvr,
+  PntShpErrSvr,
+  BdyShpErrSvr IN CMOS :INTEGER	-- Used for Error Severity in Open Gripper
+  extio_errsev IN CMOS:INTEGER --External Interlock I/O Power Supply Error Severity
+  
+  --DMSTAT Gripper Prompt
+  dmstatgrip1   IN SHADOW : STRING[35]
+  dmstatgrip2	IN SHADOW : STRING[35]
+  dmstatgrip3	IN SHADOW : STRING[35]
+  dmstatgrip4	IN SHADOW : STRING[35]
+  dmstatgrip5	IN SHADOW : STRING[35]
+  dmstatgrip6	IN SHADOW : STRING[35]
+  dmstatgrip7	IN SHADOW : STRING[35]
+  dmstatgrip8	IN SHADOW : STRING[35]
+
+	--DMSTAT Tool Changer Prompt  
+  dmstattool1   IN SHADOW : STRING[35]
+  dmstattool2	IN SHADOW : STRING[35]
+  dmstattool3	IN SHADOW : STRING[35]
+  dmstattool4	IN SHADOW : STRING[35]
+  dmstattool5	IN SHADOW : STRING[35]
+  dmstattool6	IN SHADOW : STRING[35]
+  dmstattool7	IN SHADOW : STRING[35]
+  dmstattool8	IN SHADOW : STRING[35]
+
+  --DMSTAT External InterlockText
+  dmstatexio1 IN SHADOW : STRING[35]
+  dmstatexio2 IN SHADOW : STRING[35]
+  dmstatexio3 IN SHADOW : STRING[35]
+  dmstatexio4 IN SHADOW : STRING[35]
+  dmstatexio5 IN SHADOW : STRING[35]
+  dmstatexio6 IN SHADOW : STRING[35]
+  dmstatexio7 IN SHADOW : STRING[35]
+  dmstatexio8 IN SHADOW : STRING[35]
+  dmstatexio9 IN SHADOW : STRING[35]
+  
+  --DMSTAT Error Text
+  dmstaterr1 IN SHADOW : STRING[35]
+  dmstaterr2 IN SHADOW : STRING[35]
+  dmstaterr3 IN SHADOW : STRING[35]
+  dmstaterr4 IN SHADOW : STRING[35]
+  dmstaterr5 IN SHADOW : STRING[35]
+  dmstaterr6 IN SHADOW : STRING[35]
+  dmstaterr7 IN SHADOW : STRING[35]
+
+  --DMSTAT display user choices  
+  dmstatudgc  IN SHADOW : STRING[35]  --'USER Declined gripper CYCLING'
+  dmstatudtcr IN SHADOW : STRING[35]  --'USER Declined Tool Changer Release'
+  dmstatuagc  IN SHADOW : STRING[35]  --'USER ABORTED gripper CYCLING'
+  dmstatuatcr IN SHADOW : STRING[35]  --'USER ABORTED Tool Changer Release'
+  dmstatuccg  IN SHADOW : STRING[35]  --'User Confirmed Cycle Gripper(s)'
+  dmstatucrt  IN SHADOW : STRING[35]  --'User Confirmed Release Tool'
+
+  --Verify Answer
+  verfans1 IN SHADOW: STRING[35]
+  verfans2 IN SHADOW: STRING[35]
+  verfans3 IN SHADOW: STRING[35]
+  verfans4 IN SHADOW: STRING[35]
+
+%INCLUDE GMCFGCEL -- used for the MFG_AREA variable
+%INCLUDE klrdutil -- Has the built-in for clear screens
+%INCLUDE GMRDUTIL -- Has builtin created for GM GLoabl Center (i.e. int2str(x),Verify_Answr(x,y) )
+-----------------------------------------------------------------------------
+ROUTINE Read_input(P_input_num:INTEGER):BOOLEAN
+-- PURPOSE:
+--
+--
+-- INPUT:    the input to read
+--            -
+-- OUTPUT:   the status of the output
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+L_Read_flt : INTEGER -- for the success of the status
+Read_Value : INTEGER -- for the returned value of the read input
+
+BEGIN
+
+  L_Read_flt = iovalrd(IO_DIN,P_input_num, Read_Value)
+   IF L_Read_flt <> 0  THEN
+     POST_ERR(38000, 'Read of DI['+int2str(p_input_num)+ '] Failed, SPO[1]', L_Read_flt,0) --
+     RETURN(FALSE)
+   ELSE
+     SELECT (Read_Value) OF --
+     CASE (0):  -- input is OFF
+       RETURN(FALSE)
+     CASE (1):  -- input is ON
+       RETURN(TRUE)
+     ELSE: --
+       POST_ERR(38000, 'READ_VALUE '+int2str(read_value)+' invalid in DMSTAT', 0, 0) --
+     ENDSELECT --
+   ENDIF
+
+END Read_input
+------------------------------------------------------------------------------
+ROUTINE dmstat_eng
+--
+-- PURPOSE:  Set language to be used in dmstat to English
+--
+------------------------------------------------------------------------------
+BEGIN
+
+  --DMSTAT Gripper Prompt
+  dmstatgrip1   = 'GRIPPER(s) WILL CYCLE Valve'	
+  dmstatgrip2	= 'You are about to CYCLE the'
+  dmstatgrip3	= 'Gripper(s), and you need to'
+  dmstatgrip4	= 'confirm that everything can'
+  dmstatgrip5	= 'SAFELY be cycled. Either NO'
+  dmstatgrip6	= 'parts are in the tool or it is'
+  dmstatgrip7	= 'at a part LOAD location.'
+  dmstatgrip8	= 'Enter 1 Cycle, 0 to Not Cycle: '
+  
+	--DMSTAT Tool Changer Prompt  
+  dmstattool1   = 'Tool Changer WILL RELEASE?'	
+  dmstattool2	= 'You are about to release'
+  dmstattool3	= 'the Tool. You need to'
+  dmstattool4	= 'confirm that everything can'
+  dmstattool5	= 'SAFELY be Released. You must'
+  dmstattool6	= 'confirm the Tool is in a STAND,'
+  dmstattool7	= 'and can be safely RELEASED.'
+  dmstattool8	= 'Enter 1 to Release,0 to ABORT:'
+
+  --DMSTAT External InterlockText
+  dmstatexio4  = 'Gripper cycling process aborted'
+  dmstatexio5  = 'Gripper power on,SPO 1 on'
+  dmstatexio6  = 'No power to cycle valve,SPO 1 off'
+  dmstatexio7  = 'Fix power issue and retry power'
+  dmstatexio8  = 'check'
+  dmstatexio9  = 'Enter 1 to try again '
+   
+  --Verify Answer Text
+  verfans1 = ' Entry of'
+  verfans2 = ' NOT valid. Must be'
+  verfans3 = ' Press ENTER key to try again '
+  
+END dmstat_eng
+------------------------------------------------------------------------------
+ROUTINE dmstat_ger
+--
+-- PURPOSE:  Set language to be used in dmstat to German
+--
+------------------------------------------------------------------------------
+BEGIN
+
+  --DMSTAT Gripper Prompt
+  dmstatgrip1   = 'GREIFER WIRD NEUGESTARTET '		--'GRIPPER(s) WILL CYCLE?'		
+  dmstatgrip2	= 'Sie aktivieren dabei die'		--'You are about to CYCLE the'		
+  dmstatgrip3	= 'Greifer und müssen '			--'Gripper(s), and you need to'		
+  dmstatgrip4	= 'stellen Sie sicher, dass alles'	--'confirm that everything can'		
+  dmstatgrip5	= 'SICHER starten kann.Entweder keine'	--'SAFELY be cycled. Either NO'		
+  dmstatgrip6	= 'teile sind am werkzeug oder es ist'	--'parts are in the tool or it is'	
+  dmstatgrip7	= 'an einer Teile LADESTATION.'		--'at a part LOAD location.'		
+  dmstatgrip8	= 'Eingabe 1 START,  0 Not START '	--'Enter 1 Cycle, 0 to ABORT: '		
+
+  --DMSTAT External InterlockText
+  dmstatexio4  = 'Gripper startprozess abgebrochen'	--'Gripper cycling process aborted'	
+  dmstatexio5  = 'Greifer Spannung ein, SPO 1 ein'	--'Gripper power on,SPO 1 on'		
+  dmstatexio6  = 'Keine Ventilspannung, SPO 1 aus'	--'No power to cycle valve,SPO 1 off' 
+  dmstatexio7  = 'Spannung überprüfen und neustarten'	--'Fix power issue and retry power'	
+  dmstatexio8  = 'überprüfen'				--'check'				
+  dmstatexio9  = 'Eingabe 1 zum Wiederholen '		--'Enter 1 to try again '		
+
+  --Verify Answer Text
+  verfans1 = 'Eingabe von'				--'Entry of'	--Not used, trimmed down German text due to character restriction				
+  verfans2 = 'Es müsste'			        --'Must be'			
+  verfans3 = 'Eingabestaste für neustart '		--'Press ENTER key to try again '	
+  
+END dmstat_ger
+------------------------------------------------------------------------------
+ROUTINE dmstat_span
+--
+-- PURPOSE:  Set language to be used in dmstat to Spanish
+--
+------------------------------------------------------------------------------
+BEGIN
+
+ --DMSTAT Gripper Prompt
+  dmstatgrip1   = 'LOS GRIPPERS SE ACTIVARAN '		--'GRIPPER(s) WILL CYCLE?'		
+  dmstatgrip2	= 'Estas a punto de ACTIVAR los'	--'You are about to CYCLE the'
+  dmstatgrip3	= 'Grippers, y necesitas'		--'Gripper(s), and you need to'
+  dmstatgrip4	= 'confirmar que todo puede'      	--'confirm that everything can'
+  dmstatgrip5	= 'ser ciclado de MANERA SEGURA.'       --'SAFELY be cycled. Either NO' 
+  dmstatgrip6	= 'Que NO haya parte en la Htta'	--'parts are in the tool or it is'
+  dmstatgrip7	= 'o que la parte este en Estacion.' 	--'at a part LOAD location.'
+  dmstatgrip8	= 'Ingresa 1 Ciclar, 0 Not Ciclar '	--'Enter 1 Cycle, 0 to ABORT:'	
+
+  --DMSTAT External InterlockText
+  dmstatexio4  = 'Ciclo de Gripper abortado'		--'Gripper cycling process aborted'	
+  dmstatexio5  = 'Energia en Gripper Enc, SPO 1 on'	--'Gripper power on,SPO 1 on'
+  dmstatexio6  = 'Sin energia en Valvula, SPO 1 off'	--'No power to cycle valve,SPO 1 off'
+  dmstatexio7  = 'Verifica energia y reintenta'	        --'Fix power issue and retry power'
+  dmstatexio8  = 'verifica'				--'check'	
+  dmstatexio9  = 'Introduce 1 para reintentar '		--Enter 1 to try again
+
+  --Verify Answer Text
+  verfans1 = ' Entrada de'				--' Entry of'
+  verfans2 = ' NO Valido. Debe ser'			--' NOT valid. Must be'
+  verfans3 = ' Presiona ENTER para Reintentar '         --' Press ENTER key to try again'
+
+
+END dmstat_span
+------------------------------------------------------------------------------
+ROUTINE set_language
+--
+-- PURPOSE:  Set language to be used in dmstat
+--  GM requested that language selection for this program be independant
+--  of language selection in the controller and wizard
+--
+------------------------------------------------------------------------------
+BEGIN
+
+  --Always set these to English, and only English
+  --DMSTAT Error Text
+  dmstaterr1    = 'Deadman Enabled/Aux PWR Ok FAULT'
+  dmstaterr2    = 'System Faulted'
+  dmstaterr3    = 'User ABORTED gripper cycling'
+  dmstaterr4    = 'User Confirmed Cycle Gripper(s)'
+  dmstaterr5    = 'Gripper power on,SPO 1 on'	
+  dmstaterr6    = 'No power to cycle valve,SPO 1 off'
+  dmstaterr7    = 'Read of DI 2011 failed,SPO 1'
+
+  --DMSTAT External Interlock I/O Text
+  dmstatexio1  = 'External I/O Interlock'
+  dmstatexio2  = '24 V Power Check'
+  dmstatexio3  = 'Read of DI 2011 failed,SPO 1' 
+  
+  --DMSTAT display user choices  
+  dmstatudgc    = 'USER Declined gripper CYCLING'
+  dmstatudtcr	= 'USER Declined Tool Changer Release'
+  dmstatuagc    = 'USER ABORTED gripper CYCLING'
+  dmstatuatcr	= 'USER ABORTED Tool Changer Release'
+  dmstatuccg    = 'User Confirmed Cycle Gripper(s)'
+  dmstatucrt    = 'User Confirmed Release Tool'
+
+  IF UNINIT(dmstat_lang) THEN
+    dmstat_lang = english --intialize to English
+  ENDIF
+
+  SELECT dmstat_lang OF
+    CASE(english):  --Set variables to English language
+      dmstat_eng
+  
+    CASE(german):  --Set variables to German language
+      dmstat_ger
+
+    CASE(spanish):  --Set variables to spanish language
+      dmstat_span
+   
+    ELSE:  --default to English
+      dmstat_eng
+
+   ENDSELECT --set language for text in dmstat
+
+END set_language
+------------------------------------------------------------------------------
+ROUTINE extiopw_chk
+--
+-- External I/O Interlock power check
+-- Check status of SPO[1], if it is ON, then there is power available to open the grippers
+-- then continue with program.
+-- If it is off, then pause with error as there is no power to open the grippers
+--
+------------------------------------------------------------------------------
+VAR
+  spo1_val_ck	:INTEGER
+  spo1_stat_ck	:INTEGER
+  extio_ckcomp:  BOOLEAN	
+
+BEGIN
+
+  extio_ckcomp  = FALSE  --initialize
+
+pwrchk_test::
+  spo1_stat_ck = 0 	--reset read status
+  spo1_stat_ck = iovalrd(IO_DIN,ExIO_di_num, spo1_val_ck) --read value of SPO[1], SPO[1] is mapped to DI[2011]
+
+  IF (spo1_stat_ck = 0) THEN 		--successful read
+    IF (spo1_val_ck = 0) THEN 		--no SPO[1] power, pause program 
+      --Force robot into dual pane mode, put alarm screen on left pane and user screen on right pane
+      --write message to user screen with details about the error
+      FORCE_LINK(tp_panel, 'config=double') --switch to dual pane
+      delay 250
+      FORCE_SPMENU(tp_panel,18,1)  --Active Alarm Screen
+      delay 250
+      FORCE_SPMENU(tp2_panel,SPI_TPUSER,1)  --Pane 2 set as User Menu
+      delay 250
+        
+      CLR_STND_SCR(gm_status)
+      FORCE_SPMENU(TP2_PANEL, SPI_TPUSER,1)
+      WRITE(cr,dmstatexio1)     --'External I/O Interlock'
+      WRITE(cr,dmstatexio2,cr)	--'24 V Power Check'
+      WRITE (cr,dmstatexio6)	--'No power to cycle gripper,SPO 1 off'   
+      WRITE (cr,dmstatexio7) 	--'Fix power issue and retry power' 
+      WRITE (cr,dmstatexio8) 	--'check'   
+      POST_ERR(38000,dmstaterr6,0,extio_errsev) --'No power to cycle gripper,SPO 1 off'
+      extio_ckcomp = FALSE
+    ELSE --SPO[1] Power
+      extio_ckcomp = TRUE --can continue with program
+    ENDIF
+  ELSE
+    WRITE (cr,dmstatexio3)		--'Read of DI[2011] failed, SPO[1]'
+    WRITE (cr,dmstatexio4)   		--'Gripper cycling process aborted'
+    POST_ERR(38000,dmstaterr7,0,extio_errsev) --'Read of DI[2011] failed, SPO[1]'
+    extio_ckcomp = FALSE
+  ENDIF
+
+  IF (extio_ckcomp = FALSE) THEN  --must recheck power, can't continue without 24V power
+    DELAY 250
+    GOTO pwrchk_test
+  ENDIF
+
+END extiopw_chk
+------------------------------------------------------------------------------
+ROUTINE Prompt_Open
+-- PURPOSE: Prompt Operator to Ensure they know gripper is going to OPEN
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ ans 	    :INTEGER
+ err_srvty  :INTEGER -- used to set what type of error based on the current Shop
+ done 	    :BOOLEAN -- to end repeat loop
+ err_Str    :STRING [45]
+BEGIN
+
+Done = FALSE
+IF UNINIT(mfg_area) THEN
+  mfg_area = 1
+ENDIF
+err_srvty = 2
+
+REPEAT --
+
+  Err_str = ''
+  Done = FALSE
+
+  REPEAT -- Repeat until answered and Verified
+    CLR_STND_SCR(gm_status)
+    FORCE_SPMENU(TP_PANEL, SPI_TPUSER,1)
+
+      SELECT (Open_check) OF --
+        CASE (1):  -- Gripper
+	  WRITE(cr,dmstatgrip1,cr)  --'GRIPPER(s) WILL CYCLE?'
+	  WRITE (CR,dmstatgrip2)    --'You are about to CYCLE the'
+	  WRITE (CR,dmstatgrip3)    --'the Gripper(s), and you need to'
+	  WRITE (CR,dmstatgrip4)    --'confirm that everything can'
+	  WRITE (CR,dmstatgrip5)    --'SAFELY be cycled. Either NO'
+	  WRITE (CR,dmstatgrip6)    --'parts are in the Tool or it is'
+	  WRITE (CR,dmstatgrip7)    --'at a part LOAD location.'
+	  WRITE(CR,CR,dmstatgrip8)  --'Enter 1 Cycle,0 to ABORT: '
+        CASE (2):  -- Tool Changer
+          WRITE(cr,dmstattool1,cr) --'Tool Changer WILL RELEASE?'	
+          WRITE (CR,dmstattool2)   --'You are about to release'
+          WRITE (CR,dmstattool3)   --'the Tool. You need to'
+          WRITE (CR,dmstattool4)   --'confirm that everything can'
+          WRITE (CR,dmstattool5)   --'SAFELY be Released. You must'
+          WRITE (CR,dmstattool6)   --'confirm the Tool is in a STAND,'
+          WRITE (CR,dmstattool7)   --'and can be safely RELEASED.'
+          WRITE(CR,CR,dmstattool8) --'Enter 1 to Release,0 to ABORT:'
+        ELSE: --
+            POST_ERR(38000, 'OPEN_CHECK in DMSTAT is'+int2str(open_check)+' INVALID Aborting', 0, 2) --
+            ABORT
+      ENDSELECT --
+
+    READ(ans)
+
+  UNTIL (Verify_Answr(Ans,0,1))-- Verify Answer is between 1&3
+
+-- Log what manual selection operator entered
+    IF Ans=0 THEN
+      SELECT (mfg_area) OF -- fiqure out the severity to use for the assinged shop
+        CASE (mfg_area_bs):  -- 1
+             err_srvty = BdyShpErrSvr
+        CASE (mfg_area_ps):  -- 2
+             err_srvty = PrsShpErrSvr
+        CASE(mfg_area_pt): -- 3
+             err_srvty = PwrTrnErrSvr
+        CASE(mfg_area_pn): -- 4
+             err_srvty = PntShpErrSvr
+        ELSE: --
+      ENDSELECT --
+      SELECT (err_srvty) OF -- figure out what text to display
+        CASE (0,1):  --
+          IF (open_check = 1) THEN
+            Err_str = dmstatudgc --'USER Declined gripper CYCLING'
+          ENDIF
+          IF (open_check = 2) THEN
+            Err_str = dmstatudtcr --'USER Declined Tool Changer Release'
+          ENDIF
+          Done = FALSE
+        CASE (2):  --
+          IF (open_check = 1) THEN
+            Err_str = dmstatuagc --'USER ABORTED gripper CYCLING'
+          ENDIF
+          IF (open_check = 2) THEN
+            Err_str = dmstatuatcr --'USER ABORTED Tool Changer Release'
+          ENDIF
+          Done = TRUE
+        ELSE: --
+      ENDSELECT --
+
+    POST_ERR(38000, Err_Str, 0, err_srvty) --  Use Shop specific severity, and severity message type
+
+    ELSE -- Answer = 1
+    	
+      SELECT (Open_check) OF --
+        CASE (1):  --
+          POST_ERR(38000, dmstatuccg, 0, 0) --'User Confirmed Cycle Gripper(s)'
+          Done = TRUE
+        CASE (2):  --
+          POST_ERR(38000, dmstatucrt, 0, 0) --'User Confirmed Release Tool'
+          Done = TRUE
+        ELSE: --
+      ENDSELECT --
+
+    ENDIF
+
+UNTIL (done) --
+
+
+END Prompt_Open
+-----------------------------------------------------------------------------
+ROUTINE Chk_Safe_Pwr
+-- PURPOSE: to read input and or system variables to determine if safety outputs
+--          can be turned on and valves will spool otherwise outputs can be fired
+--          user wont know, then when the fault is cleared the values will have power
+--          and possibly surprise the user.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+All_Safe_ok = FALSE
+
+REPEAT --
+
+TP_isEnabled = TP_ENABLED -- call builtin to see if tp still enabled
+
+  IF TP_isEnabled = FALSE THEN
+    RETURN
+  ENDIF
+
+ Total_Safe = 0 -- reset all the safety checks
+
+ FOR i = 1 TO ARRAY_LEN(err_str) DO -- clear all strings
+   Err_str[i] = ''
+ ENDFOR --
+
+-- The 2 below are used in both Gloabl 3 and Gloabl 4 systems
+   Safe_NTED = Read_input(Nted_di_num)    -- 2003 Used for the input of status of I safe NTED
+   Safe_MCC =  Read_input(MCC_di_num)     -- 2008 Used for the MCC status input to read
+
+    IF Safe_NTED THEN
+      Total_Safe = Total_Safe + 1
+    ELSE
+      Err_Str[1] = 'NDET DI['+ int2str(Nted_di_num) +'] not ON'
+    ENDIF
+
+    IF Safe_MCC THEN
+      Total_Safe = Total_Safe + 1
+    ELSE
+      Err_Str[2] = 'MCC Status DI['+ int2str(MCC_di_num) +'] not ON'
+    ENDIF
+
+    SELECT (globalctrl) OF -- select which variables or inputs to examine
+      CASE (1,2):  -- Global 1/2 should NEVER be here
+        POST_ERR(38000, 'GlobalCtrl '+int2str(globalctrl) +' in DMSTAT, NOT Supported', 0, 2) --
+      CASE (3):  -- Global 3
+        Saf_Stat_Val = 0
+        GET_VAR(entry, '*SYSTEM*' , '$MOR.$SAFETY_STAT', Saf_Stat_val, gm_status)
+          IF gm_status <> 0 THEN
+            POST_ERR(38000, '[*SYSTEM*].$MOR.$SAFETY_STAT FAILED', gm_status, 0) --
+          ENDIF
+        IF (Saf_Stat_Val = Safe_number)THEN
+          Safe_Stat = TRUE
+          Total_Safe = Total_Safe + 1
+        ENDIF
+
+      CASE (4):  -- Global 4
+        Safe_IDNSOut = Read_Input(Ot24V_di_num)-- Used for what input the Output status of 24 volts for tooling
+        Safe_IDNSBrk = Read_Input(OtBrk_di_num)-- Used for what input the Breaker status for 24V comes in on
+
+        IF (pwrs_extinlk = FALSE) THEN --do normal power checks if no external I/O power supply
+          IF NOT (Safe_IDNSOut) THEN
+            Total_Safe = Total_Safe + 1
+          ELSE
+            Err_Str[3] = 'Output Power Status DI['+ int2str(Ot24V_di_num) +'] not OFF'
+          ENDIF
+        ELSE --exteranl I/O power supply is used, DI[2009] can be in a no power state if SPO[1] is off
+             --we need to let the dmstat get through to the external i/o power supply check so the user
+             --can get to the message that posts and retries to do the grippers
+             --if the there is an actual problem with the breaker (DI[2009]), the customized power supply
+             --errors will post a fault, so we are protected for that with grs_breaker
+          Total_Safe = Total_Safe + 1  --tell logic that it is safe
+        ENDIF
+
+        IF (Safe_IDNSBrk) THEN
+          Total_Safe = Total_Safe + 1
+        ELSE
+          Err_Str[4] = 'Output Power Breaker DI['+ int2str(OtBrk_di_num)+ '] not ON'
+        ENDIF
+
+      ELSE: -- Invalid setting as of 4-8-16
+        POST_ERR(38000, 'GlobalCtrl is '+int2str(globalctrl)+' INVALID in DMSTAT', 0, 2) --
+    ENDSELECT --
+
+    IF (Total_Safe = 4) AND (globalctrl= 4) THEN
+      CLR_STND_SCR(gm_status) -- CLear the user screen
+      All_Safe_ok = TRUE
+      WRITE TPERROR(CHR(cc_clear_win),'')
+      RETURN
+    ENDIF
+
+    IF (Total_Safe = 3) AND (globalctrl= 3) THEN
+      CLR_STND_SCR(gm_status) -- CLear the user screen
+      All_Safe_ok = TRUE
+      WRITE TPERROR(CHR(cc_clear_win),'')
+      RETURN
+    ENDIF
+
+ -- If here something is not safe and need to post to user
+ -- Force the Screen
+    CLR_STND_SCR(gm_status) -- CLear the user screen
+    FORCE_SPMENU(TP_PANEL, SPI_TPUSER,1)
+
+    FOR i = 1 TO ARRAY_LEN(Err_Str) DO
+      IF Err_Str[i]<>'' THEN
+        WRITE TPDISPLAY (CR,Err_Str[i],cr)
+      ENDIF
+    ENDFOR --
+
+    WRITE(CR, 'Fix Above for OUTPUT power in Teach Mode')
+
+    POST_ERR(38000, 'Output Pwr NOT Avail for USE', 0, 0) -- Pause this program
+    PAUSE -- pause here because posting with Pause condition creates false DI status
+
+    IF UNINIT(All_Safe_ok) THEN  --added in case a power cycle happenned since this variable was initialized
+      All_Safe_ok = FALSE
+    ENDIF
+
+UNTIL (All_Safe_ok) --
+
+  RETURN
+
+END Chk_Safe_Pwr
+------------------------------------------------------------------------------
+BEGIN
+
+Safe_number = 544  -- $MOR.$SAFTEY_STAT =544 indicates saftey vars ok
+Safe_Stat =FALSE
+Current_Ver = Version
+
+IF UNINIT(frvrc) THEN -- if not init check
+  frvrc = FALSE
+ENDIF
+
+set_language --set dmstat languages
+
+IF UNINIT(PwrTrnErrSvr) THEN -- Used for Error Severity in Open Gripper
+  PwrTrnErrSvr = 1
+ENDIF
+IF UNINIT(BdyShpErrSvr) THEN -- Used for Error Severity in Open Gripper
+  BdyShpErrSvr = 1
+ENDIF
+IF UNINIT(PrsShpErrSvr) THEN
+  PrsShpErrSvr = 2
+ENDIF
+IF UNINIT(PntShpErrSvr) THEN
+  PntShpErrSvr = 2
+ENDIF
+
+TP_isEnabled = TP_ENABLED -- call builtin to see if tp still enabled
+
+IF (frvrc = TRUE) THEN  -- if virtual no need to check
+  RETURN  						
+ENDIF 
+
+FOR i = 1 TO ARRAY_LEN(Err_Str) DO
+  Err_Str[i] = ''
+ENDFOR --
+
+IF UNINIT(Wiz_Run_Rcvy) THEN -- default is if never ran Abort, user can change if continues
+  Wiz_Run_Rcvy = 2
+ENDIF
+
+IF UNINIT(told_user) THEN -- tell user 3 times then keep going
+  told_user = 0
+ENDIF
+IF UNINIT(Open_check) THEN
+  Open_check = 1
+ENDIF
+
+IF UNINIT(extio_errsev) THEN --initialize the first time only, then VAR definition is used
+  extio_errsev = 1 	--set error severity to PAUSE
+ENDIF
+
+-- go check the wizard has been ran completely
+ GET_VAR(entry, 'GMCFGCEL' , 'RESET_CELL', wiz_not_done, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[GMCFGCEL].RESET_CELL FAILED', gm_status, 0) --
+    ENDIF
+IF UNINIT(wiz_not_done) THEN
+  wiz_not_done = TRUE
+ENDIF
+
+IF wiz_not_done THEN -- Wizard not completed succesfully
+  IF (Told_user<=2) THEN -- Check variables, but if told three times they are not listening
+    -- Force the Screen
+      CLR_STND_SCR(gm_status) -- CLear the user screen
+      FORCE_SPMENU(TP_PANEL, SPI_TPUSER,1)
+      Err_Str[1] ='RESET_CELL is FALSE from GMCFGCEL'
+      Err_Str[2] ='Variables. This indicates the WIZARD'
+      Err_Str[3] = 'has not completed succesfully.Please'
+      Err_Str[4] = 'go and run the Wizard to Complete.'
+
+      FOR i = 1 TO ARRAY_LEN(Err_Str) DO
+        IF Err_Str[i]<>'' THEN
+          WRITE TPDISPLAY (Err_Str[i],cr)
+        ENDIF
+      ENDFOR --
+      DELAY 5000
+      told_user = told_user +1
+      POST_ERR(38000, 'DMSTAT says WIZARD not RAN', 0, wiz_run_Rcvy) --
+  ELSE -- Told user more than enough log it
+    IF (told_user <10) AND (wiz_not_done) THEN
+      told_user = told_user +1
+      POST_ERR(38000, 'Running DMSTAT without Wizard Completed', 0, 0) --
+    ENDIF
+  ENDIF
+ENDIF
+
+IF UNINIT(globalctrl) THEN
+  POST_ERR(38000, 'GLOBALCTRL is NOT set in DMSTAT', 0, 2) --
+ENDIF
+
+IF (GlobalCtrl <3) THEN
+  POST_ERR(38000, 'GlobalCtrl '+int2str(globalctrl) +' in DMSTAT, NOT Supported', 0, 2) --
+ENDIF
+
+IF TP_isEnabled THEN -- if not enabled
+  Chk_Safe_Pwr
+
+ --V833P06--PROMPT OPEN LOGIC MOVED TO MHGRIP PROGRAMS.  PROGRAM CALL TEMPORARILY ONLY COMMENTED OUT IN CASE
+ --GM CHANGES THEIR MIND
+ -- for power train need to get variable to see if prompt is needed
+ --GET_VAR(entry, 'GMCFGPWR' , 'PromptToOpen', Prmpt_open, gm_status)
+   --IF (gm_status <> 0) AND (gm_status <> 12311)  THEN -- Uninitialized data means not GMPT
+     --POST_ERR(38000, '[GMCFGPWR].PromptToOpen FAILED', gm_status, 0) --
+   --ENDIF
+   --IF UNINIT(Prmpt_open) THEN
+     --SET_VAR(entry, 'GMCFGPWR' , 'PromptToOpen', FALSE, gm_status)
+     --Prmpt_open = FALSE
+   --ENDIF
+
+   --IF (Prmpt_open) THEN -- Enabled indicates should prompt
+     --Prompt_Open
+   --ENDIF
+
+ENDIF
+
+  --if external interlock power supply hardware is used, we must check that SPO[1] has power if dmstat is run
+  --in to ensure grippers will cycle.  If there is no power because whatever is controlling SPO[1] hasn't
+  --turned it ON, we can't continue and must fault the robot 
+  IF (pwrs_extinlk = TRUE) THEN  --check if external interlock power supply hardware is used
+    --Check for power on 2011
+    extiopw_chk 
+  ENDIF
+
+END dmstat

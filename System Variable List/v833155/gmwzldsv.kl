@@ -1,0 +1,918 @@
+--    This material is the joint property of GM/Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GM/Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GM/Fanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GM/Fanuc Robotics Corporation
+--
+--    Program: gmwzldsv.kl
+--
+--    Description: This a utility program used to load and
+--                 save specific files for the GM Wizard.
+-----------------------------------------------------------------------------
+--    ROUTINES INCLUDED
+-----------------------------------------------------------------------------
+--
+--    Program Name: gmwzldsv.kl
+--
+--    Language: KAREL
+--
+--    Modification history:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--           A        1-31-17    R.Kosaski
+--           A        2-04-17    R.Kosaski       Added changes per B Kroll as needed and agreed to
+--           C        3-02-17    R.Kosaski       Added changes per Gene Seigle for displaying hint of files use
+--           D        2-26-18    marchaka        Added logic to skip over shop specific tasks if ArcTool
+--	     E        4-19-18    schoensm	 Added more logic to skip over mhgripdt.vr if ArcTool
+--	     F        9-11-18    schoensm	 Removed SWWIZARD vars, renamed to GMVARS.
+--
+-----------------------------------------------------------------------------
+PROGRAM gmwzldsv
+-----------------------------------------------------------------------------
+%ALPHABETIZE
+
+%COMMENT = 'Wizard Load/Save'
+%NOLOCKGROUP
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+--%INVISIBLE
+
+%INCLUDE klevkmsk
+%INCLUDE klevkeys
+%INCLUDE kliotyps
+%INCLUDE KLEVCCDF
+%INCLUDE gmevrlng -- Required for the language constants
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+CONST
+
+  -- Version
+  Version = 'GM 2018-04-19' -- Please change version when you make an update
+
+  -- Log file name
+  LOG_NAME = 'GMPTWIZLOG.DT'
+
+shp_filesize = 30 -- number of SV files that can be loaded
+sys_filesize = 20 -- number of SV files that can be loaded
+wiz_filesize = 60 -- number of vr files that can be loaded
+safefilesize = 20 -- Number of saftey files that can be laoded or safed
+
+%INCLUDE gmcnstnt  -- constant file for all GM wizard
+VAR
+
+-- GM RS4 routines
+  l_idx      : INTEGER
+  l_nSkip    : INTEGER
+  l_nFiles   : INTEGER
+  l_status   : INTEGER
+
+  robot_id     : STRING[32]
+ -- install log vars
+  logEnabled   : BOOLEAN      -- install log opened
+  curTime      : INTEGER
+  errors       : INTEGER
+  errorsStr    : STRING[3]
+  logFileName  : STRING[60]
+  curTimeStr   : STRING[60]
+  appName      : STRING[60]
+  appVer       : STRING[60]
+  fNum         : STRING[30]
+  CustVer      : STRING[40]
+  logFile      : FILE         -- install log
+
+  Current_Ver IN CMOS : STRING[48] -- Used for commenting this program
+
+DriveToUse,                -- used for the USERs slection of the drive to be using.
+
+Selection,                 -- used to store operators answer
+Operation,                 -- the load or save operation
+Confirmation,              -- the confirmation the user of the load or save functions
+
+F_attmpted,               -- Files attempted to be loaded used for file loading management
+F_loaded IN SHADOW :INTEGER -- Files succesfully loaded used for file loading management
+
+done,
+execute_prog,                       -- Used for the WHILE loop when true continue to run program
+Load_it,                            -- Used for the answer if prompting the operator
+AskToLoadSys,                       -- When TRUE,Prompt user if System files should be loaded one at a time
+AskToLoadSty,                       -- When TRUE,Prompt user if Saftey files should be loaded one at a time
+AskToLoadWiz,                       -- When TRUE,Prompt user if Wizard files should be loaded one at a time
+AskToLoadShp,                       -- When TRUE,Prompt user if Shop files should be loaded one at a time
+SavedOldFile IN SHADOW : BOOLEAN -- A flag to ensure at start, files have been set
+
+-- Below used for load media functions- they NEED to be in SWWIZARD because we load this file for Names to load
+From_Path    IN SHADOW FROM GMVARS: STRING[75] -- used for the the deviceName and Subdirectory to load from
+To_Path      IN SHADOW FROM GMVARS: STRING[75] -- Used for the destination location that files will be sent to
+Storage_Loc  IN SHADOW FROM GMVARS: STRING[80] -- the name of where GMPT files are stored at ASI load and
+Cur_Device   IN SHADOW FROM GMVARS: STRING[10] -- used as the reply for get var $device
+Cur_Path     IN SHADOW FROM GMVARS: STRING[80] -- Used as the reply from teh get var $DEV_PATH variable
+Current_Dir  IN SHADOW FROM GMVARS: STRING[80] -- Used as the reply from path for file operation variable
+Dsply_Device IN SHADOW FROM GMVARS: STRING[80] -- Used as the DISPLAY of path this may not be the correct path.
+
+
+User_Path    IN SHADOW : STRING[80] -- Used for the users answer
+
+temp_int  : INTEGER -- Used for temp var
+
+pathname,
+device :STRING[10]
+entry,
+i,ans,
+gm_status,
+status :INTEGER
+
+wizard_files IN CMOS :ARRAY[wiz_filesize] OF STRING[16] -- Used for all wizard VR files to load
+system_files IN CMOS :ARRAY[sys_filesize] OF STRING[16] -- Used for files that maybe useful for users to copy
+safety_files IN CMOS :ARRAY[safefilesize] OF STRING[16] -- Used for files that maybe useful for users to copy
+shop_files   IN CMOS :ARRAY[shp_filesize] OF STRING[16] -- Used for files that maybe useful for users to copy
+
+-- below is a compliment of above file array so you can display what file user is loading and its purpose
+wizard_cmmnt IN CMOS :ARRAY[wiz_filesize] OF STRING[40] -- Used for Comment for the wizard VR files
+system_cmmnt IN CMOS :ARRAY[sys_filesize] OF STRING[40] -- Used for Comment for the system file array
+safety_cmmnt IN CMOS :ARRAY[safefilesize] OF STRING[40] -- Used for Comment for the saftey file array
+shop_cmmnt   IN CMOS :ARRAY[shp_filesize] OF STRING[40] -- Used for Comment for the shop file array
+
+-- ArcTool
+ arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded 
+
+%INCLUDE gmrdutil -- has all the builtin routines i.e. Int2str, was GMUTILTY
+%INCLUDE klrdutil -- needed for the CLR_STND_SCR routine
+
+ROUTINE Finish_Log FROM GMWizLog  -- Used to close the log File
+ROUTINE closeLog FROM GMWizLog  -- Used to close the log File
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWizLog  -- used to write an items to the log file
+ROUTINE Setup_Log(P_ShopLog:STRING) FROM GMWizLog -- used to Create the log file
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+-----------------------------------------------------------------------------
+ROUTINE GoGetPath
+-- PURPOSE: to prompt user for a path and set it or check it.
+--          TBDL
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+  RETURN
+END GoGetPath
+-----------------------------------------------------------------------------
+ROUTINE GoMakeDir(P_Dir_Loc:STRING):BOOLEAN
+-- PURPOSE:
+--
+--
+-- INPUT:   the dirive and path to setup
+--            -
+-- OUTPUT:  If the drive and path was able to be setup
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+Success :BOOLEAN
+BEGIN
+
+   Success = TRUE
+
+-- make directory for the loaded files to be placed
+  KCL ('MkDir '+P_Dir_Loc, gm_status)
+    IF (gm_status<>0) THEN -- If Failed
+      IF (gm_status = 2039) THEN --FILE-039 Directory already Exists
+        WriteLog('  Directory '+P_Dir_Loc +' Already exists',FALSE)
+      ELSE
+        POST_ERR(38000, 'KCL Failed MD '+P_Dir_Loc, gm_status, 0) --
+        WriteLog('KCL Failed MkDir '+P_Dir_Loc +' FAILED, Status='+int2str(gm_status), TRUE)
+        Success = FALSE
+      ENDIF
+    ELSE
+      WriteLog('  Created directory '+P_Dir_Loc,FALSE)
+    ENDIF
+
+  RETURN(Success)
+
+END GoMakeDir
+-----------------------------------------------------------------------------
+ROUTINE chk_path:BOOLEAN
+-- PURPOSE: Check where the user wants to load or save to is supported
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:  If the path is valid or not
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (Cur_Device = 'MC:') OR (Cur_Device = 'UD1:') OR (Cur_Device = 'UT1:') THEN
+    writeLog(' Loading and Saving from ' + Cur_Device + Cur_Path,FALSE)
+    RETURN(TRUE)
+  ELSE
+    POST_ERR(38000, 'Load|Save NOT Available from ' + Cur_Device, 0, 0) --
+    writeLog(' Loading and Saving NOT Available from ' + Cur_Device,TRUE)
+    RETURN(FALSE)
+  ENDIF
+
+END chk_path
+-----------------------------------------------------------------------------
+ROUTINE GetUserPath:STRING
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT: the Path the user has setup on the device.
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+    GET_VAR(entry, '*SYSTEM*' , '$DEVICE', Cur_Device, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$DEVICE FAILED', gm_status, 0) --
+    ENDIF
+
+    IF UNINIT(Cur_Device) THEN -- could be bad if above failed
+      Cur_Device = 'UD1:'
+    ENDIF
+
+-- go get the path to load from
+  GET_VAR(entry, '*SYSTEM*' , '$DEV_PATH', Cur_Path, gm_status)
+    IF gm_status <> 0 THEN
+      POST_ERR(38000, '[*SYSTEM*].$DEV_PATH FAILED', gm_status, 0) --
+    ENDIF
+
+    IF UNINIT(Cur_Path) THEN
+      Cur_Path = '\'
+    ENDIF
+
+-- Check the length of the Path because only 40 charectors can be displayed on one line
+  temp_int = STR_LEN(Cur_path)
+  IF (temp_int > 36) THEN
+    Dsply_Device = Cur_Device + '\.\.\' + SUB_STR(Cur_path,(temp_int-31),31)
+  ELSE
+    Dsply_Device = Cur_Device + Cur_Path
+  ENDIF
+
+
+    IF Chk_Path THEN
+      RETURN(Cur_Device + Cur_Path)
+    ELSE
+      WriteLog('  *****Path '+Cur_Device +' is invalid ******',FALSE)
+      Cur_Device = 'UD1:'
+      Set_S_sVar('$DEVICE',Cur_Device)
+      Cur_Path = '\'
+      Set_S_sVar('$DEV_PATH',Cur_Path)
+      WriteLog('  *****Path set to '+Cur_Device +Cur_Path +' so is valid ******',FALSE)
+      RETURN(Cur_Device + Cur_Path)
+    ENDIF
+
+END GetUserPath
+-----------------------------------------------------------------------------
+ROUTINE InitAllVars
+-- PURPOSE: to initialize all variables associated with the loading and saving
+--
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+ i  : INTEGER -- Used for indexing through the array.
+
+BEGIN
+
+  IF UNINIT(arc_optn) THEN --ArcTool
+    arc_loaded
+  ENDIF
+
+ IF UNINIT(SavedOldFile) THEN-- Means has never been ran, try to load VR for settings
+   wizard_files[1]  = 'GMWZLDSV.VR'  -- Configuration for variables for THIS program
+  --  From_Path = GetUserPath -- get users path and ensure it is OK
+  --  To_Path = 'MD:'
+                     --1234567890123456789012345678901234567890
+   wizard_cmmnt[1]  = 'Config variables for Load and Save Prog.'  -- Configuration for variables for THIS program
+
+   -- If cant load it, means 1st time ran, either way save controller files after load set it FALSE
+   SavedOldFile = FALSE
+ ENDIF
+
+  IF UNINIT(AskToLoadSys) THEN -- setup so User is NOT prompted for every file
+    AskToLoadSys = TRUE
+  ENDIF
+  IF UNINIT(AskToLoadSty) THEN
+    AskToLoadSty = TRUE
+  ENDIF
+  IF UNINIT(AskToLoadWiz) THEN
+    AskToLoadWiz = TRUE
+  ENDIF
+  IF UNINIT(AskToLoadShp) THEN
+    AskToLoadShp = TRUE
+  ENDIF
+
+ -- Setup the Wizard specific files that need to be saved
+  FOR i = 1 TO ARRAY_LEN(wizard_files) DO
+    IF UNINIT(wizard_files[i]) THEN
+      wizard_files[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(wizard_cmmnt) DO
+    IF UNINIT(wizard_cmmnt[i]) THEN
+      wizard_cmmnt[i] = 'file comment not setup'
+    ENDIF
+  ENDFOR --
+
+  -- Setup saftey files that can be saved?
+  FOR i = 1 TO ARRAY_LEN(safety_files) DO --
+    IF UNINIT(safety_files[i]) THEN
+      safety_files[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(safety_cmmnt) DO --
+    IF UNINIT(safety_cmmnt[i]) THEN
+      safety_cmmnt[i] = 'file comment not setup'
+    ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(system_files) DO --
+    IF UNINIT(system_files[i]) THEN
+      system_files[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(system_cmmnt) DO --
+    IF UNINIT(system_cmmnt[i]) THEN
+      system_cmmnt[i] = 'file comment not setup'
+    ENDIF
+  ENDFOR --
+
+  FOR i = 1 TO ARRAY_LEN(shop_files) DO --
+    IF UNINIT(shop_files[i]) THEN
+      shop_files[i] = ''
+    ENDIF
+  ENDFOR --
+  FOR i = 1 TO ARRAY_LEN(shop_cmmnt) DO --
+    IF UNINIT(shop_cmmnt[i]) THEN
+      shop_cmmnt[i] = 'file comment not setup'
+    ENDIF
+  ENDFOR --
+                  --1234567890123456789012345678901234567890
+-- System files users my want YOU PUT file extension in this because all differant
+system_files[1]  = 'DIOCFGSV.IO' -- I/O for sdytem setup
+system_cmmnt[1]  = 'I/O comments and configuration setup' --
+system_files[2]  = 'POSREG.VR'
+system_cmmnt[2]  = 'Position Register positions/comments'
+system_files[3]  = 'STRREG.VR' -- String Registers
+system_cmmnt[3]  = 'String Register setups and comments' -- String Registers
+system_files[4]  = 'NUMREG.VR'
+system_cmmnt[4]  = 'Register setups and comments'
+system_files[5]  = 'GMPNCDTA.VR'
+system_cmmnt[5]  = 'Powertrain mov pounce position setup'
+system_files[6]  = 'SYSFRAME.SV'
+system_cmmnt[6]  = 'Frame Data when loaded w/FRAMEVAR.VR'
+system_files[7]  = 'FRAMEVAR.VR'
+system_cmmnt[7]  = 'Frame Data when loaded w/SYSFRAME.SV'
+--system_files[8]  = 'FRAME.DG'
+system_files[9]  = 'SYSMACRO.SV' --
+system_cmmnt[9]  = 'The system macro table setup' --
+
+IF (arc_optn = FALSE) THEN --SpotTool only
+  system_files[10] = 'MHGRIPDT.VR' -- contains gripper setup
+  system_cmmnt[10] = 'The MH gripper setup configuration' -- contains gripper setup
+ENDIF --SpotTool only
+
+                  --1234567890123456789012345678901234567890
+IF ($AP_Selap[2]=TRUE) THEN -- if profile control J672 and Spot enabled
+  system_files[11] = 'sysspot.sv'
+  system_cmmnt[11] = 'Spot Configuration and I/O Data'
+  system_files[12] = 'sysstrok.sv'
+  system_cmmnt[12] = 'Spot Backup Schedules Configuration'
+
+  IF (Chk_Feature('J672')) THEN -- if profile control J672 and Spot enabled
+    system_files[13] = 'syspress.sv'
+    system_cmmnt[13] = 'Pressure & Pressure Profile Schedules'
+  ENDIF
+ENDIF
+
+IF ($AP_Selap[6]=TRUE) THEN -- if Dispense is enabled
+  system_files[14] = 'sysseal.sv'
+  system_cmmnt[14] = 'Sealing System files'
+  system_files[15] = 'sysslio.sv'
+  system_cmmnt[15] = 'Sealing System I/O setup files'
+  system_files[16] = 'sysslsch.sv'
+  system_cmmnt[16] = 'Sealing Schedules Setup'
+ENDIF
+  --
+
+--
+IF (arc_optn = FALSE) THEN --SpotTool only
+  SELECT (mfg_area) OF --   put files SHOP specific into the array shop_files and are specific to SHOPS
+    CASE (1):  -- Body Shop
+
+    CASE (2):  -- Press Shop
+
+    CASE (3):  -- Powertrain Shop
+
+    CASE (4):  -- Paint Shop
+
+    ELSE: --
+      WriteLog('  Manufacturing area is '+int2str(mfg_area)+' and is invalid',TRUE)
+  ENDSELECT --
+ENDIF --SpotTool
+                    --1234567890123456789012345678901234567890
+   safety_files[1] = 'DCSIOC.SV'
+   safety_cmmnt[1] = 'DCS Saftey I/O configuration'
+   safety_files[2] = 'DCSPOS.SV'
+   safety_cmmnt[2] = 'DCS Position Zones and configuration'
+   safety_files[3] = 'SYSCIPS.SV'
+   safety_cmmnt[3] = 'CIP saftey configuration'
+   safety_files[4] = 'SYSEIP.SV'
+   safety_cmmnt[4] = 'Enet Safety Interface with PLC setup'
+
+-- ATCUSTOM.VR -- this files may have setting that include external programs to be ran
+               -- but may not be needed if config has to be ran???
+-- GMCFGBDY.VR
+                  --1234567890123456789012345678901234567890
+
+wizard_files[1]  = 'GMWZLDSV.VR'  -- Configuration for variables for THIS program
+wizard_cmmnt[1]  = 'Load and Save Prog. Config for wizard'  -- Configuration for variables for THIS program
+wizard_files[2]  = 'GMCFGCEL.VR'  -- has the cell configuration shop, ip, etc
+wizard_cmmnt[2]  = 'Cell Configuration file for Wizard'
+wizard_files[3]  = 'GMCFGBDY.VR'  -- Configuration for BODY SHOP
+wizard_cmmnt[3]  = 'Body Shop Configuration file for Wizard'
+wizard_files[4]  = 'GMCFGDMP.VR'  -- Configuration for Dimplier applications
+wizard_cmmnt[4]  = 'Dimpler Configuration file for Wizard'
+wizard_files[5]  = 'GMCFGDSP.VR'  -- Configuration for Dispense applications
+wizard_cmmnt[5]  = 'Dispenser Configuration file for Wizard'
+wizard_files[6]  = 'GMCFGFDS.VR'  -- Configuration for
+wizard_cmmnt[6]  = 'FDS Configuration file for Wizard'
+wizard_files[7]  = 'GMCFGMH.VR'   -- Configuration for Material Handling Application
+wizard_cmmnt[7]  = 'Material Handling Configuration Wizard'
+wizard_files[8]  = 'GMCFGPJW.VR'  -- Configuration for Projection Welder Application
+wizard_cmmnt[8]  = 'Projection Welder Configuration Wizard'
+wizard_files[9]  = 'GMCFGPNT.VR'  -- Configuration for PAINT SHOP
+wizard_cmmnt[9]  = 'Paint Shop Configuration for Wizard'
+wizard_files[10] = 'GMCFGPRS.VR'  -- Configuration for PRESS SHOP
+wizard_cmmnt[10]  = 'Press Shop Configuration for Wizard'
+wizard_files[11] = 'GMCFGPWR.VR'  -- Configuration for POWERTRAIN SHOP
+wizard_cmmnt[11]  = 'PowerTrain Configuration for Wizard'
+wizard_files[12] = 'GMCFGSPR.VR'  -- Configuration for Self Peircing Rivet Application
+wizard_cmmnt[12]  = 'Self Piercing Rivet Config. for Wizard'
+wizard_files[13] = 'GMCFGSPT.VR'  -- Configuration for Spot Welding Application
+wizard_cmmnt[13]  = 'Spot Welder Configuration for Wizard'
+wizard_files[14] = 'GMCFGSTD.VR'  -- Configuration for Stud Welding Application
+wizard_cmmnt[14]  = 'Stud Welder Configuration for Wizard'
+wizard_files[15] = 'GMCFGTLC.VR'  -- Configuration for Tool Changer Application
+wizard_cmmnt[15]  = 'Tool Changer Configuration for Wizard'
+wizard_files[16] = 'GMCFGVIS.VR'  -- Configuration for Vision Application
+wizard_cmmnt[16]  = 'Vision Configuration file for Wizard'
+wizard_files[17] = 'GMVARS.VR'    -- Configuration for variables
+wizard_cmmnt[17]  = 'Variable file for GM application'
+
+ Storage_Loc = 'FR:\OLD_WIZSETUPS' -- needs no backslash to work for making directory
+
+  IF GoMakeDir(Storage_Loc) THEN -- go see if directory can be made or already exists
+
+  ELSE
+    POST_ERR(38000, 'CANNOT CONTINUE LOAD/SAVE', 0, 0) --
+    writeLog('  Load\Save Setup Could not RUN returning to Main Wizard', FALSE)
+    execute_prog = TRUE
+  ENDIF
+
+ IF UNINIT(SavedOldFile) THEN-- Means has never been ran, try to load VR for settings
+   -- If cant load it, means 1st time ran, either way save controller files after load set it FALSE
+   SavedOldFile = FALSE
+ ENDIF
+
+  IF UNINIT(From_Path) THEN -- On First run will save copy to FR:/OLD_WIZSETUPS
+    From_Path = 'MD:'
+  ENDIF
+  IF UNINIT(To_Path) THEN
+    To_Path = 'FR:'
+  ENDIF
+
+Done = FALSE
+Operation = 0
+Confirmation = 0
+
+
+END InitAllVars
+-----------------------------------------------------------------------------
+ROUTINE AskLoadPerm(p_fromPath,P_filename,P_filecmnt,P_to_path,P_ArrayType:STRING;P_AskToLoad:BOOLEAN)
+-- PURPOSE: prompts the user to ask if they want to load the file
+--
+--
+-- INPUT:   the from Path, the filename to load,the files comment, the to Path, and the variable to set if ALL is selected
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(Operation) THEN
+  Operation = 0
+ENDIF
+
+
+  REPEAT -- ask user if they want to load or save
+    CLR_STND_SCR(gm_status)
+      SELECT (Operation) OF --
+        CASE (1):  -- Load
+          WRITE(CR,'LOADING "'+P_ArrayType+'" from PATH:',CR)
+        CASE (2):  -- Save
+          WRITE(CR,'SAVING "'+P_ArrayType+'" to PATH:',CR)
+      ENDSELECT --
+    WRITE (Dsply_Device,CR)
+    WRITE (P_filename+' file contains:',CR)
+    WRITE (P_filecmnt,CR,CR)
+    WRITE('Select a Operation to execute?',CR)
+    WRITE(' 0 - Skip Loading '+P_filename,CR)
+    WRITE(' 1 - Load '+P_filename+' from Path shown',CR)
+    WRITE(' 2 - Load All '+P_ArrayType+' from Path',CR)
+    WRITE TPPROMPT(gdata_ans,'(0-2):')
+    READ TPPROMPT (Selection)
+  UNTIL(Verify_Answr(Selection,0,2))-- go check valid answer
+
+    SELECT (Selection) OF --
+      CASE (0):  --
+         Load_it = FALSE
+      CASE (1):  -- Load this file
+         Load_it = TRUE
+      CASE (2):  -- Load All Files
+         P_AskToLoad = FALSE
+         Load_it = TRUE
+    ENDSELECT --
+
+END AskLoadPerm
+-----------------------------------------------------------------------------
+ROUTINE Save_A_Copy
+-- PURPOSE: this routine saves a copy of the programs in the file array's
+--          the to_path and the from_path should be set before calling
+--          The user gets prompted if the booleans are set to prompt
+--          On a save, usally no need for prompting, normally just loading
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+  IF (To_Path = 'MD:') THEN
+    AskToLoadSys = TRUE
+    AskToLoadSty = TRUE
+    AskToLoadWiz = TRUE
+    AskToLoadShp = TRUE
+  ENDIF
+
+  writeLog('   ', FALSE)
+  writeLog('  Copying Wizard Related Files ', FALSE)
+  writeLog('   ', FALSE)
+
+Load_it = FALSE -- this will be rest by user or for loop
+
+  -- Loop through and save a copy of all the Wizard files
+  FOR i = 1 TO (ARRAY_LEN(wizard_files)) DO
+    IF wizard_files[i]<>'' THEN
+      IF (AskToLoadWiz = TRUE) THEN -- if ask to load wiz files 1 at a time is true
+        AskLoadPerm(From_Path,wizard_files[i],wizard_cmmnt[i],To_Path,'WIZARD Files',AsktoLoadWiz)-- get user permission to load
+      ELSE
+        Load_it = TRUE
+      ENDIF
+      IF Load_it= TRUE THEN
+        SELECT (Operation) OF --
+          CASE (1):  -- Load a set of previous saved
+            WRITE TPFUNC(CHR(128),'Loading ',wizard_files[i])
+          CASE (2):  -- Save a set to the device
+            WRITE TPFUNC(CHR(128),'Saving ',wizard_files[i])
+          ELSE: --
+        ENDSELECT --
+        Copy_O_File(From_Path+'\'+wizard_files[i] ,To_Path+'\'+wizard_files[i] ,TRUE)
+      ELSE
+        WriteLog('  User SKIPPED loading '+From_Path+'\'+wizard_files[i] ,FALSE)
+      ENDIF
+    ENDIF
+  ENDFOR --
+
+  -- Loop through and save a copy of all the System Files
+Load_it = FALSE -- this will be rest by user or for loop
+
+  writeLog('   ', FALSE)
+  writeLog('  Copying System Related Files ', FALSE)
+  writeLog('   ', FALSE)
+  FOR i = 1 TO (ARRAY_LEN(system_files)) DO
+    IF system_files[i]<>'' THEN
+      IF (AskToLoadSYS = TRUE) THEN -- if ask to load wiz files 1 at a time is true
+        AskLoadPerm(From_Path,system_files[i],system_cmmnt[i],To_Path,'SYSTEM Files',AsktoLoadSYS)-- get user permission to load
+      ELSE
+        Load_it = TRUE
+      ENDIF
+      IF Load_it= TRUE THEN
+        SELECT (Operation) OF --
+          CASE (1):  -- Load a set of previous saved
+            WRITE TPFUNC(CHR(128),'Loading ',system_files[i])
+          CASE (2):  -- Save a set to the device
+            WRITE TPFUNC(CHR(128),'Saving ',system_files[i])
+          ELSE: --
+        ENDSELECT --
+        Copy_O_File(From_Path+'\'+system_files[i] ,To_Path+'\'+system_files[i] ,TRUE)
+        WRITE TPFUNC(CHR(128))
+      ELSE
+        WriteLog('  User SKIPPED loading '+From_Path+'\'+system_files[i] ,FALSE)
+      ENDIF
+    ENDIF
+  ENDFOR --
+
+  -- Loop through and save a copy of all the Saftey Files
+Load_it = FALSE -- this will be rest by user or for loop
+
+  writeLog('   ', FALSE)
+  writeLog('  Copying Saftey Related Files ', FALSE)
+  writeLog('   ', FALSE)
+   FOR i = 1 TO (ARRAY_LEN(safety_files)) DO
+    IF safety_files[i]<>'' THEN
+      IF (AskToLoadSty = TRUE) THEN -- if ask to load wiz files 1 at a time is true
+        AskLoadPerm(From_Path,safety_files[i],safety_cmmnt[i],To_Path,'SAFETY Files',AskToLoadSty)-- get user permission to load
+      ELSE
+        Load_it = TRUE
+      ENDIF
+      IF Load_it= TRUE THEN
+        SELECT (Operation) OF --
+          CASE (1):  -- Load a set of previous saved
+            WRITE TPFUNC(CHR(128),'Loading ',safety_files[i])
+          CASE (2):  -- Save a set to the device
+            WRITE TPFUNC(CHR(128),'Saving ',safety_files[i])
+          ELSE: --
+        ENDSELECT --
+        Copy_O_File(From_Path+'\'+safety_files[i] ,To_Path+'\'+safety_files[i] ,TRUE)
+        WRITE TPFUNC(CHR(128))
+      ELSE
+        WRITE TPFUNC(CHR(128))
+        WriteLog('  User SKIPPED loading '+From_Path+'\'+safety_files[i] ,FALSE)
+      ENDIF
+    ENDIF
+  ENDFOR --
+
+  -- Loop through and save a copy of all the Saftey Files
+Load_it = FALSE -- this will be rest by user or for loop
+
+  writeLog('   ', FALSE)
+  writeLog('  Copying Shop Related Files ', FALSE)
+  writeLog('   ', FALSE)
+
+  FOR i = 1 TO (ARRAY_LEN(shop_files)) DO
+    IF shop_files[i]<>'' THEN
+      IF (AskToLoadShp = TRUE) THEN -- if ask to load wiz files 1 at a time is true
+        AskLoadPerm(From_Path,shop_files[i],shop_cmmnt[i],To_Path,'SHOP Files',AskToLoadShp)-- get user permission to load
+      ELSE
+        Load_it = TRUE
+      ENDIF
+      IF Load_it= TRUE THEN
+        SELECT (Operation) OF --
+          CASE (1):  -- Load a set of previous saved
+            WRITE TPFUNC(CHR(128),'Loading ',shop_files[i])
+          CASE (2):  -- Save a set to the device
+            WRITE TPFUNC(CHR(128),'Saving ',shop_files[i])
+          ELSE: --
+        ENDSELECT --
+
+        Copy_O_File(From_Path+'\'+shop_files[i] ,To_Path+'\'+shop_files[i] ,TRUE)
+        WRITE TPFUNC(CHR(128))
+      ELSE
+        WriteLog('  User SKIPPED loading '+From_Path+'\'+shop_files[i] ,FALSE)
+      ENDIF
+    ENDIF
+  ENDFOR --
+
+END Save_A_Copy
+-----------------------------------------------------------------------------
+ROUTINE Save_Orignls
+-- PURPOSE: This routine will save the configuration to the current device
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+   AskToLoadSys = FALSE
+   AskToLoadSty = FALSE
+   AskToLoadWiz = FALSE
+   AskToLoadShp = FALSE
+
+   From_Path = 'MD:' -- saving files save from controller to the device.
+   To_Path = Storage_Loc -- Setup in the InitAllVars routine
+
+   WriteLog('  Saving Original Wizard Files to '+To_Path,FALSE)
+
+   Save_A_Copy -- Go save data to the current setup
+
+   SavedOldFile = TRUE -- set so files dont need to be copied again
+
+   WriteLog('  Original Wizard Files saved to '+To_Path,FALSE)
+   writeLog('   ', FALSE)
+
+END Save_Orignls
+------------------------------------------------------------------------------------------------
+
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+WizardStatus.LodedIs_Done = FALSE -- set so wizard doesnt go to display
+-- Added below because Loading files at controlled start, if a file needs
+-- Convert and Saved, this variable needs to be set Judy Evans Helped solve this
+ SET_VAR(entry, '*SYSTEM*' , '$KAREL_CFG.$CONV_CTRL', TRUE, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$KAREL_CFG.$CONV_CTRL FAILED', status, 0) --
+   ENDIF
+
+  writeLog('  ', FALSE)
+  writeLog('  Load\Save Setup Started ', FALSE)
+
+
+ execute_prog = TRUE -- Set here if initAllVars has issue will set to false
+                     -- the the While statemnt will prevent from running code
+
+  InitAllVars -- Setup the variables
+
+  -- Check to see if originals had ever been saved
+  IF (SavedOldFile = FALSE) THEN
+    Save_Orignls
+  ENDIF
+
+WHILE (execute_prog = TRUE) DO -- need to continue to run
+   done = FALSE
+    REPEAT --
+
+   AskAgain :: -- Ask user again, because they said the wanted to change drive
+
+      Current_Dir = GetUserPath
+
+      REPEAT -- ask user if they want to load or save
+        CLR_STND_SCR(gm_status)
+        WRITE(CR,'   Load/Save Settings from Path:',CR,CR)
+        WRITE (Dsply_Device,CR,CR)
+        WRITE('Select a Operation to execute?',CR)
+        WRITE('  0 - Quit & Return to Wizard Main Menu',CR)
+        WRITE('  1 - Load files from Path shown',CR)
+        WRITE('  2 - Save files to Path shown',CR)
+        WRITE('  3 - Change the Media Type shown',CR)
+        WRITE TPPROMPT(gdata_ans,'(0-3):')
+        READ TPPROMPT(Operation)
+      UNTIL(Verify_Answr(Operation,0,3))-- go check valid answer
+
+      IF (Operation= 3) THEN
+         WriteLog('User Selected to Change drive to be used from '+cur_device,FALSE)
+          REPEAT -- ask user if they want to load or save
+            CLR_STND_SCR(gm_status)
+
+            WRITE(CR,Cur_Device+' is Current Drive for Load/Save',CR,CR)
+            WRITE('Select the Drive to be used:',CR,CR)
+            WRITE(' 1 - UD1: Located on Controller Door ',CR)
+            WRITE(' 2 - UT1: Located on Teach Pandant ',CR)
+            WRITE(' 3 -  MC: Located INSIDE Cabinet',CR,CR)
+            WRITE TPPROMPT(gdata_ans,'(1-3):')
+            READ TPPROMPT(DriveToUse)
+          UNTIL(Verify_Answr(DriveToUse,1,3))-- go check valid answer
+
+            SELECT (DriveToUse) OF --
+              CASE (1):  -- UD1:
+                    Cur_Device = 'UD1:'
+              CASE (2):  -- UT1:
+                    Cur_Device = 'UT1:'
+              CASE (3):  -- MC:
+                    Cur_Device = 'MC:'
+              ELSE: --
+                POST_ERR(38000, 'DriveToUse is INVALID in GMWZLDSV', 0, 0) --
+            ENDSELECT --
+            Set_S_sVar('$DEVICE',Cur_Device)
+           WriteLog('User Selected '+cur_device +' as the current Drive' ,FALSE)
+         GOTO AskAgain
+      ENDIF
+
+      IF Operation <>0 THEN -- Make sure user wants to laod and save files
+        REPEAT
+          CLR_STND_SCR(gm_status)
+          SELECT (Operation) OF --
+            CASE (1):  -- Load
+              WRITE(CR,'LOADING files from PATH:',CR)
+            CASE (2):  -- Save
+              WRITE(CR,'SAVING files to PATH:',CR)
+          ENDSELECT --
+          WRITE (CR, Dsply_Device,CR,CR)
+          WRITE(gmwizcont,'?',CR)    -- Do you want to continue?
+          WRITE('  0 - ', no_gmdata,CR)  -- 0. NO
+          WRITE('  1 - ', yes_gmdata,CR,CR) -- 1. YES
+          WRITE TPPROMPT(gdata_ans,'(0-1):')  -- Answer(0-1):
+          READ TPPROMPT(confirmation)
+        UNTIL(Verify_Answr(confirmation,0,1))
+      ELSE -- want to return to main
+        done = TRUE
+        execute_prog = FALSE
+        WizardStatus.LodedIs_Done = FALSE -- set so wizard doesnt go to display
+      ENDIF
+
+    -- Get confirmation user wants to load or save
+
+    IF ((done = FALSE) AND (Confirmation = 1)) THEN
+
+        SELECT (Operation) OF --
+          CASE (0):  -- Return to the wizard
+              Done = TRUE
+          CASE (1):  -- Load a set of previous saved
+              AskToLoadSys = TRUE
+              AskToLoadSty = TRUE
+              AskToLoadWiz = TRUE
+              AskToLoadShp = TRUE
+              From_Path = GetUserPath
+              WriteLog('  User selected to LOAD files from ' + From_Path,FALSE)
+              To_Path = 'MD:'
+              Save_A_Copy
+              WizardStatus.LodedIs_Done = TRUE -- loading a valid file makes config not nessacary
+              done = TRUE
+          CASE (2):  -- Save a set to the device
+              AskToLoadSys = FALSE
+              AskToLoadSty = FALSE
+              AskToLoadWiz = FALSE
+              AskToLoadShp = FALSE
+              To_Path = GetUserPath
+              WriteLog('  User selected to Save files To ' + To_Path,FALSE)
+              From_Path = 'MD:'
+              Save_A_Copy
+              Done = TRUE
+          ELSE: --
+            WriteLog('  Operation ' + int2str(operation) +' is not valid',FALSE)
+        ENDSELECT --
+    ENDIF
+
+    UNTIL (done) -- Loading or saving
+
+   IF (execute_prog = TRUE) THEN -- will be False if you selected to end
+      REPEAT -- ask user if they want to load or save
+        CLR_STND_SCR(gm_status)
+          SELECT (Operation) OF --
+            CASE (1):  -- Load
+              WRITE(CR,'LOADING of Files has Completed',CR,CR)
+            CASE (2):  -- Save
+              WRITE(CR,'SAVING of Files has Completed',CR,CR)
+          ENDSELECT --
+        WRITE('Select a Operation to execute:',CR,CR)
+        WRITE('  0 - Finished return to Main Wizard ',CR)
+        WRITE('  1 - Continue to Load/Save Files',CR,CR)
+        WRITE TPPROMPT(gdata_ans,'(0-1):')
+        READ TPPROMPT(Selection)
+      UNTIL(Verify_Answr(Selection,0,1))-- go check valid answer
+      IF (Selection =0) THEN
+        execute_prog = FALSE
+      ENDIF
+   ENDIF
+ENDWHILE -- endwhile for
+
+  WizardStatus.Loded_Status = 0 -- set succesful start to end
+
+  writeLog('  Load\Save Setup Ended', FALSE)
+  writeLog('  ', FALSE)
+
+-- Set convert variable back
+ SET_VAR(entry, '*SYSTEM*' , '$KAREL_CFG.$CONV_CTRL', FALSE, status)
+   IF status <> 0 THEN
+     POST_ERR(38000, '[*SYSTEM*].$KAREL_CFG.$CONV_CTRL FAILED', status, 0) --
+   ENDIF
+
+END gmwzldsv

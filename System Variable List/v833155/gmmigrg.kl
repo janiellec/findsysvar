@@ -1,0 +1,151 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMMigRG.KL
+--   TITLE:          GMMigRG PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2020/10/23
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 MigTool Register Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             v4.0   2020/10/23 schoensm         Created during V8.33P10             
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmMigrg
+
+%COMMENT = 'GM Mig REG V4.0'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgmig  -- ArcTool Mig-Wizard variables
+
+CONST
+Version = '2020-11-19'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+  Current_Ver  	IN SHADOW : STRING[32] 	-- Set equal to Version constant in initialization routine
+  StrtinErs   		  : INTEGER   	-- How many errors I/O error counter had when the program started
+  MigRG_Setup  	IN SHADOW : BOOLEAN  	-- Keeps track if routine setup Mig tool register setup at least first time
+  gm_status               : INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_Mig_reg
+-- PURPOSE: to initialize variables for Mig register setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (rmr_trch_wiz = wizans_yes) THEN --application is a Reamer Torch Wizard
+    Comment_Reg(1,485,'Cycle Count')
+    SET_INT_REG(485,0,gm_status)
+    Comment_Reg(1,486,'Clean Frequency')
+    SET_INT_REG(486,5,gm_status)
+    Comment_Reg(1,487,'Reamer Count')
+    SET_INT_REG(487,0,gm_status)
+    Comment_Reg(1,488,'Reamer Limit')
+    SET_INT_REG(488,10000,gm_status)
+    Comment_Reg(1,489,'Cutter Count')
+    SET_INT_REG(489,0,gm_status)
+    Comment_Reg(1,490,'Cutter Limit')
+    SET_INT_REG(490,15000,gm_status)
+  ENDIF
+
+END init_Mig_reg
+-----------------------------------------------------------------------------
+ROUTINE set_Mig_reg
+-- PURPOSE: set Mig registers
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(MigRG_Setup) OR (Reset_Cell) THEN
+    MigRG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Mig Register GMMigRG', FALSE)
+
+  IF (MigRG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('Mig REG Already Setup', FALSE)
+    IF ExecSetupAgn('Mig REGs') THEN -- ask user if they want to setup again
+      MigRG_Setup = FALSE
+    ELSE
+      WriteLog('Mig REGs already Complete', FALSE)
+      WriteLog('GMMigRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_Mig_reg
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Mig REGs Setup GMMigRG had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Mig REGs Setup completed', FALSE)
+    MigRG_Setup = TRUE
+  ENDIF
+  WriteLog('', FALSE)
+END set_Mig_reg
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmMigrg

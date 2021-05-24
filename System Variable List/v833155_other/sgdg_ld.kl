@@ -1,0 +1,102 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1994
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--
+--    Program: sg_loadd 
+--    
+--    Description:
+--      This routine is used to determine from a TP program if the servo gun 
+--      option is loaded. A parameter shall be passed to the routing, that 
+--      indicated the register to pass back the answer in. 
+--        1 = Servo Diag gun option loaded
+--        0 = Servo Diag gun NOT loaded
+--      This routine is uesed in the TIP_RESET TP program.
+--
+--    Language: KAREL
+--    
+--    Source File:        sg_loadd.KL  
+--    
+--    Author: Lloyd Steed
+--            Fanuc Robotics America, Inc.
+--            3900 W. Hamlin Road
+--            Rochester Hills, Michigan 48309-3253
+--    
+------------------------------------------------------------------
+PROGRAM sgdg_ld  -- Do not change the name of the program
+------------------------------------------------------------------
+%PRIORITY = 40
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='SG Diag Loaded'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+
+-- Softpart built-ins
+%ENVIRONMENT ATCLDEF
+%ENVIRONMENT IOSETUP
+%ENVIRONMENT celldef
+%ENVIRONMENT DNSVDEF
+%ENVIRONMENT MNMCDEF
+%ENVIRONMENT MULTI
+%ENVIRONMENT SLDEF
+%ENVIRONMENT SWGDEF
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT tpthrdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT REGOPE
+%ENVIRONMENT proddef
+%ENVIRONMENT FDEV 
+%ENVIRONMENT TPE
+%ENVIRONMENT SYCRDEF
+
+%INCLUDE etdcapsh
+
+VAR
+
+  real_value   : REAL
+  str_value    : STRING[15]
+  sd_ld_reg    : INTEGER
+  status       : INTEGER
+  ignore_stat  : INTEGER
+  l_i            : INTEGER
+  l_init       : BOOLEAN
+  
+-- From Other programs
+  g_sgdiag_opt IN CMOS FROM TUNEDIAG : BOOLEAN  -- Servo Diag option loaded
+
+----------------------------------------------------------------------
+BEGIN  
+----------------------------------------------------------------------
+
+IF UNINIT(sd_ld_reg) THEN
+  sd_ld_reg = 46
+ENDIF
+
+  g_sgdiag_opt = FALSE
+  SET_INT_REG(sd_ld_reg, 0, ignore_stat)
+  FOR l_i = 1 TO ARRAY_LEN($FEATURE.$MOD) DO 
+    IF NOT UNINIT($FEATURE.$MOD[l_i]) THEN -- Stop at uninit
+      IF ($FEATURE.$MOD[l_i] = 'J950') THEN
+        g_sgdiag_opt = TRUE
+        SET_INT_REG(sd_ld_reg, 1, ignore_stat)
+	  ENDIF
+    ELSE -- At the end UNINIT
+      l_i = ARRAY_LEN($FEATURE.$MOD) + 1 -- Get out
+    ENDIF
+  ENDFOR
+----------------------------------------------------------------------
+
+END sgdg_ld   

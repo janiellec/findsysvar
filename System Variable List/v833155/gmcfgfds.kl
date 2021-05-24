@@ -1,0 +1,53 @@
+-- Used for Stud specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+-- Application Variables
+-- Application will also share the MH, Tool Changer, Vision Variables, Press and etc...
+
+
+TYPE
+  GM_FDSCG FROM GMCFGFDS = STRUCTURE         --equipment wizard setup
+    ispare1       :INTEGER                   --spare
+    ispare2       :INTEGER                   --spare
+    ispare3       :INTEGER                   --spare
+    ispare4       :INTEGER                   --spare
+    ispare5       :INTEGER                   --spare
+    ispare6       :INTEGER                   --spare
+    ispare7       :INTEGER                   --spare
+    ispare8       :INTEGER                   --spare
+    ispare9       :INTEGER                   --spare
+    ispare10      :INTEGER                   --spare
+    ispare11      :INTEGER                   --spare
+    ispare12      :INTEGER                   --spare
+    ispare13      :INTEGER                   --spare
+    ispare14      :INTEGER                   --spare
+    ispare15      :INTEGER                   --spare
+    ispare16      :INTEGER                   --spare
+    ispare17      :INTEGER                   --spare
+    ispare18      :INTEGER                   --spare
+    ispare19      :INTEGER                   --spare
+    ispare20      :INTEGER                   --spare
+    bspare1       :BOOLEAN                   --spare
+    bspare2       :BOOLEAN                   --spare
+    bspare3       :BOOLEAN                   --spare
+    bspare4       :BOOLEAN                   --spare
+    bspare5       :BOOLEAN                   --spare
+    bspare6       :BOOLEAN                   --spare
+    bspare8       :BOOLEAN                   --spare
+    bspare9       :BOOLEAN                   --spare
+    bspare10      :BOOLEAN                   --spare
+    rspare1       :REAL                      --spare
+    rspare2       :REAL                      --spare
+    rspare3       :REAL                      --spare
+    rspare4       :REAL                      --spare
+    rspare5       :REAL                      --spare
+    rspare6       :REAL                      --spare
+  ENDSTRUCTURE
+
+VAR
+  numfdsctrl   IN SHADOW FROM GMCFGFDS: INTEGER                 --Number of controllers
+  FDSCommType  IN SHADOW FROM GMCFGFDS: INTEGER                 --communication type
+  fdsapp       IN SHADOW FROM GMCFGFDS: ARRAY[2] OF GM_FDSCG   --GM equipment configuration
+  fds_ctrl     IN SHADOW FROM GMCFGFDS: INTEGER                 --Wizard equipment for execution
+  fds1_app     IN SHADOW FROM GMCFGFDS: INTEGER                 --controller 1 application
+  fds2_app     IN SHADOW FROM GMCFGFDS: INTEGER                 --controller 2 application
+  FDSSetup     IN SHADOW FROM GMCFGFDS: ARRAY[2] OF BOOLEAN     --if applicationis already setup flag    

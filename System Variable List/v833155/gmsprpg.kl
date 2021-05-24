@@ -1,0 +1,287 @@
+--   -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPRPG.KL
+--   TITLE:          GMSPRPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Program file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/27 marchaka  Add gmwizlog logging functionality
+--         2016/11/17 marchaka  Load movrepr1 and setup in style table for any app that has
+--                              carried SPR
+--         2016/12/05 marchaka  Add new SPR programs, remove obsolete ones
+--         2016/12/12 marchaka  mov_repr1 is no longer needed.  Remove it from loading.
+--                              Removed prerepr1.
+--             V4.1   2017/02/05 marchaka         Modify prompts for wizard rerun
+--             V4.1   2017/02/08 marchaka         Remove tmpcsprp, not used anymore
+--             V4.2   2017/02/13 marchaka         Remove $dev_path setting.  Handled in gmmain1.
+--             V4.3   2018-04-04 schoensm 	  V8.33P05 updates 
+--             V4.3   2018/04/23 marchaka         Fix issue with hmiospr not getting loaded
+--             V4.4   2019/10/17 schoensm         Fix issue that rivbgpr1_2.tp not getting loaded.
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPRPG
+
+%COMMENT = 'GM SPR V4.4'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT TPE  -- set_attr_prg
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gm_var    --GM variables
+%INCLUDE gmcfgspr  -- GM wizard variables for Applications
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+CONST
+Version = '2018-04-23'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+  gm_status:  INTEGER
+  prog_nam     : STRING[12]
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  SPRPG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup SPR Prog at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines 
+
+
+-----------------------------------------------------------------------------
+ROUTINE initSPRPRGS
+-- PURPOSE: to initialize application Programs associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(SPRPG_Setup) THEN
+    SPRPG_Setup = FALSE
+  ENDIF
+
+
+END initSPRPRGS
+-----------------------------------------------------------------------------
+ROUTINE set_sprmac
+-- PURPOSE: set_sprmac  -- 3-26-18 sms V833P05
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (bshop_proc1 = sprappl) THEN
+    -- Macros for manual functions page
+    Setup_Macro(17, 'SPR1 Home Tool',  'spr1hometool', 4,80,FALSE)
+    Setup_Macro(18, 'SPR1 Calibrate',  'spr1calibrate', 4,81,FALSE)
+  ENDIF
+
+  IF (bshop_proc2 = sprappl) THEN
+    -- Macros for manual functions page
+    Setup_Macro(19, 'SPR2 Home Tool',  'spr2hometool', 4,82,FALSE)
+    Setup_Macro(20, 'SPR2 Calibrate',  'spr2calibrate', 4,83,FALSE)
+  ENDIF
+
+
+END set_sprmac
+-----------------------------------------------------------------------------
+ROUTINE load_spr_pg
+-- PURPOSE: Load application programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  SPRUNCfile('FRS:\hmiospr.tp', 'FR:\hmiocst.tp')
+  Load_File('FR:','hmiocst.tp',1)
+
+  Load_File('FRS:','tmpcspr.tp',1)  
+  Load_File('FRS:','tmpcsprhb.tp',1)   
+  Load_File('FRS:','cut_tape.tp',1)
+  Load_File('FRS:','ffrsprhb.tp',1)
+  Load_File('FRS:','ffrsprpr.tp',1)
+  Load_File('FRS:','tmppdspr.tp',1)
+  Load_File('FRS:','tmptcswspr.tp',1)
+
+  Load_File('FRS:','prprcck1.tp',1)
+  Load_File('FRS:','prprcck2.tp',1)
+  Load_File('FRS:','rivbgpr1.tp',1)
+  Load_File('FRS:','rivbgpr2.tp',1)
+  --10-17-2019 schoensm V833P08
+  Load_File('FRS:','rivbgpr1_2.tp',1)
+  Load_File('FRS:','rivet1.tp',1)
+  Load_File('FRS:','rivet2.tp',1)
+  
+  Load_File('FRS:','rividchk.tp',1)
+  Load_File('FRS:','rividrst.tp',1)
+  Load_File('FRS:','riv1chk.tp',1)
+  Load_File('FRS:','riv2chk.tp',1)
+  Load_File('FRS:','riv1pchk.tp',1)
+  Load_File('FRS:','riv2pchk.tp',1)
+  Load_File('FRS:','riv1set.tp',1)
+  Load_File('FRS:','riv2set.tp',1)
+  Load_File('FRS:','tcswsprs.tp',1)
+  Load_File('FRS:','tlckspr.tp',1)
+  Load_File('FRS:','tmcsprproc.tp',1)
+  Load_File('FRS:','tmpedsprproc.tp',1)
+  Load_File('FRS:','spr1hometool.tp',1)
+  Load_File('FRS:','spr2hometool.tp',1)
+  Load_File('FRS:','spr1calibrate.tp',1)
+  Load_File('FRS:','spr2calibrate.tp',1)
+  Load_File('FRS:','Reenableffr.tp',1)
+  
+  LOAD('FR:argdispeg01.dt',1,gm_status)
+  CopyFile('FRS:\argdispeg01.dt','FR:\argdispeg01.dt')
+ 
+  IF (bshop_proc1 <> sprappl) AND (bshop_proc2 = sprappl) THEN
+    Load_File('FRS:','Pdstysptspr.tp',1)	
+  ENDIF
+
+END load_spr_pg
+-----------------------------------------------------------------------------
+ROUTINE spr_styletbl
+-- PURPOSE: 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+ 
+
+END spr_styletbl
+-----------------------------------------------------------------------------
+ROUTINE set_spr_pg
+-- PURPOSE: Setup and load programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numsprctrl <> 0) THEN --SPR Application
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+    ErrsInShop.ErrorsPrgrms = 0
+  ENDIF
+  IF UNINIT(SPRPG_Setup) OR (Reset_Cell) THEN
+    SPRPG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsPrgrms -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the SPR Program GMSPRPG', FALSE)
+
+  IF (SPRPG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  SPR Programs Already Setup', FALSE)
+    IF ExecSetupAgn('SPR Progs') THEN -- ask user if they want to setup again
+      SPRPG_Setup = FALSE
+    ELSE
+      WriteLog('  SPR Programs already Complete', FALSE)
+      WriteLog('  GMSPRPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+    
+  initSPRPRGS
+  load_spr_pg
+  spr_styletbl
+  set_sprmac 
+
+  ErrsInShop.ErrorsPrgrms =  ErrsInShop.ErrorsPrgrms + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsPrgrms -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  SPR Program Setup GMSPRPG had ' + int2str((ErrsInShop.ErrorsPrgrms- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  SPR Program Setup completed', FALSE)
+    SPRPG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_spr_pg
+-----------------------------------------------------------------------------
+BEGIN
+
+  set_spr_pg
+
+END GMSPRPG
+
+
+
+
+
+

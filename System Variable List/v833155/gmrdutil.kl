@@ -1,0 +1,104 @@
+--    This material is the joint property of Fanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either Fanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both Fanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1999
+--             Fanuc Robotics Corporation
+--
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--
+--
+--    Description:
+--    GM utility routine declaration
+--
+--    Language: KAREL
+--
+--    Source File:
+--
+--    Author: Fanuc Robotics Corporation
+--            3900 W. Hamlin Rd.
+--            Rochester Hills, Michigan    48309
+--
+--    Modification history:
+--    1/27/17 RKosaski added the 2 routines ChkIfBckedup & SetBackUpLoc
+--    6/26/17 RKosaski added the ChkSimulated
+--    2019/08/24 marchaka added Set_Reg_Val
+--    2019/09/25 RKosaski added Getsysvar routine
+--
+ROUTINE Verify_Answr(P_Answer:INTEGER;P_Min_Answer:INTEGER;P_Max_Answer:INTEGER):BOOLEAN FROM gmutility
+
+ROUTINE ExecSetupAgn(P_deviceName:String):BOOLEAN FROM gmutility
+
+ROUTINE int2str(p_integer:INTEGER):STRING FROM gmutility
+
+ROUTINE real2str(p_real:REAL):STRING FROM gmutility
+
+ROUTINE ClrUtltyErrs FROM gmutility
+
+ROUTINE AddUtltyErrs:INTEGER FROM gmutility
+
+ROUTINE Set_B_sVar(P_var_name:STRING;P_Bvar_value:BOOLEAN) FROM gmutility
+ROUTINE Set_I_sVar(P_var_name:STRING;P_Ivar_value:INTEGER) FROM gmutility
+ROUTINE Set_S_sVar(P_var_name:STRING;P_Svar_value:STRING) FROM gmutility
+ROUTINE Set_R_sVar(P_var_name:STRING;P_Rvar_value:REAL) FROM gmutility
+
+ROUTINE Set_B_PVar(P_Prg_name:STRING;P_var_name:STRING;P_var_value:BOOLEAN) FROM gmutility
+ROUTINE Set_I_PVar(P_Prg_name:STRING;P_var_name:STRING;P_var_value:INTEGER) FROM gmutility
+ROUTINE Set_S_PVar(P_Prg_name:STRING;P_var_name:STRING;P_var_value:STRING) FROM gmutility
+ROUTINE Set_R_PVar(P_Prg_name:STRING;P_var_name:STRING;P_var_value:REAL) FROM gmutility
+
+ROUTINE Comment_Reg(P_Reg_Type:INTEGER;P_Reg_Num:Integer;P_Reg_Coment:STRING) FROM gmutility
+ROUTINE Set_Reg_Val(P_Reg_Num:INTEGER;P_Reg_Val:INTEGER) FROM gmutility
+
+ROUTINE chk_loaded(P_Prog_name:String):BOOLEAN FROM gmutility
+
+ROUTINE CallThisProg(P_Prog_Name:STRING):BOOLEAN FROM gmutility
+
+ROUTINE Unlck_Macro(p_stridx, p_endidx : INTEGER) FROM gmutility
+
+ROUTINE copyFile(p_src: STRING; p_dst: STRING) FROM gmutility
+
+ROUTINE Copy_O_File(P_src: STRING; P_dst: STRING; P_wrt: BOOLEAN) FROM gmutility
+
+ROUTINE SPRUNCfile(P_src: STRING; P_dst: STRING) FROM gmutility
+
+ROUTINE Ch_err_sv FROM gmutility -- used for verifying the err_type for ethernet settings
+
+ROUTINE Cnfg_Grp(P_Grp_Type:INTEGER;P_Grp_Num:INTEGER;P_Comm_Type:INTEGER;P_Slot_Num:INTEGER;&
+                 P_Strt_Num:INTEGER;P_Num_Points:INTEGER):BOOLEAN FROM gmutility   -- set group configurations
+
+ROUTINE Clear_Prog(P_FileName:String) FROM gmutility
+
+ROUTINE Unlck_Prog(P_FileName:String)FROM gmutility
+
+ROUTINE Load_File(P_Frm_Device:String;P_FileName:String;P_overWrite:Integer) FROM gmutility
+
+ROUTINE clr_macro_tb(p_stridx, p_endidx:integer) FROM gmutility --swwiz2
+ROUTINE define_macro(p_mac_num:  INTEGER; p_mac_name: STRING;
+                     p_mac_prog: STRING; p_asg_type: INTEGER;
+                     p_asg_id:   INTEGER; p_sys_mac: INTEGER) FROM swutils
+-- Used to chk that a passed feature is loaded or not
+ROUTINE Chk_Feature(P_FeatureStr:STRING):BOOLEAN FROM gmutility
+
+ROUTINE SetLd_Macro(p_Mac_number:INTEGER;p_MacName:STRING;p_ProgName:STRING;p_Custname:STRING;
+                    p_assig_type:INTEGER;p_assig_id:INTEGER;p_protect:BOOLEAN)FROM gmutility
+
+ROUTINE Setup_Macro(p_Mac_number:INTEGER;p_MacName:STRING;p_ProgName:STRING;
+                    p_assig_type:INTEGER;p_assig_id:INTEGER;p_protect:BOOLEAN)FROM gmutility
+
+ROUTINE ChkIfBckedup(P_Prog_Name:STRING):BOOLEAN FROM gmutility
+
+ROUTINE SetBackUpLoc:STRING FROM gmutility
+
+ROUTINE do_kcl_Cmnd(p_instrction:STRING) FROM gmutility
+
+ROUTINE ChkSimulated(P_Port_Type:INTEGER;P_IO_Number:INTEGER):BOOLEAN FROM gmutility
+
+ROUTINE GetSysVar(p_Svar_name:STRING;P_Svar_Type:INTEGER):BOOLEAN FROM gmutility
+
+-- load files

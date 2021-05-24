@@ -1,0 +1,114 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--    
+--             All Rights Reserved
+--             Copyright (C)   1994
+--             Fanuc Robotics Corporation
+--             FANUC LTD Japan
+--    
+--             Karel is a registered trademark of
+--             Fanuc Robotics Corporation
+--
+--    Program: dptype 
+--    
+--    Description:
+--      This routine is used to determine from a TP program if the Air gun
+--      dense pack style is Integrated/Non Integrated  30,31 = 0 or 1. 
+--
+--    Language: KAREL
+--    
+--    Modification history:
+--	  03/07/09 steedlj Origional Creation
+--    10-15-13 jja R30iB Development
+--    2016/09/25 marchaka Changed g_servog_opt to GMVARS from GMCUSTO
+--
+------------------------------------------------------------------
+PROGRAM dptype  
+------------------------------------------------------------------
+%PRIORITY = 40
+%RWACCESS
+%NOPAUSESHFT
+%NOLOCKGROUP
+%COMMENT='AirGnType v4.1'
+%NOPAUSE = ERROR + TPENABLE + COMMAND
+%NOABORT = ERROR + COMMAND
+--%INVISIBLE
+
+-- Softpart built-ins
+%ENVIRONMENT regope
+%ENVIRONMENT SYSDEF
+%ENVIRONMENT SWGDEF
+%INCLUDE etdcapsh
+
+%INCLUDE gmcfgspt --GM spot applicatin variables
+
+CONST
+
+%INCLUDE gmcnstnt --all GM constants for wizard
+
+VAR
+  status        : INTEGER
+  l_equip       : INTEGER
+  l_gun         : INTEGER
+
+-- From Other programs
+   gn_montd_den IN SHADOW FROM GMVARS : ARRAY[5,2] OF BOOLEAN -- Gun mounted dense flage
+   g_servog_opt IN SHADOW FROM GMVARS : BOOLEAN 				-- Servo gun option loaded
+
+----------------------------------------------------------------------
+BEGIN  
+----------------------------------------------------------------------
+
+IF UNINIT(g_servog_opt) THEN
+  g_servog_opt = FALSE
+ENDIF
+
+IF UNINIT(gn_montd_den[1,1]) THEN
+  FOR l_equip = 1 TO 5 DO
+    FOR l_gun = 1 TO 2 DO 
+      gn_montd_den[l_equip, l_gun] = FALSE
+    ENDFOR
+  ENDFOR
+ENDIF
+
+IF g_servog_opt = FALSE THEN
+
+  -- Check Air Gun #1 Type EQ1 GUN1
+  -- Check if ped or carried    
+
+   IF ((gn_montd_den[1,1] = TRUE) AND ((wld1_app = wld1app_cg) OR (wld1_app = wld1app_cgmh))) THEN 
+     SET_INT_REG(36,  1, status)
+   ELSE
+     SET_INT_REG(36,  0, status)
+   ENDIF
+
+  -- Check Air Gun #2 Type EQ1 GUN2  
+  -- Check if ped or carried
+  --APP with equip 1 gun 2 being carried doesn't exist on G4, set R[37] to 0
+    --IF (gn_montd_den[1,2] = TRUE) AND (equip 1, gun 2 is carried) THEN 
+      --SET_INT_REG(37,  1, status)
+    --ELSE
+        SET_INT_REG(37,  0, status)
+    --ENDIF
+
+--APP with equip 2 gun 1 being carried doesn't exist on G4, set R[37] to 0 (done above)
+--IF $spotnumeq = 2 THEN
+  -- Check Air Gun #2 Type EQ2 GUN1
+    --IF (gn_montd_den[2,1] = TRUE) AND (g_ped_gun[2,1] = FALSE) THEN
+      --SET_INT_REG(37,  1, status)
+    --ELSE
+      --SET_INT_REG(37,  0, status)
+    --ENDIF
+--ENDIF
+		    
+ENDIF
+
+END dptype   
+
+
+

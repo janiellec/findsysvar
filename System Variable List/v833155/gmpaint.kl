@@ -1,0 +1,980 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPNTPG.KL
+--   TITLE:          GMPNTPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Paint Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE        BY               COMMENTS
+--         --------   ----------  ---------------  --------------------
+--         4.0        2016-10-27  D. Friedeman		Initial Configuration
+--
+--         4.01       2017-02-24  D. Friedeman      Modified to avoid extra questions in 
+--                                                  disp_app_wiz.
+--         4.02       2018-03-26  S. Schoenberg     Added Paint Display, show Questions/Answers by user. 
+-----------------------------------------------------------------------------
+PROGRAM gmpaint
+-----------------------------------------------------------------------------
+%STACKSIZE = 5000
+
+%ENVIRONMENT ATCLDEF
+--%ENVIRONMENT celldef
+%ENVIRONMENT DNSVDEF
+%ENVIRONMENT iosetup
+%ENVIRONMENT mnmcdef
+%ENVIRONMENT SLDEF
+%ENVIRONMENT swgdef
+%ENVIRONMENT sysdef
+%ENVIRONMENT TPE
+%ENVIRONMENT REGOPE
+
+%COMMENT = 'PaintSetup v4.2'
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+
+%INCLUDE klevkmsk
+%INCLUDE kltpctrl
+%INCLUDE klevkeys
+%INCLUDE kliotyps
+%INCLUDE gmevrs4io
+%INCLUDE swevshll
+%INCLUDE atconst
+%INCLUDE gmevrlng
+%INCLUDE gmcfgdsp  -- Required for the configuration for GM Dispense variables
+
+CONST
+
+%INCLUDE gmcnstnt
+-- Version
+Version = 'GM Paint 2018-04-25' -- Please change version when you make an update
+WARN_MSG = 38000 -- make APSH-000 %s
+
+-- Log file name
+LOG_NAME = 'PAINTWIZLOG.DT'
+star_fill = '****************************************'
+star_p2   = '**************Process-2*****************'
+star_mh   = '****MH-Tool/Vacuum/Tool-Stand/Vision****'
+  
+VAR
+
+-- variables declares for Shop specifics
+%INCLUDE gmcfgpnt  -- GM wizard variables for paint Applications
+ -- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+pathname    : STRING[10]
+device      : STRING[10]
+gm_status   : INTEGER
+ans         : INTEGER
+prog_nam    : STRING[12]
+psve        : INTEGER
+exit        : INTEGER
+max_list    : INTEGER
+status      : INTEGER
+entry	      : INTEGER
+dnet        : BOOLEAN
+I           : INTEGER
+screen      : STRING[4]
+inc_arry    : INTEGER
+v           : INTEGER -- used in the FOR loop
+w           : INTEGER -- used in the FOR loop
+str_var     : ARRAY[50] of STRING[MAX_FILE_NAM]
+clr_var     : ARRAY[50] of STRING[MAX_FILE_NAM]
+alternate   : INTEGER
+
+
+-- From other programs
+  tool_changer  IN SHADOW FROM GMCUSTO : BOOLEAN
+
+-- GM RS4 routines  
+--ROUTINE load_wldcon1 FROM SWWIZIO3
+
+
+%INCLUDE gmrdutil -- has all the builtin routines i.e. Int2str, was GMUTILTY
+%INCLUDE klrdutil
+
+ROUTINE MHUSERCL  FROM MHUSERCL
+ROUTINE MHUSERPG  FROM MHUSERPG
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWizLog  -- used to write an items to the log file
+ROUTINE disp_app_wiz FROM GMWizDP -- Dispense Wizard
+ROUTINE set_disp_IO  FROM gmdispio
+ROUTINE setdispiovr  FROM gmdispio
+ROUTINE set_disp_pg  FROM gmdisppg
+ROUTINE initDISPREGS FROM gmdisprg
+ROUTINE set_disp_var FROM gmdispvr
+ROUTINE initDISPVARS FROM gmdispvr
+ROUTINE set_disp_reg FROM gmdisprg
+
+-----------------------------------------------------------------------------
+ROUTINE inc
+-- PURPOSE: increment the array
+--
+--
+-- INPUT:
+--            
+-- OUTPUT:
+--            
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --This should log dat to wizlog, in Q and A format.
+  IF alternate = 1 THEN
+    writeLog('Q- ' + str_var[inc_arry], FALSE)
+    alternate = 0
+  ELSE
+    writeLog('  Ans:' + str_var[inc_arry], FALSE)
+    alternate = 1
+  ENDIF				
+
+  inc_arry = inc_arry + 1
+
+END inc
+-----------------------------------------------------------------------------
+ROUTINE display_all
+-- PURPOSE: 
+--
+--
+-- INPUT:
+--            
+-- OUTPUT:
+--            
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  v = 1 
+  w = 1
+  loopit::
+  REPEAT -- Repeat until answered and Verified      
+    --Display to the Screen...   
+    WRITE TPDISPLAY('    **  Paint-Shop Current Config  ** ',cr)
+    FOR w = 1 TO 4 Do  --Only going up to max of 4, can only get 10 lines to display on the teach-pendant
+      --Question Field 
+      IF (str_var[v] = '') OR (str_var[v] = star_fill) THEN
+  	IF (str_var[v] = '') THEN
+	  WRITE TPDISPLAY('',cr)
+	  v = v + 1
+	ELSE
+	  WRITE TPDISPLAY(star_fill,cr)
+	  v = v + 1	    	
+	ENDIF
+      ELSE  		
+    	WRITE TPDISPLAY('Q-' + str_var[v] + ':',cr)
+    	v = v + 1
+      ENDIF
+    
+      --Answer Field 
+      IF (str_var[v] = '') OR (str_var[v] = star_mh) &
+   	  OR (str_var[v] = star_p2) THEN
+   	IF (str_var[v] = '') THEN
+	  WRITE TPDISPLAY('',cr)
+          v = v + 1 
+	ENDIF
+   	IF (str_var[v] = star_mh) THEN
+	  WRITE TPDISPLAY(star_mh,cr)
+	  v = v + 1 
+	ENDIF
+   	IF (str_var[v] = star_p2) THEN
+	  WRITE TPDISPLAY(star_p2,cr)
+	  v = v + 1 
+	ENDIF 	
+      ELSE  		
+        WRITE TPDISPLAY('  Ans:', + str_var[v],cr)
+	v = v + 1      
+      ENDIF    
+    ENDFOR
+    WRITE TPDISPLAY('0=Back, 1=Next, 2=Exit')
+    READ TPPROMPT (ans)
+  UNTIL (Verify_Answr(Ans,0,2))-- Verify Answer
+
+  --decrement case statement added for Bill K
+  SELECT (ans) OF
+    CASE(0):
+      IF V > 16 THEN 
+	v = (v - 16)
+	GOTO loopit
+      ELSE
+	v = (v - 8)
+	GOTO loopit	  	
+      ENDIF
+  CASE(1):
+    --check to see if there is anything else to display...
+    IF V >= inc_arry THEN 
+      GOTO getout
+    ELSE
+      GOTO loopit		  	
+    ENDIF
+  CASE(2):
+    GOTO getout
+  ENDSELECT 
+
+  getout::
+    
+END display_all
+-----------------------------------------------------------------------------
+ROUTINE paint_Disply
+-- PURPOSE: Build Display for Process, Dispense
+--
+--
+-- INPUT:
+--            
+-- OUTPUT:
+--            
+-- CALLED BY: 
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Clear the string vars
+  FOR w = 1 to 50 DO
+    clr_var[w] = ''
+  ENDFOR
+  str_var = clr_var  
+  inc_arry = 1
+  alternate = 1
+
+  --Question 1
+  ----------------------------------------
+  str_var[inc_arry] = 'Does this robot have a dispenser?'
+  inc	 
+  --Dispense
+  IF pnt_dsp_used = TRUE THEN
+    str_var[inc_arry] = yes_gmdata
+  ELSE
+    str_var[inc_arry] = no_gmdata  	
+  ENDIF    
+  inc	 
+
+  --Question 2
+  IF pnt_dsp_used THEN
+    str_var[inc_arry] = 'Enter PaintShop Application Type:'
+  ELSE
+  	str_var[inc_arry] = 'Enter Non-Dispensing Robot Type:'
+  ENDIF
+  inc	   
+  IF pnt_dsp_used THEN  --Would like to get constants setup for these items...
+    SELECT (appl_type) OF
+      CASE(iss_ubs):
+	str_var[inc_arry] = 'ISS/UBS'
+      CASE(antichip):
+	str_var[inc_arry] = 'Anti-Chip'
+      CASE(hemflange):
+	str_var[inc_arry] = 'Hem Flange'
+      CASE(lasd):
+	str_var[inc_arry] = 'LASD'
+      CASE(roofditch):
+	str_var[inc_arry] = 'Roof Ditch'
+      ELSE:
+        writeLog('Var Failed to read - appl_type', FALSE)
+    ENDSELECT
+  ELSE
+    SELECT (appl_type) OF
+      CASE(11):
+	str_var[inc_arry] = 'Dedicated Opener Robot'
+      CASE(12):
+	str_var[inc_arry] = 'Vision-Equipped Robot'
+      ELSE:
+        writeLog('Var Failed to read - appl_type', FALSE)
+    ENDSELECT
+  ENDIF  	
+  inc	 
+
+  --Question 3 --Are Door/Hood/Deck Openers Used In This Zone?
+  str_var[inc_arry] = 'Are Door/Hood/Deck Openers Used?'
+  inc	 
+  IF pnt_dsp_used THEN
+    IF openers_used THEN
+      --Yes
+      str_var[inc_arry] = yes_gmdata
+    ELSE
+      --No
+      str_var[inc_arry] = no_gmdata
+    ENDIF
+  ELSE
+    --No
+    str_var[inc_arry] = no_gmdata	  
+  ENDIF  	
+  inc	 
+      
+  --Question 4 
+  IF (Chk_Feature('R685')) THEN  -- Set this if 2DV Pkg is loaded.
+    str_var[inc_arry] = 'Are Camera Doors Used?'
+    inc	 
+    IF v_doors_used THEN
+      --Yes
+      str_var[inc_arry] = yes_gmdata
+    ELSE
+      --No
+      str_var[inc_arry] = no_gmdata
+    ENDIF
+  ENDIF 
+  inc	
+    
+  --Question 5
+  IF (Chk_Feature('R685')) THEN  -- Set this if 2DV Pkg is loaded.
+    str_var[inc_arry] = 'Is Error Proofing Used?'
+    inc	
+    IF v_erprf_used THEN
+      --Yes
+      str_var[inc_arry] = yes_gmdata
+    ELSE
+      --No
+      str_var[inc_arry] = no_gmdata
+    ENDIF
+  ENDIF 
+  inc	
+    
+  --Question 6
+  IF (Chk_Feature('R685')) THEN  -- Set this if 2DV Pkg is loaded.
+    str_var[inc_arry] = 'Is Vision Style ID Used?'
+    inc	
+    IF v_styid_used THEN
+      --Yes
+      str_var[inc_arry] = yes_gmdata
+    ELSE
+      --No
+      str_var[inc_arry] = no_gmdata
+    ENDIF
+  ENDIF 
+ 
+  --Display to the Screen...   
+  display_all 
+
+END paint_Disply
+-----------------------------------------------------------------------------
+ROUTINE Paint_Setup
+-- PURPOSE: This routine will setup and execute the program files based on how
+-- the user has configured the setup. When this routine is called, the Main Cell
+-- interface has been already set by the Main cell wizard. When this returns to
+-- the calling routine, it will have completed the PaintShop setup.
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY: this routine is call from the Main GM Global Wizard.
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  -- Reset All Press Variables so they can be evaluated at end of installation
+  ErrsInShop.ErrorsPrgrms = 0
+  ErrsInShop.ErrorsRgstrs = 0
+  ErrsInShop.ErrorsVarbls = 0
+  ErrsInShop.ErrorsIOCom  = 0
+
+
+  -- Set up the Dispense Variables
+  IF (Chk_loaded('gmdispvr')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPVR setup program', FALSE)
+    initDISPVARS      --set dispense equipment, need to do here for repower
+    set_disp_var  --sets dispense variables
+    writeLog('GMDISPVR setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF
+
+  -- Set up the Dispense I/O
+  IF (Chk_loaded('gmdispio')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPIO setup program', FALSE)
+    set_disp_IO
+    setdispiovr   --sets dispense I/O setup
+    writeLog('GMDISPIO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF
+
+  -- Below 2 routines get called by ATCUSTOM these run at cold start  SET_STD_COLD from GMmain1
+  -- WORK WITH KRISTIN when these are out of COLD start will need for Standing alone
+  --  Set up the Dispense Regsiters
+  IF (Chk_loaded('gmdisprg')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPRG setup program', FALSE)
+    initDISPREGS
+    set_disp_reg
+    writeLog('GMDISPRG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF
+
+  --   Set up the Dispense Programs
+  IF (Chk_loaded('gmdisppg')) THEN -- verify program is loaded to be able to call routine
+    writeLog('Calling GMDISPPG setup program', FALSE)
+    set_disp_pg
+    writeLog('GMDISPPG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ELSE
+    ErrsInCell.ErrorsPrgrms = ErrsInCell.ErrorsPrgrms+1
+  ENDIF  
+  
+  SET_VAR(entry, 'GMWORKIN' , 'SetupStr', 'Setting Paint I/O', status) -- set variable so top of pendant changes
+  writeLog('Calling GMPNTIO setup program', FALSE)
+  IF NOT (CallThisProg('gmpntio')) THEN -- call the Paint Specific I/O Setup
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom +1
+  ELSE
+    writeLog('GMPNTIO setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+  SET_VAR(entry, 'GMWORKIN' , 'SetupStr', 'Setting Paint Progs', status) -- set variable so top of pendant changes
+  writeLog('Calling GMPNTPG setup program', FALSE)
+  IF NOT (CallThisProg('GMPNTPG')) THEN -- call the Paint Specific Program loading
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom +1
+  ELSE
+    writeLog('GMPNTPG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+  SET_VAR(entry, 'GMWORKIN' , 'SetupStr', 'Setting Paint Regs', status) -- set variable so top of pendant changes
+  writeLog('Calling GMPNTRG setup program', FALSE)
+   IF NOT (CallThisProg('GMPNTRG')) THEN  -- Setup the Paint specific registers
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom +1
+  ELSE
+    writeLog('GMPNTRG setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+  SET_VAR(entry, 'GMWORKIN' , 'SetupStr', 'Setting Paint Vars', status) -- set variable so top of pendant changes
+  writeLog('Calling GMPNTVR setup program', FALSE)
+   IF NOT (CallThisProg('GMPNTVR')) THEN -- Load any specific Paint Vars
+    ErrsInCell.ErrorsIOCom  = ErrsInCell.ErrorsIOCom +1
+  ELSE
+    writeLog('GMPNTVR setup program Completed', FALSE)
+    WriteLog('', FALSE)
+  ENDIF
+
+    WriteLog('Paint Setup wizard has completed', FALSE)
+
+END Paint_Setup
+-----------------------------------------------------------------------------
+ROUTINE Chk_PN_Init
+-- PURPOSE: to ensure all variable for this program is initialized so it can run
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+  IF UNINIT(Use_Pnt_Log) THEN
+    Use_Pnt_Log = TRUE
+  ENDIF
+
+  IF UNINIT(Reset_Cell) THEN -- this should always be set in the main wizard
+    Reset_Cell = TRUE        -- but if ran stand alone it is needed here
+  ENDIF
+
+  IF UNINIT(DisplayDely) THEN
+    DisplayDely = 1000
+  ENDIF
+
+  IF UNINIT(PntMcrsLoded) THEN
+    PntMcrsLoded = FALSE
+  ENDIF
+
+  IF UNINIT(pnt_dsp_used) THEN
+    pnt_dsp_used = FALSE
+  ENDIF
+
+  IF UNINIT(openers_used) THEN
+    openers_used = FALSE
+  ENDIF	
+  
+  IF UNINIT(e1_num_guns) THEN
+    e1_num_guns = 1
+  ENDIF
+
+  IF UNINIT(appl_type) THEN
+    appl_type = 0
+  ENDIF
+
+  IF UNINIT(v_doors_used) THEN
+    v_doors_used = FALSE
+  ENDIF
+
+  IF UNINIT(v_3dmv_used) THEN
+    v_3dmv_used = FALSE
+  ENDIF
+
+  IF UNINIT(v_3dl_used) THEN
+    v_3dl_used = FALSE
+  ENDIF 
+ 
+  IF UNINIT(v_erprf_used) THEN
+    v_erprf_used = FALSE
+  ENDIF
+
+  IF UNINIT(v_styid_used) THEN
+    v_styid_used = FALSE
+  ENDIF
+
+  IF UNINIT(v_torch_used) THEN
+    v_torch_used = FALSE
+  ENDIF
+
+  Use_Paint = TRUE
+
+  -- Reset ALL the application bits to ensure we are MH
+  Set_B_sVar('$ap_selap[2]',FALSE) -- Spot Application
+  Set_B_sVar('$ap_selap[6]',TRUE)  -- Dispense Application
+  Set_B_sVar('$ap_selap[4]',FALSE) -- Material Handling Application
+
+  Set_I_sVar('$style_count',255)
+
+  IF UNINIT(Paint_Status.Cnfg_Is_Done) OR (Reset_Cell) THEN
+    Paint_Status.Cnfg_Is_Done  = FALSE
+  ENDIF
+  IF UNINIT(Paint_Status.Cnfg_Status) OR (Reset_Cell) THEN
+    Paint_Status.Cnfg_Status  = 0
+  ENDIF
+  IF UNINIT(Paint_Status.DsplyIs_Done) OR (Reset_Cell) THEN
+    Paint_Status.DsplyIs_Done = FALSE
+  ENDIF
+  IF UNINIT(Paint_Status.Dsply_Status) OR (Reset_Cell) THEN
+    Paint_Status.Dsply_Status = 0
+  ENDIF
+  IF UNINIT(Paint_Status.SetupIs_Done) OR (Reset_Cell) THEN
+    Paint_Status.SetupIs_Done = FALSE
+  ENDIF
+  IF UNINIT(Paint_Status.Setup_Status) OR (Reset_Cell) THEN
+    Paint_Status.Setup_Status = 0
+  ENDIF
+
+END Chk_PN_Init
+
+-----------------------------------------------------------------------------
+ROUTINE Cnfrm_Paint:BOOLEAN
+-- PURPOSE:  To Prompt the Operator to confirm Paint was selected
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+Answer : INTEGER
+
+BEGIN
+    REPEAT
+      Answer = -1
+
+      MHUSERCL
+      WRITE(CHR(137),CHR(128));
+      MHUSERPG
+      WRITE TPDISPLAY(CR,'    **PaintShop Setup Wizard**    ',cr)
+      WRITE TPDISPLAY('  Please Confirm this is a PaintShop  ',cr)
+      WRITE TPDISPLAY('  Dispensing Application.  ',cr)
+      WRITE TPDISPLAY('  PaintShop Settings will be applied.   ',cr)
+      WRITE TPDISPLAY('  Please make sure you have your files  ',cr)
+      WRITE TPDISPLAY('  backed-up before continuing.          ',cr)
+      WRITE TPDISPLAY('                                        ',cr)
+      WRITE TPDISPLAY('  Press 1 to Run Setup, or 0 to Cancel  ',cr)
+      WRITE TPPROMPT (CR,'Enter an option, then press Enter '+CHR(129))
+
+      READ TPPROMPT(Answer)
+    UNTIL (Verify_Answr(Answer,0,1))-- Verify Answer
+
+   IF (Answer = 0) THEN
+     MHUSERCL
+     writeLog('User Canceled PaintShop Setup', FALSE)
+     RETURN(FALSE)
+   ELSE
+     RETURN(TRUE)
+   ENDIF
+
+END Cnfrm_Paint
+
+-----------------------------------------------------------------------------
+ROUTINE Set_Pnt_App
+-- PURPOSE:  To Prompt the Operator to confirm PaintShop Application Setup
+--
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+-------------------------------------------------------------------
+BEGIN
+
+  writeLog(' ', FALSE)
+  writeLog(' Checking Paint variables are setup ', FALSE)
+
+  Chk_Pn_Init -- check variables to be used are set
+
+  writeLog(' Paint variables Config complete ', FALSE)
+  writeLog(' ', FALSE)
+
+  -- Select Paint Application
+  --***************************************************************
+
+  
+  -- Does this robot have a dispenser?  
+  REPEAT
+    CLR_STND_SCR(gm_status)
+    WRITE (CR,'Does this robot have a dispenser?',CR,CR)
+    WRITE ('1. Robot has a Dispenser' ,CR)	
+    WRITE ('2. Robot does not have a Dispenser' ,CR)
+    WRITE(gdata_ans,':  ')
+    READ (ans)
+  UNTIL Verify_Answr(Ans,1,2)
+
+  SELECT(ans) OF
+	  CASE (1):  
+      pnt_dsp_used = TRUE
+      writelog('User Selected Dispenser Configuration' , FALSE)  
+    CASE (2):
+      pnt_dsp_used = FALSE
+	  writelog('User Selected Non-Dispenser Configuration' , FALSE)
+  ENDSELECT 
+
+  -- once user answers 1st question Configuration is no longer done
+  Paint_Status.Cnfg_Is_Done = FALSE -- set so Wizard knows any previous config has been Changed
+                                   -- and until user finishes, they cannot Execute the changes???
+  Paint_Status.Cnfg_Status = 1  -- user answered first question
+
+  IF (pnt_dsp_used = TRUE) THEN -- Only configure dispenser stuff if this isn't an opener.
+
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Enter PaintShop Application Type:',CR,CR)   
+      WRITE ('1. ISS/UBS' ,CR)
+	    WRITE ('2. Anti-Chip' ,CR)
+	    WRITE ('3. Hem Flange' ,CR)
+	    WRITE ('4. LASD' ,CR)
+      WRITE ('5. Roof Ditch',CR)	  
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,5)
+  
+    appl_type = Ans
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1
+    writelog('Application Type ' + int2str(appl_type) + ' selected' , FALSE)  
+
+    SELECT (appl_type) OF
+	    CASE (1): -- ISS/UBS = 3 Guns
+	      e1_num_guns = 3
+	    CASE (2): -- Anti-Chip = 3 Guns
+	      e1_num_guns = 3
+	    CASE (3): -- Hem = 1 Gun
+	      e1_num_guns = 1
+	    CASE (4): -- LASD = 2 Guns
+	      e1_num_guns = 2
+	    CASE (5): -- Roof Ditch = 1 Gun
+	      e1_num_guns = 1
+	  ENDSELECT
+	  
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1
+    writelog('User Selected ' + int2str(e1_num_guns) + ' gun(s) For E1' , FALSE)
+
+    -- Set the number of guns based on configuration choice.
+	  -- Have to do this BEFORE calling disp_app_wiz.
+    Set_I_sVar('$SLSETUP[1].NUMBER_GUNS', e1_num_guns)   
+	
+    -- Instead of calling disp_app_wiz, just set the PaintShop answers so that
+    -- the user doesn't have to answer the questions.
+    numdispctrl = 1                    -- 1 Dispenser
+	  disp1_app = 1                      -- Robot held nozzle
+	  dispapp[1].disp_ldsc = 2           -- Do not load default Seal Schedules
+    IF ($sleqnum <> numdispctrl) THEN
+      chk_repwr = TRUE
+    ENDIF
+  ELSE -- No dispenser.  Could be an opener or a vision robot.
+  
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Enter Non-Dispensing Robot Type:',CR,CR)   
+      WRITE ('1. Dedicated Opener Robot' ,CR)
+	    WRITE ('2. Vision-Equipped Robot' ,CR)
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,2)
+
+  SELECT (ans) OF
+	  CASE (1): -- Dedicated Opener Robot
+	    appl_type = 11
+	  CASE (2): -- Vision-Equipped Robot
+	    appl_type = 12
+	ENDSELECT
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1
+    writelog('Application Type ' + int2str(appl_type) + ' selected' , FALSE)  
+    numdispctrl = 0	
+	e1_num_guns = 0
+	IF ($sleqnum <> numdispctrl) THEN
+      chk_repwr = TRUE
+    ENDIF
+  ENDIF	
+
+  IF (pnt_dsp_used = TRUE) THEN -- If this is a dispensing robot, does it use openers?
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Are Door/Hood/Deck Openers Used')
+      WRITE (CR,'In This Zone?',CR,CR)	  
+      WRITE ('1. Yes' ,CR)
+      WRITE ('2. No' ,CR)
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,2)
+
+    SELECT(ans) OF
+      CASE (1):
+	      openers_used = TRUE
+	    writelog('Openers Are Used In This Zone', FALSE)
+  	  CASE (2):  
+	      openers_used = FALSE
+  	    writelog('Openers Are Not Used In This Zone', FALSE)
+    ENDSELECT 
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+  ENDIF
+  
+  IF (Chk_Feature('R714')) THEN  -- Set this if 3DMV is loaded.    
+	  v_3dmv_used = TRUE
+	  writelog('iRVision 3DMV Is Used', FALSE)	  
+  ELSE
+    v_3dmv_used = FALSE
+	  writelog('iRVision 3DMV Is Not Used', FALSE)	  
+  ENDIF
+  Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+
+  IF (Chk_Feature('R686')) THEN  -- Set this if 3DL is loaded.    
+	  v_3dl_used = TRUE
+	  writelog('iRVision 3DL Is Used', FALSE)	  
+  ELSE
+    v_3dl_used = FALSE
+	  writelog('iRVision 3DL Is Not Used', FALSE)	  
+  ENDIF
+  Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+
+  IF (Chk_Feature('R744')) THEN  -- Set this if iRTorchMate is loaded.    
+	  v_torch_used = TRUE
+	  writelog('iRVision Torchmate Is Used', FALSE)	  
+  ELSE
+    v_torch_used = FALSE
+	  writelog('iRVision Torchmate Is Not Used', FALSE)	  
+  ENDIF
+  Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+
+  IF (Chk_Feature('R685')) THEN  -- Set this if 2DV Pkg is loaded.  This covers any vision option.   
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Are Camera Doors Used?',CR,CR)   
+      WRITE ('1. Yes' ,CR)
+      WRITE ('2. No' ,CR)
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,2)
+
+    SELECT(ans) OF
+      CASE (1):
+	      v_doors_used = TRUE
+	      writelog('Camera Doors Are Used', FALSE)
+	    CASE (2):  
+	      v_doors_used = FALSE
+	      writelog('Camera Doors Are Not Used', FALSE)
+    ENDSELECT 
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+  
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Is Error Proofing Used?',CR,CR)     
+      WRITE ('1. Yes' ,CR)
+      WRITE ('2. No' ,CR)
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,2)
+
+    SELECT(ans) OF
+      CASE (1):
+	    v_erprf_used = TRUE
+	    writelog('Error Proofing Is Used', FALSE)
+	  CASE (2):  
+	    v_erprf_used = FALSE
+	    writelog('Error Proofing Is Not Used', FALSE)
+    ENDSELECT 
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+
+    REPEAT
+      CLR_STND_SCR(gm_status)
+      WRITE (CR,'Is Vision Style ID Used?',CR,CR)    
+      WRITE ('1. Yes' ,CR)
+      WRITE ('2. No' ,CR)
+      WRITE(gdata_ans,':  ')
+      READ (ans)
+    UNTIL Verify_Answr(Ans,1,2)
+
+    SELECT(ans) OF
+      CASE (1):
+	    v_styid_used = TRUE
+	    writelog('Vision Style ID Is Used', FALSE)
+	  CASE (2):  
+	    v_styid_used = FALSE
+	    writelog('Vision Style ID Is Not Used', FALSE)
+    ENDSELECT 
+    Paint_Status.Cnfg_Status = Paint_Status.Cnfg_Status + 1 
+  ENDIF --  iRVision 2DV
+  
+  -- After user answers all questions, Configuration is done
+  Paint_Status.Cnfg_Is_Done = TRUE
+  Paint_Status.Cnfg_Status  = 0 -- set back to zero indicating no problems
+	
+END Set_Pnt_App
+
+-----------------------------------------------------------------------------
+ROUTINE Paint_Config
+-- PURPOSE: This routine is called from the main wizard when the user has Selected
+--          GM PaintShop as the Shop. 
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:  GMWIZARD program from the RUN_CONFIG routine.
+--
+-----------------------------------------------------------------------------
+VAR
+  l_reload	     : INTEGER
+  success        : INTEGER
+  l_stat         : INTEGER
+  l_psve         : INTEGER
+  l_dummy        : INTEGER
+  l_ans          : INTEGER
+
+BEGIN
+
+  IF UNINIT(pathName) THEN
+    pathName = 'FR:' -- may need to change to FR6:
+  ENDIF
+
+  -- Main wizard will do this now
+  ---Setup_Log('Paint) -- create and open the log file
+
+  Chk_PN_Init
+
+IF Cnfrm_Paint THEN -- if routine return True User confirmed to run paint wizard setup
+  Use_Paint = TRUE -- User confirmed to use PaintShop as the Shop
+
+  writeLog('  Starting Paint Dispense Wizard Menu', FALSE)
+
+  WizardStatus.Cnfg_Is_Done = FALSE -- should already be false from Main wizard
+  Paint_Status.Cnfg_Is_Done = FALSE -- Indicate starting the wizard
+
+  writeLog('Setting Paint Status.Cnfg_Is_Done to FALSE', FALSE)
+
+  writeLog('Starting Paint Application Menu', FALSE)
+  writeLog(' ', FALSE)
+
+  Set_Pnt_App  -- Have User select the application.
+               -- Call routine to See which Applications to setup
+               -- when returned all questions are done
+  writeLog('Paint Application Menu COMPLETED ', FALSE)
+  writeLog(' ', FALSE)
+
+ELSE -- user did not confirm Paint Application
+  writeLog('User DID NOT select Paint application', FALSE)
+  POST_ERR(38000, 'User CANCELED Paint Config', 0, 0) --
+  RETURN
+ENDIF
+
+POST_ERR(38000, 'GM Paint Config Finished ', 0, 0) --
+  WizardStatus.Cnfg_Status = 0
+  WizardStatus.Cnfg_Is_Done = TRUE
+  Paint_Status.Cnfg_Status = 0
+  Paint_Status.Cnfg_Is_Done = FALSE -- Indicate starting the wizard
+RETURN  
+
+END Paint_Config
+-----------------------------------------------------------------------------
+ROUTINE paint_deflt
+-----------------------------------------------------------------------------
+VAR
+  l_reload	     : INTEGER
+  success	     : INTEGER
+  l_stat         : INTEGER
+  l_psve         : INTEGER
+  l_dummy        : INTEGER
+  l_ans          : INTEGER
+
+BEGIN
+   
+  CLR_STND_SCR(gm_status)  
+  WRITE (cr,'**PaintShop Setup Wizard**',cr,cr)
+  WRITE ('Setup Wizard not setup yet!')
+  WRITE TPPROMPT (CR, 'Press ENTER') 
+  READ TPPROMPT (CR)
+-- jja  R30iB Update02  POP_KEY_RD('TPKB', pop_index, success) 
+
+END paint_deflt
+------------------------------------------------------------------------------
+
+-----------------------------------------------------------------------------
+ROUTINE paint_set
+-----------------------------------------------------------------------------
+VAR
+  l_reload	     : INTEGER
+  success	     : INTEGER
+  l_stat         : INTEGER
+  l_psve         : INTEGER
+  l_dummy        : INTEGER
+  l_ans          : INTEGER
+
+BEGIN
+  
+  paint_deflt  --jja  R30iB Update02 - Remove when customization is ready
+
+END paint_set
+------------------------------------------------------------------------------
+BEGIN
+
+-- Need to load at Controlled Start Menu
+paint_set
+
+END gmpaint

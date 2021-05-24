@@ -1,0 +1,35 @@
+  --General
+
+VAR
+   wiz_exec     IN SHADOW FROM GMCFGCEL: BOOLEAN    --Execute wizard
+   Reset_Cell   IN SHADOW FROM GMCFGCEL: BOOLEAN    --Used for if all Cell I/O shoudl be all reset
+   wiz_lang     IN SHADOW FROM GMCFGCEL: INTEGER    --Wizard language selection
+   chk_repwr    IN SHADOW FROM GMCFGCEL: BOOLEAN    --Robot requires repower to controlled start for robot configuration
+
+   set_eip      IN SHADOW FROM GMCFGCEL: INTEGER    --Set ethernet I/P address
+   eip_oct1     IN SHADOW FROM GMCFGCEL: INTEGER    --First octet of I/P address
+   eip_oct2     IN SHADOW FROM GMCFGCEL: INTEGER    --Second octet of I/P address
+   eip_oct3     IN SHADOW FROM GMCFGCEL: INTEGER    --Third octet of I/P address
+   eip_oct4     IN SHADOW FROM GMCFGCEL: INTEGER    --Fourth octet of I/P address
+   eip_rtr_oct  IN SHADOW FROM GMCFGCEL: INTEGER    -- Ip for Router Octet uses eip1,2,3 and this
+   Cell_IP      IN SHADOW FROM GMCFGCEL : STRING[33]-- used for the assembled Cell IP address
+   Router_IP    IN SHADOW FROM GMCFGCEL : STRING[33]-- used for the assembled Router IP address
+   robotname    IN SHADOW FROM GMCFGCEL: STRING[33]     -- robot name
+
+   Enable_Log   IN SHADOW FROM GMCFGCEL: BOOLEAN -- will create a log for the completed setup
+
+   set_safeio   IN SHADOW FROM GMCFGCEL: INTEGER      --Initialize DCS Settings
+
+   setrbtnm     IN SHADOW FROM GMCFGCEL: INTEGER      --Set robot name
+
+   shop_str     IN SHADOW FROM GMCFGCEL:STRING[16] -- used for display the shop in messages and text
+
+   mfg_area     IN SHADOW FROM GMCFGCEL: INTEGER      --Manufacturing area
+   CellCommType IN SHADOW FROM GMCFGCEL: INTEGER  -- Used for the type of communications to the work cell
+   CellSlotNmbr IN SHADOW FROM GMCFGCEL: INTEGER  -- Used for the slot number for communications to the work cell
+
+   DisplayStat  IN SHADOW FROM GMCFGCEL: BOOLEAN  -- Used for if during Routine Execution should display messages TPERROR
+   DisplayDely  IN SHADOW FROM GMCFGCEL: INTEGER -- Used for how long to delay to allow a user to see DIsplay Messages
+
+   extioinlk    IN SHADOW FROM GMCFGCEL: INTEGER  --External I/O interlock hardware safety relay 
+

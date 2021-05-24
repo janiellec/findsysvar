@@ -1,0 +1,327 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         HOMEASST.KL
+--   TITLE:          HOMEASST PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  2/9/18
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GMPT (GPS) Pontiac Crew
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2018
+--         DESCRIPTION: this program is to assist a user getting to the
+--                      the taught Home Position in PR[1]. It uses the number
+--                      of taught reference position to determine the closest
+--                      Pounce position and give the user the option to select
+--                      which pounce to move to, it will list the distance it will
+--                      move to. The user is required to hold a button to allow the robot
+--                      to have motion.
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM HOMEFIND
+
+%COMMENT = 'Find Route Home'
+
+%ENVIRONMENT IOBLT  -- needed for IOVALRD
+%ENVIRONMENT UIF    -- needed for read_dict_v
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+%NOBUSYLAMP
+%NOLOCKGROUP
+
+%INCLUDE FXMPNCEG -- has dictionary element constants
+%INCLUDE KLEVCCDF -- Needed for TPER builtin
+
+CONST
+
+Version = '04/25/2018 R.K.' -- Please change version when you make an update
+
+VAR
+
+Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+ io_type,
+ io_number,
+ cur_io_stat,
+ i,entry,
+ l_state,
+ Cur_pnc_num,
+ gm_status,
+ Num_Grps : INTEGER -- the number of groups read from $scr.$num_group
+
+real_flag :BOOLEAN
+real_value  : REAL -- Used for
+
+MaxPouncReg,
+PncCurntlyAt,
+MaxNumPounc IN SHADOW FROM HOMEUTIL  :INTEGER
+
+PR_ArrySlctd FROM HOMEUTIL:INTEGER -- used for the PR_ArrayIndex which will hold the data user selected
+
+AE_Loaded :BOOLEAN -- indicated auto exit is loaded and enabled
+
+  arystr    : array[1] of string[40] -- used for the READ_DICT_V
+  asst_arystr : array[1] of string[40] -- used for the READ_DICT_V
+  title     FROM HOMEUTIL: array[1] of string[30]       -- used for the READ_DICT
+  prompt    FROM HOMEUTIL: array[1] of string[120]     -- used for the READ_DICT/ DB_PROMPT
+  response  FROM HOMEUTIL: integer
+
+ROUTINE InitHomedata FROM HOMEUTIL
+ROUTINE UpdtPncData FROM HOMEUTIL
+ROUTINE HomeUtil FROM HomeUtil
+ROUTINE chk_TP_only FROM HomeUtil
+ROUTINE CnfrmMovHome FROM HomeUtil
+ROUTINE FndPRAryIndx FROM HomeUtil
+-----------------------------------------------------------------------------
+
+%INCLUDE gmrdutil
+
+-----------------------------------------------------------------------------
+ROUTINE AE_Available:BOOLEAN
+-- PURPOSE: to determine if Auto exit is laoded and available for use
+--
+-- OUTPUT:  True or False for if loaded and Output is ON
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+Value:INTEGER
+
+BEGIN
+
+value = 0
+   GET_VAR(entry, '*SYSTEM*' , '$AUTOEX_CONF.$ENABLE', value, gm_status)
+     IF (gm_status <> 0) THEN
+       POST_ERR(38000, '[*SYSTEM*].$autoex_conf.$enable FAILED', gm_status, 0) --
+       RETURN(FALSE)
+     ENDIF
+     IF (value =0) THEN
+       POST_ERR(38000, 'Auto Exit Not Enabled, Controlled start Menus',0, 0) --
+       RETURN(FALSE)
+     ELSE
+-- Available check if path has been recorded
+       GET_VAR(entry, '*SYSTEM*' , '$scr.$num_group', Num_Grps, gm_status)
+         IF gm_status <> 0 THEN
+           POST_ERR(38000, '[*SYSTEM*].$scr.$num_group FAILED', gm_status, 0) --
+           RETURN(FALSE)
+         ELSE
+           FOR i = 1 TO Num_Grps DO
+             GET_VAR(entry, '*SYSTEM*' , '$AUTOEX_PORT.$AVAIL_DO_T['+int2str(i)+']', io_type, gm_status)
+                IF gm_status <> 0 THEN
+                  POST_ERR(38000, '[*SYSTEM*].$AUTOEX_POT.$AVAIL_DO_T['+int2str(i)+'] FAILED', gm_status, 0) --
+                  RETURN(FALSE)
+                ELSE -- get number
+                  GET_VAR(entry, '*SYSTEM*' , '$AUTOEX_PORT.$AVAIL_DO_I['+int2str(i)+']', io_number, gm_status)
+                    IF gm_status <> 0 THEN
+                      POST_ERR(38000, '[*SYSTEM*].$AUTOEX_PORT.$AVAIL_DO_I['+int2str(i)+'] FAILED', gm_status, 0) --
+                      RETURN(FALSE)
+                    ENDIF
+                ENDIF
+
+                cur_io_stat = iovalrd(io_type, io_number, l_State) -- read the output
+
+             IF cur_io_stat =0 THEN -- output on saying a path is avaialble
+               IF l_state = 1 THEN
+                 WRITE TPERROR(CHR(cc_clear_win),'AE Path available to use')
+                 DELAY 1000
+                 RETURN(TRUE)
+               ENDIF
+             ENDIF
+           ENDFOR --
+         ENDIF
+     ENDIF
+                 WRITE TPERROR(CHR(cc_clear_win),'NO AE Path available')
+                 DELAY 100
+  RETURN(FALSE) -- if here no avaiable ae path
+
+END AE_Available
+
+-----------------------------------------------------------------------------
+ROUTINE Exec_AE_Path
+-- PURPOSE: to prompt the user that there is a Auto Exit path recorded avaialble
+--          for the user to use to get back to a pounce.
+--
+-- OUTPUT:  BOOLEAN if the user want to execute the exit path.
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+
+read_failed : BOOLEAN-- used of the dictioanr couldnt be read
+prog_index  :INTEGER -- used in the CALL_PROG builtin
+
+BEGIN
+
+prog_index = 0
+
+   read_failed = FALSE
+
+   arystr[1] = int2str(io_number) --
+  -- read in prompt text and insert Output string
+   asst_arystr[1] = 'arystr[1]'
+
+   -- read the string from dictionary so string can be added to the prompt feild
+   read_dict_v('MPNC', asst_useAE, asst_arystr, prompt, gm_status)
+   IF gm_status<>0 THEN
+     POST_ERR(38000, 'ReadDICTV for MPNC failed '+int2str(asst_toHome)+' element', gm_status, 0) --
+     read_failed = TRUE
+   ENDIF
+
+   IF (read_failed = FALSE) THEN
+     read_dict('MPNC', asst_title, title, 1, 0, gm_status)-- read in title text
+     IF gm_status<>0 THEN
+       POST_ERR(38000, 'Readdict for MPNC failed '+int2str(asst_title)+' element', gm_status, 0) --
+       read_failed = TRUE
+     ENDIF
+   ENDIF
+
+   IF (read_failed = FALSE) THEN -- prompt user to use the EXIT PATH
+     response = db_prompt(db_ps_yesno, title[1], prompt[1], db_rc_yes)
+   ENDIF
+
+  IF UNINIT(response) THEN
+    response = db_rc_yes
+  ENDIF
+
+   IF (response <> db_rc_yes) OR (read_failed = TRUE) THEN -- need to prompt user if they want to finish move to home.
+     IF (read_failed = FALSE) THEN
+       POST_ERR(38000, 'User by-passed use of AE Path', 0, 0) --
+     ENDIF
+   ELSE -- yes or read failed
+
+     POST_ERR(38000, 'User confirmed to use EXIT PATH', 0, 0) --
+     -- Check if AEFNDNOD is loaded to find and set set the closest node for AUTO
+     IF (Chk_loaded('AEFNDNOD')) THEN -- verify program is loaded to be able to call routine
+       CALL_PROG('AEFNDNOD',prog_index) -- Call program to see if at the closest node
+     ELSE
+       POST_ERR(38000, 'AEFNDNOD not loaded in HOMEFIND prog', 0, 0) --
+     ENDIF
+
+     IF (Chk_loaded('MOV_RCVY')) THEN -- verify program is loaded to be able to call routine
+       --CALL_PROG('MOV_RCVY',11) -- tell to move along path to start of path should be POUNCE
+       CALL_PROG('MOV_RCVY',prog_index) -- tell to move along path to start of path should be POUNCE
+     ELSE
+       POST_ERR(38000, 'MOV_RCVY program is NOT LOADED', 0, 0) --
+     ENDIF
+   ENDIF
+
+END Exec_AE_Path
+ -----------------------------------------------------------------------------
+ ROUTINE ChkAtPounce:BOOLEAN
+ -- PURPOSE: to check if one of the Pounce positions is avaialbe for use
+ --
+ --
+ -----------------------------------------------------------------------------
+ VAR
+  l_outype,
+  l_state,
+  l_outnum :INTEGER
+  l_pncComment : STRING[32]
+ BEGIN
+
+    cur_pnc_num = 0
+
+ FOR i = 1 TO MaxNumPounc DO
+   -- Go get the Pounce Number
+   GET_VAR(entry, '*SYSTEM*' , '$REFPOS1['+int2str(i)+'].$DOUT_TYPE', l_outype, gm_status)
+     IF gm_status <> 0 THEN
+       POST_ERR(38000, '[*SYSTEM*].$REFPOS1['+int2str(i)+'].$DOUT_TYPE FAILED', gm_status, 0) --
+     ELSE
+       GET_VAR(entry, '*SYSTEM*' , '$REFPOS1['+int2str(i)+'].$DOUT_INDX', l_outnum, gm_status)
+         IF gm_status <> 0 THEN
+           POST_ERR(38000, '[*SYSTEM*].$REFPOS1['+int2str(i)+'].$DOUT_INDX FAILED', gm_status, 0) --
+         ELSE
+           IF l_outnum>0 THEN -- if output is set
+              gm_status = iovalrd(l_outype, l_outnum, l_State)
+              IF gm_status = 0 THEN
+                IF l_state = 1 THEN -- if at this pounce
+                  cur_pnc_num = i
+                  GET_VAR(entry, '*SYSTEM*' , '$REFPOS1['+int2str(i)+'].$COMMENT', l_pncComment, gm_status)
+                  IF UNINIT(l_pncComment) THEN
+                    l_pncComment = '?'
+                  ENDIF
+                  WRITE TPERROR(CHR(cc_clear_win),'Robot at RP#',i,' ',l_pncComment,',DO[',l_outnum,']=ON')
+                  DELAY 1000
+                  RETURN(TRUE) -- once found return
+                ENDIF
+              ELSE
+                POST_ERR(38000, 'IOVALRD failed on DO['+int2str(l_outnum)+']', gm_status, 0) --
+              ENDIF
+
+           ENDIF
+         ENDIF
+     ENDIF
+ ENDFOR --
+    cur_pnc_num = 0 -- need to reset to zero not known
+
+   RETURN(FALSE)
+
+ END ChkAtPounce
+--************************************************************************
+--                 Main Body of Program
+--************************************************************************
+
+BEGIN
+Current_Ver = Version -- Set the version for reference
+
+InitHomedata -- Initialize the data in HOMEUTIL
+
+chk_TP_only -- Need to verify IF ONLY USEABLE BY TP
+
+-- go see if auto_exit is loaded
+IF NOT ChkAtPounce THEN -- check at pounce
+  IF Chk_Feature('R861') THEN
+    AE_Loaded = TRUE
+    -- If exit path to use, ask use to use
+    IF AE_Available THEN
+       -- Prompt Operator it see if wants to use
+       Exec_AE_Path
+    ENDIF
+  ELSE
+    AE_Loaded = FALSE
+    POST_ERR(38000, 'R861 Auto Exit not loaded for use', 0, 0) --
+  ENDIF
+ELSE
+  IF cur_pnc_num > 1 THEN -- if greater than HOME
+    FndPRAryIndx -- setup the choices for selections
+                 -- need to set index arry because routine not called to set it
+    IF PR_ArrySlctd >0 THEN
+      CnfrmMovHome -- Confirm user wants to move to home
+    ENDIF
+  ENDIF
+ -- ABORT
+ENDIF
+
+-- Go check again if at a known pounce, then should be able to get home using MOV_POUNCE TP
+ -- read the reference positions
+ IF NOT ChkAtPounce THEN -- check at pounce
+   HomeUtil -- Call Home Util program has all the routines.
+ ELSE
+  --CnfrmMovHome -- Confirm user wants to move to home
+ ENDIF
+
+END HOMEFIND

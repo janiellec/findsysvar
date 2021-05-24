@@ -1,0 +1,263 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMFDSPG.KL
+--   TITLE:          GMFDSPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Program file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016/10/27 marchaka Add gmwizlog logging functionality
+--              4.1   2017/02/05 marchaka         Modify prompt logic for wizard rerun.
+--                                                Load tmpfdspr.tp
+--                                                Removed $dev_path setting.  This is handled 
+--                                                in gmmain1 now.
+--              4.2   2017/03/28 marchaka         Load argdispeg.dt
+--              4.3   2018-04-04 schoensm 	  V8.33P05 updates 
+--
+--------------------------------------------------------------------------
+PROGRAM GMFDSPG
+
+%COMMENT = 'GM FDS V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT TPE  -- set_attr_prg
+%ENVIRONMENT swgdef
+%ENVIRONMENT sgdef1
+%ENVIRONMENT sysdef
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gm_var    --GM variables
+%INCLUDE gmcfgfds  -- GM wizard variables for Applications
+%INCLUDE gmcfgbdy  -- GM wizard variables for body shop applications
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+CONST
+Version = '2018-04-04'
+%INCLUDE gmcnstnt  -- Constant file for GM
+
+VAR
+  gm_status:  INTEGER
+  prog_nam     : STRING[12]
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  FDSPG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup FDS Prog at least first time
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE gmrdutil --GM common routines 
+
+
+-----------------------------------------------------------------------------
+ROUTINE initFDSPRGS
+-- PURPOSE: to initialize application Programs associated with application setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(FDSPG_Setup) THEN
+    FDSPG_Setup = FALSE
+  ENDIF
+
+END initFDSPRGS
+
+-----------------------------------------------------------------------------
+ROUTINE load_fds_pg
+-- PURPOSE: Load application programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+   
+  -- load common programs
+
+  -- Load FFR Templates
+
+    Clear_Prog('HMIOCST')
+    SPRUNCMD ('COPY FRS:HMIOFDS.TP FR:\HMIOCST.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy HMIOCST to FR', 0,0)
+      ENDIF
+    Load_File('FR:','HMIOCST.TP',0)
+
+    --Condition Handler - Monitors FDS Spindle at Home
+    Load_File('FRS:','FDSHOME.TP',1)	
+
+    --Main Style Program
+    Load_File('FRS:','FDSSTYLE.TP',1)
+
+    --Moves to FFR Location	
+    Load_File('FRS:','FFRSCWPR.TP',1)
+	
+    --Ensures the robot has reset the Weber system	
+    Load_File('FRS:','FDSPRCCK1.TP',1)	
+
+    --Used to set the FDS Screw ID and Program number
+    Load_File('FRS:','SCREW.TP',1)	
+
+    --Checks the screw driver is ready and that only Screw ID is only applied once per cycle
+    Load_File('FRS:','SCREWPCK.TP',1)	
+
+    --Sets Flow Drill Screws at a programmed location
+    Load_File('FRS:','SCREWSET.TP',1)
+
+    --Assert Dry Cycle mode - Drops FDS start bit	
+    Load_File('FRS:','scwbgprg.tp',1)	
+
+    --Checks the current screw ID is not a duplicate
+    Load_File('FRS:','SCWIDCHK.TP',1)	
+
+    --Screw ID registars when Move  to home is ran
+    Load_File('FRS:','SCWIDRST.TP',1)
+
+    --Checks to see if Spindle is at home
+    Load_File('FRS:','SPNDHOMCHK.TP',1)
+
+    --Process/Application	
+    Load_File('FRS:','TMPFDSPR.TP',1)
+
+    --load argument display
+    CopyFile('FRS:\argdispeg01.DT','MD:\argdispeg01.dt')
+    
+END load_fds_pg
+-----------------------------------------------------------------------------
+ROUTINE set_fdsmac
+-- PURPOSE: 
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+	-- Macros for manual functions page
+  prog_nam = 'SCREWSET'
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+  Clear_Prog('SCREWSET')
+  Set_I_sVar('$MACROTABLE[21].$SYS_LEV_MSK',0)
+  Load_File('FRS:','SCREWSET.TP',1) -- Must relaod standard macro
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 2, prog_nam, gm_status)
+  Setup_Macro(21, 'SCREWSET'   ,   'SCREWSET', 1, 0,TRUE)
+  Set_I_sVar('$MACROTABLE[21].$SYS_LEV_MSK', 3)
+  
+END set_fdsmac
+-----------------------------------------------------------------------------
+ROUTINE set_fds_pg
+-- PURPOSE: Setup and load programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numfdsctrl <> 0) THEN -- application has FDS
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+    ErrsInShop.ErrorsPrgrms = 0
+  ENDIF
+  IF UNINIT(FDSPG_Setup) or (Reset_Cell) THEN
+    FDSPG_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsPrgrms -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the FDS Program GMFDSPG', FALSE)
+
+  IF (FDSPG_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  FDS Programs Already Setup', FALSE)
+    IF ExecSetupAgn('FDS Progs') THEN -- ask user if they want to setup again
+      FDSPG_Setup = FALSE
+    ELSE
+      WriteLog('  FDS Programs already Complete', FALSE)
+      WriteLog('  GMFDSPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  initFDSPRGS
+  load_fds_pg
+  set_fdsmac
+
+  ErrsInShop.ErrorsPrgrms =  ErrsInShop.ErrorsPrgrms + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsPrgrms -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  FDS Program Setup GMFDSPG had ' + int2str((ErrsInShop.ErrorsPrgrms- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  FDS Program Setup completed', FALSE)
+    FDSPG_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF
+
+END set_fds_pg
+-----------------------------------------------------------------------------
+BEGIN
+
+set_fds_pg
+
+END GMFDSPG
+
+
+

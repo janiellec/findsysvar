@@ -1,0 +1,1074 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMLASVR.KL
+--   TITLE:          GMLASVR PROGRAM
+--
+--
+--   WRITTEN BY:     Fanuc
+--   REVISION DATE:  2016/10/08
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains ghts in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: GM Global 4 Laser Variable Setup
+--                      
+--                      
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--             4.1    2018/02/23  marchaka        Move webscreen setu pto set_webscrn in gmarcvr.
+--                                                Remove unsupported configs
+--            v4.1    2018/03/24  marchaka        Disable error recovery function.  Add data monitor 
+--                                                settings.
+--            v4.2    2019/09/16  marchaka        Add user alarm messages for IPFO RSI application
+--            v4.3    2020/10/27  marchaka        Only set the mon_set I/O setup for the gasbox if the
+--                                                laser head is a scan sonic
+--              
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM gmlasvr
+
+%COMMENT = 'GM Laser VAR V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfglas -- GM laser wizard variables
+
+CONST
+ 
+  Version = '2020-10-27'
+  %INCLUDE gmcnstnt -- all GM constants for the wizard
+  %INCLUDE gmacnstn -- GM Arc Tool constants
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  LasVR_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup laser variable setup at least first time
+  rsi_optn		IN SHADOW FROM GMATVAR: BOOLEAN  --J802 RSI Interface software option
+
+  gm_status : INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE init_las_var
+-- PURPOSE: to initialize variables for laser variable setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+
+
+END init_las_var
+-----------------------------------------------------------------------------
+ROUTINE set_ipg_var
+-- PURPOSE: set IPG laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Interrupt monitoring
+  Set_B_PVar('INTERUPT', 'MON_SET[1].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].FLT_STATE', 1)
+  Set_B_PVar('INTERUPT', 'MON_SET[2].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[2].FLT_STATE', 1)
+
+END set_ipg_var
+-----------------------------------------------------------------------------
+ROUTINE set_lsln_var
+-- PURPOSE: set Laser Line laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_sVar('$MIX_BG[2].$PROG_NAME','HANDBRK')
+  Set_I_sVar('$MIX_BG[2].$MODE',2)
+  Set_I_sVar('$MIX_BG[2].$STATUS',2)
+
+  IF (laser_wire = wizans_yes) THEN --wire
+
+    Set_R_sVar('$AWEANLG[1].$WFS.$CMD', 60)
+    Set_I_sVar('$AWEFBLG_CNT[1]', 15)
+    Set_R_sVar('$AWEIOEX[1].$WELD_SPEED.$SLOPE', 0.0)	
+    Set_R_sVar('$AWEOTF[1].$INC_VOLTS', 5.0)
+    Set_R_sVar('$AWEOTF[1].$INC_AMPS', 0.0)
+    Set_R_sVar('$AWEOTF[1].$INC_PKAMPS', 0.0)
+    Set_R_sVar('$AWEOTF[1].$INC_FREQ', 0.0)
+    Set_R_sVar('$AWEPCR[1].$INCH_RATE', 25.0)
+    Set_B_sVar('$AWEPCR[1].$FEED_ENABLE', TRUE)
+    Set_R_sVar('$AWEPCR[1].$STRIKE_WFS', 33.86666)
+    Set_I_sVar('$AWEPCR[1].$SIM_TIM_ENB', 1)
+    Set_R_sVar('$AWEPCR[1].$RMTINCHRATE', 21.1667) 
+    Set_R_sVar('$AWEPCR[1].$H_INCH_RATE', 50.0) 
+    Set_R_sVar('$AWEPCR[1].$BFEED_SPEED', 13.12333) 
+    Set_B_sVar('$AWEPCR[1].$ENB_WLD_SPD', FALSE)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_CMD.$EQ_MAX_IN', 6000.0)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_CMD.$EQ_MAX_OUT', 6.0)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_CMD.$SLOPE', 341250.0)
+    Set_I_sVar('$AWEPRR[1].$VOLTAGE_CMD.$FORMAT', 3)
+    Set_S_sVar('$AWEPRR[1].$VOLTAGE_CMD.$UNITS','KW')
+    Set_R_sVar('$AWEPRR[1].$WFS_CMD.$EQ_MAX_IN', 1024.0)
+    Set_R_sVar('$AWEPRR[1].$WFS_CMD.$EQ_MAX_OUT', 166.67)
+    Set_R_sVar('$AWEPRR[1].$WFS_CMD.$SLOPE', 2096.598)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_FBK.$EQ_MAX_IN', 6000.0)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_FBK.$EQ_MAX_OUT', 6000.0)
+    Set_R_sVar('$AWEPRR[1].$VOLTAGE_FBK.$SLOPE', -819.1)
+    Set_I_sVar('$AWEPRR[1].$VOLTAGE_FBK.$FORMAT', 1)
+    Set_I_sVar('$AWEPRR[1].$WIRE_TYPE', 263)				
+    Set_R_sVar('$AWEPRR[1].$STRIKE_WFS', 33.86666)
+    Set_R_sVar('$AWEUPR[1].$ARC_DET_TIM', 0.002)
+    Set_R_sVar('$AWEUPR[1].$MAX_DET_TIM', 1.0)
+    Set_R_sVar('$AWEUPR[1].$ARC_LOS_TIM', 1.0)
+    Set_R_sVar('$AWEUPR[1].$GAS_DET_TIM', 0.0)
+    Set_R_sVar('$AWEUPR[1].$PURGE', 0.0)
+    Set_I_sVar('$AWSCUSTOM.$AW_CUSTOM[4]',0)
+    Set_I_sVar('$AWSCUSTOM.$AW_CUSTOM[6]',0)
+    Set_B_sVar('$AWSPCR.$ARC_OTF_ENA', FALSE)
+    Set_B_sVar('$AWSPCR.$WSTK_CHECK', FALSE)
+    Set_B_sVar('$AWSPCR.$ARC_CHECK', TRUE)
+    Set_B_sVar('$AWSPCR.$POWER_CHECK', FALSE)
+    Set_B_sVar('$AWSPCR.$CRATER_FILL', TRUE)
+    Set_R_sVar('$AWSPCR.$DEF_WSPEED', 50.0)
+    Set_B_sVar('$AWSPCR.$GASKEY_ASGN',FALSE)
+    Set_B_sVar('$AWSPCR.$RPT_TOUCH', FALSE)
+
+  ENDIF --wire
+
+  --Set io interupt monitoring for laserline
+  Set_B_PVar('INTERUPT', 'MON_SET[1].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].FLT_STATE', 1) 
+
+END set_lsln_var
+-----------------------------------------------------------------------------
+ROUTINE set_trum_var
+-- PURPOSE: set Trumpf laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set io interupt monitoring for IPG
+  Set_B_PVar('INTERUPT', 'MON_SET[1].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[1].FLT_STATE', 1)
+  Set_B_PVar('INTERUPT', 'MON_SET[2].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[2].FLT_STATE', 1)
+
+END set_trum_var
+-----------------------------------------------------------------------------
+ROUTINE set_rlsk_var 
+-- PURPOSE: set RLSK laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_S_PVar('custoyn', 'yn_menu[47,1]', 'A Weld Fault Is Active')               
+  Set_S_PVar('custoyn', 'yn_menu[47,2]', 'Please Reset Fault')             
+  Set_S_PVar('custoyn', 'yn_menu[47,3]', 'Then Choose a Recovery ')             
+  Set_S_PVar('custoyn', 'yn_menu[47,4]', ' Option ')             
+  Set_S_PVar('custoyn', 'yn_menu[47,5]', ' PRESS "0" = NO WLD, "1" = Reproces ')
+ 
+ENd set_rlsk_var
+-----------------------------------------------------------------------------
+ROUTINE set_rsk_var 
+-- PURPOSE: set RSK laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_B_PVar('INTERUPT', 'MON_SET[6].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[6].FLT_STATE', 1)
+  Set_B_PVar('INTERUPT', 'MON_SET[7].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[7].FLT_STATE', 1)
+
+END set_rsk_var
+-----------------------------------------------------------------------------
+ROUTINE set_scsn_var  
+-- PURPOSE: set Scan Sonic laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set io interupt monitoring for wirefeeder
+  Set_B_PVar('INTERUPT', 'MON_SET[6].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[6].FLT_STATE', 1)
+
+END set_scsn_var
+-----------------------------------------------------------------------------
+ROUTINE set_ipfo_var  
+-- PURPOSE: set IPFO laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF (rsi_optn = TRUE) THEN  --RSI application
+
+    Set_S_sVar('$ualrm_msg[71]','TRUMPF IPFO SLR Reserved 1')
+    Set_S_sVar('$ualrm_msg[72]','TRUMPF IPFO SLR Reserved 2')
+    Set_S_sVar('$ualrm_msg[73]','TRUMPF IPFO SLR Reserved 3')
+    Set_S_sVar('$ualrm_msg[74]','TRUMPF IPFO SLR Reserved 4')
+
+  ENDIF
+
+END set_ipfo_var
+-----------------------------------------------------------------------------
+ROUTINE set_wire_var
+-- PURPOSE: set wire app variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  x:  INTEGER
+  a:  STRING[4]
+
+BEGIN
+
+  --Binzel
+  --Set io interupt monitoring for wirefeeder
+  Set_B_PVar('INTERUPT', 'MON_SET[11].ENBL', TRUE)
+  Set_I_PVar('INTERUPT', 'MON_SET[11].FLT_STATE', 1)
+
+  --Laser Parameters
+  --Set Laser Config
+  Set_B_sVar('$AWLASER_CFG.$ENABLE', TRUE)              
+  Set_I_sVar('$AWLASER_CFG.$LOOP_TIME', 8)               
+  Set_I_sVar('$AWLASER_CFG.$STRT_TIME', 400)               
+  Set_I_sVar('$AWLASER_CFG.$MO_DLY_AS', 200)                
+  Set_I_sVar('$AWLASER_CFG.$MO_DLY_AE', 400)                            
+  Set_I_sVar('$AWLASER_CFG.$ST_IO_IDX', 0)               
+  Set_R_sVar('$AWLASER_CFG.$SPD_SCHG', 36.563)               
+  Set_I_sVar('$AWLASER_CFG.$ARC_STATE', 0)               
+  Set_I_sVar('$AWLASER_CFG.$COMP_SW', 0)               
+  Set_I_sVar('$AWLASER_CFG.$DEBUG', 1)    
+
+  --Laser Channel 1 and 2 Common Settings
+  FOR x = 1 to 2 DO
+    CNV_INT_STR(x, 1, 0, a)
+    a = SUB_STR(a, 2, 3)   
+    Set_R_sVar('$AWLASER[' + a + '].$CMD.$OFFS', 0.0)            
+    Set_B_sVar('$AWLASER[' + a + '].$CMD.$ON_ST', FALSE)               
+    Set_R_sVar('$AWLASER[' + a + '].$CMD.$VAL', 0.0)               
+    Set_I_sVar('$AWLASER[' + a + '].$CMD.$CHK_LIM', 0)   
+    Set_B_sVar('$AWLASER[' + a + '].$ENBL', TRUE)              
+    Set_B_sVar('$AWLASER[' + a + '].$USE_ADPT', TRUE)   
+    Set_I_sVar('$AWLASER[' + a + '].$FBK.$TYPE', 18)  
+    Set_R_sVar('$AWLASER[' + a + '].$FBK.$OFFS', 0.0)             
+    Set_B_sVar('$AWLASER[' + a + '].$FBK.$ON_ST', FALSE)   
+    Set_I_sVar('$AWLASER[' + a + '].$FBK.$CHK_LIM', 0)
+    Set_I_sVar('$AWLASER[' + a + '].$RAMP_UP[1].$MODE', 3) 
+    Set_I_sVar('$AWLASER[' + a + '].$RAMP_UP[1].$TIME', 792)
+    Set_R_sVar('$AWLASER[' + a + '].$RAMP_UP[1].$END_V', 0.0)
+    Set_I_sVar('$AWLASER[' + a + '].$RAMP_UP[1].$ST_TICK', 1411661)  
+    Set_I_sVar('$AWLASER[' + a + '].$RAMP_UP[1].$STATE', 3)
+    Set_I_sVar('$AWLASER[' + a + '].$RAMP_DN[1].$TIME', 792)
+  ENDFOR --laser channel 1 and 2 common settings 
+           
+  --Set Schedule 1 laser power,wire feed speed, robot travel speed
+  Set_R_sVar('$AWESCH[1,1].$CMD_VOLTS', 4.0)           
+  Set_R_sVar('$AWESCH[1,1].$CMD_WFS', 60.0)            
+  Set_R_sVar('$AWESCH[1,1].$CMD_WSPEED', 75.0)            
+
+  -- Set laser channel 1
+  Set_S_sVar('$AWLASER[1].$DSCP', 'LASER')                        
+  Set_I_sVar('$AWLASER[1].$DO_ON_DLY', 500)            
+  Set_I_sVar('$AWLASER[1].$DO_OF_DLY', 25)            
+  Set_I_sVar('$AWLASER[1].$VA_ON_DLY', -150)            
+  Set_I_sVar('$AWLASER[1].$VA_OF_DLY', 200)                      
+  Set_I_sVar('$AWLASER[1].$CMD.$TYPE', 19)            
+  Set_R_sVar('$AWLASER[1].$CMD.$SLOP', 1000.00)                      
+  Set_R_sVar('$AWLASER[1].$CMD.$MIN_INC', 0.0)          
+  Set_R_sVar('$AWLASER[1].$CMD.$MAX_INC', 6000.00)             
+  Set_R_sVar('$AWLASER[1].$CMD.$MIN_LIM', 0.0)           
+  Set_R_sVar('$AWLASER[1].$CMD.$MAX_LIM', 6000.00)                                       
+  Set_R_sVar('$AWLASER[1].$FBK.$SLOP', 1.0)                       
+  Set_R_sVar('$AWLASER[1].$FBK.$VAL', 4003.0)                       
+  Set_R_sVar('$AWLASER[1].$FBK.$MIN_INC', 0.0)           
+  Set_R_sVar('$AWLASER[1].$FBK.$MAX_INC', 6000.00)            
+  Set_R_sVar('$AWLASER[1].$FBK.$MIN_LIM', 0.0)             
+  Set_R_sVar('$AWLASER[1].$FBK.$MAX_LIM', 6000.00)                                     
+  Set_R_sVar('$AWLASER[1].$RAMP_UP[1].$STR_V', .2)                                             
+  Set_I_sVar('$AWLASER[1].$RAMP_DN[1].$MODE', 3)                         
+  Set_R_sVar('$AWLASER[1].$RAMP_DN[1].$STR_V', 3198.711)               
+  Set_R_sVar('$AWLASER[1].$RAMP_DN[1].$END_V', 0.4)               
+  Set_I_sVar('$AWLASER[1].$RAMP_DN[1].$ST_TICK', 1413506)               
+  Set_I_sVar('$AWLASER[1].$RAMP_DN[1].$STATE', 3)                          
+  Set_R_sVar('$AWLASER[1].$PARAM_F[1]', 0.3)               
+  Set_R_sVar('$AWLASER[1].$PARAM_F[2]', 1.0)               
+  Set_R_sVar('$AWLASER[1].$PARAM_F[3]', 1.0)               
+  Set_R_sVar('$AWLASER[1].$PARAM_F[4]', 1.0)               
+  Set_R_sVar('$AWLASER[1].$PARAM_F[5]', 1.0)               
+  Set_I_sVar('$AWLASER[1].$PARAM_I[1]', 0)               
+  Set_I_sVar('$AWLASER[1].$PARAM_I[2]', 320)             
+  Set_I_sVar('$AWLASER[1].$PARAM_I[3]', 3)               
+  Set_I_sVar('$AWLASER[1].$PARAM_I[4]', 0)               
+  Set_I_sVar('$AWLASER[1].$PARAM_I[5]', 0)   
+
+  -- Set laser channel 2 wire feed
+  Set_S_sVar('$AWLASER[2].$DSCP', 'WFS')                        
+  Set_I_sVar('$AWLASER[2].$DO_ON_DLY', 50)            
+  Set_I_sVar('$AWLASER[2].$DO_OF_DLY', 150)           
+  Set_I_sVar('$AWLASER[2].$VA_ON_DLY', -200)            
+  Set_I_sVar('$AWLASER[2].$VA_OF_DLY', -150)                       
+  Set_I_sVar('$AWLASER[2].$CMD.$TYPE', 19)             
+  Set_R_sVar('$AWLASER[2].$CMD.$SLOP', 6.138)                        
+  Set_R_sVar('$AWLASER[2].$CMD.$MIN_INC', 0.0)               
+  Set_R_sVar('$AWLASER[2].$CMD.$MAX_INC', 166.67)               
+  Set_R_sVar('$AWLASER[2].$CMD.$MIN_LIM', 0.0)               
+  Set_R_sVar('$AWLASER[2].$CMD.$MAX_LIM', 166.67)                                         
+  Set_R_sVar('$AWLASER[2].$FBK.$SLOP', 6.138)                         
+  Set_R_sVar('$AWLASER[2].$FBK.$VAL', 84.718)                          
+  Set_R_sVar('$AWLASER[2].$FBK.$MIN_INC', 0.0)               
+  Set_R_sVar('$AWLASER[2].$FBK.$MAX_INC', 166.67)             
+  Set_R_sVar('$AWLASER[2].$FBK.$MIN_LIM', 0.0)              
+  Set_R_sVar('$AWLASER[2].$FBK.$MAX_LIM', 166.67)                                      
+  Set_R_sVar('$AWLASER[2].$RAMP_UP[1].$STR_V', .05)                                                 
+  Set_I_sVar('$AWLASER[2].$RAMP_DN[1].$MODE', 0)                         
+  Set_R_sVar('$AWLASER[2].$RAMP_DN[1].$STR_V', 68.731)               
+  Set_R_sVar('$AWLASER[2].$RAMP_DN[1].$END_V', -80.0)               
+  Set_I_sVar('$AWLASER[2].$RAMP_DN[1].$ST_TICK', 1413505)              
+  Set_I_sVar('$AWLASER[2].$RAMP_DN[1].$STATE', 2)                          
+  Set_R_sVar('$AWLASER[2].$PARAM_F[1]', 0.5)               
+  Set_R_sVar('$AWLASER[2].$PARAM_F[2]', 1.0)               
+  Set_R_sVar('$AWLASER[2].$PARAM_F[3]', 1.0)               
+  Set_R_sVar('$AWLASER[2].$PARAM_F[4]', 1.0)               
+  Set_R_sVar('$AWLASER[2].$PARAM_F[5]', 1.0)               
+  Set_I_sVar('$AWLASER[2].$PARAM_I[1]', 0)               
+  Set_I_sVar('$AWLASER[2].$PARAM_I[2]', 320)              
+  Set_I_sVar('$AWLASER[2].$PARAM_I[3]', 3)               
+  Set_I_sVar('$AWLASER[2].$PARAM_I[4]', 0)               
+  Set_I_sVar('$AWLASER[2].$PARAM_I[5]', 0)  
+             
+END set_wire_var
+-----------------------------------------------------------------------------
+ROUTINE set_lesm_var
+-- PURPOSE: set Lesumuller process monitor variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Laser controller process monitor setup
+  SELECT laser_ctrl OF  --laser controller type
+      
+    CASE(lasctrl_lsln): --LaserLine controller
+      Set_S_sVar('$MIX_BG[1].$PROG_NAME','LESM_LASL_AIR')
+      Set_I_sVar('$MIX_BG[1].$MODE',2)
+      Set_I_sVar('$MIX_BG[1].$STATUS',2)
+
+    --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+      --Set_S_sVar('$MIX_BG[1].$PROG_NAME','LESM_IPG_AIR')
+      --Set_I_sVar('$MIX_BG[1].$MODE',2)
+      --Set_I_sVar('$MIX_BG[1].$STATUS',2)
+      
+    ELSE:
+  ENDSELECT --laser controller type
+
+  --User Alarms
+  Set_S_sVar('$UALRM_MSG[50]','Lessmuller Heart Beat Fault')
+  Set_S_sVar('$UALRM_MSG[51]','Lessmuller Fault')
+  Set_S_sVar('$UALRM_MSG[52]','Lessmuller Ready Fault')
+
+END set_lesm_var
+-----------------------------------------------------------------------------
+ROUTINE gasgmstd_var
+-- PURPOSE: set GM Standard gas box app variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  --Set prompt boxes
+  Set_S_PVar('custoyn', 'yn_menu[45,1]', 'To Reset the Hand Broken Fault')              
+  Set_S_PVar('custoyn', 'yn_menu[45,2]', 'The Weld head must be Free to move')              
+  Set_S_PVar('custoyn', 'yn_menu[45,3]', '---  Is the Weld Head FREE?     ---')               
+  Set_S_PVar('custoyn', 'yn_menu[45,4]', '-- PRESS "0" = NO, "1" = YES --')               
+  Set_S_PVar('custoyn', 'yn_menu[46,1]', 'After Reset Do you want the')               
+  Set_S_PVar('custoyn', 'yn_menu[46,2]', 'Clutch at a LOW or HIGH')              
+  Set_S_PVar('custoyn', 'yn_menu[46,3]', '---  Pressure?     ---')               
+  Set_S_PVar('custoyn', 'yn_menu[46,4]', ' PRESS "0" = LOW, "1" = HIGH ')               
+  Set_S_PVar('custoyn', 'yn_menu[47,1]', 'A Weld Fault Is Active')               
+  Set_S_PVar('custoyn', 'yn_menu[47,2]', 'Please Reset Fault & Make Sure')               
+  Set_S_PVar('custoyn', 'yn_menu[47,3]', 'The Wire is NOT Stuck Before')               
+  Set_S_PVar('custoyn', 'yn_menu[47,4]', 'Choosing a Recovery Option ')               
+  Set_S_PVar('custoyn', 'yn_menu[47,5]', ' PRESS "0" = NO WLD, "1" = WELD ')
+
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+
+      --Interrupt monitoring
+      Set_B_PVar('INTERUPT', 'MON_SET[16].ENBL', TRUE)
+      Set_I_PVar('INTERUPT', 'MON_SET[16].FLT_STATE', 1)  
+
+    ELSE:
+  ENDSELECT  
+
+END gasgmstd_var
+-----------------------------------------------------------------------------
+ROUTINE datamon_var
+-- PURPOSE: set data monitor variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_I_sVar('$DMONCFG.$NUM_DM_SCH', 5)
+  Set_I_sVar('$DMONCFG.$NUM_DM_ITMS', 20)
+  Set_I_sVar('$DMONCFG.$NUM_SAMPLES', 10)
+  Set_I_sVar('$DMONCFG.$NUM_RECORDS', 10)
+  Set_I_sVar('$DMONCFG.$PORT_TYPE', 2)
+  Set_I_sVar('$DMONCFG.$PORT_NUM', 0)
+  Set_I_sVar('$DMONCFG.$RESERVED', 0)
+  Set_B_sVar('$DMONCFG.$DMON_ENBL', TRUE)
+  Set_B_sVar('$DMONCFG.$WARN_ENBL', FALSE)
+  Set_B_sVar('$DMONCFG.$PAUS_ENBL', FALSE)
+  Set_B_sVar('$DMONCFG.$RECD_ENBL', TRUE)
+  Set_B_sVar('$DMONCFG.$FILE_ENBL', TRUE)
+  Set_I_sVar('$DMONCFG.$DMON_STATE', 1)
+  Set_I_sVar('$DMONCFG.$PRI_DMON', 71)
+  Set_I_sVar('$DMONCFG.$EVCLR_TIMNG', 0)
+  Set_B_sVar('$DMONCFG.$CHK_SYSTIME', TRUE)
+  Set_I_sVar('$DMONCFG.$PIP_DEV_TYP', 0)
+  Set_I_sVar('$DMONCFG.$PIP_SIZE', 0)
+  Set_I_sVar('$DMONCFG.$PIP_SMPL_NO', 0)
+  Set_I_sVar('$DMONCFG.$PIP_TRIG_NO', 0)
+  Set_I_sVar('$DMONCFG.$PIP_DM_SCH', 0)
+  Set_I_sVar('$DMONCFG.$NUM_BUF_VAR', 10)
+
+  Set_S_sVar('$DMONITEM[1].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[1].$VAR_NAME', '$AWLASER[1].$CMD.$VAL')
+  Set_S_sVar('$DMONITEM[1].$DESC','COM LP')
+  Set_S_sVar('$DMONITEM[1].$UNITS', 'watts')
+  Set_I_sVar('$DMONITEM[1].$TYPE',17)
+  Set_I_sVar('$DMONITEM[1].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[1].$PORT_NUM',0)
+  Set_I_sVar('$DMONITEM[1].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[1].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[1].$DATA_PTR',2075345308)
+  Set_R_sVar('$DMONITEM[1].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[1].$SLOPE', 0.000000e+00)
+  Set_R_sVar('$DMONITEM[1].$INTERCEPT', 0.000000e+00)
+  Set_I_sVar('$DMONITEM[1].$BFFV_INDEX', 1)
+
+  Set_S_sVar('$DMONITEM[2].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[2].$VAR_NAME','$AWLASER[2].$CMD.$VAL')
+  Set_S_sVar('$DMONITEM[2].$DESC','COM WF')
+  Set_S_sVar('$DMONITEM[2].$UNITS','mm/sec')
+  Set_I_sVar('$DMONITEM[2].$TYPE',17)
+  Set_I_sVar('$DMONITEM[2].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[2].$PORT_NUM',0)
+  Set_I_sVar('$DMONITEM[2].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[2].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[2].$DATA_PTR', -2075344476)
+  Set_R_sVar('$DMONITEM[2].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[2].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[2].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[2].$BFFV_INDEX', 2)
+
+  Set_S_sVar('$DMONITEM[3].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[3].$VAR_NAME','$AWLASER[1].$FBK.$VAL')
+  Set_S_sVar('$DMONITEM[3].$DESC', 'Act LP')
+  Set_S_sVar('$DMONITEM[3].$UNITS', 'watts')
+  Set_I_sVar('$DMONITEM[3].$TYPE',17)
+  Set_I_sVar('$DMONITEM[3].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[3].$PORT_NUM',0)
+  Set_I_sVar('$DMONITEM[3].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[3].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[3].$DATA_PTR', -2075345260)
+  Set_R_sVar('$DMONITEM[3].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[3].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[3].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[3].$BFFV_INDEX',3)
+
+  Set_S_sVar('$DMONITEM[4].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[4].$VAR_NAME','$AWLASER[2].$FBK.$VAL')
+  Set_S_sVar('$DMONITEM[4].$DESC', 'ACT WF')
+  Set_S_sVar('$DMONITEM[4].$UNITS','mm/sec ')
+  Set_I_sVar('$DMONITEM[4].$TYPE',17)
+  Set_I_sVar('$DMONITEM[4].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[4].$PORT_NUM',0)
+  Set_I_sVar('$DMONITEM[4].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[4].$AXIS_NUM', 1)
+  Set_I_sVar('$DMONITEM[4].$DATA_PTR',-2075344476)
+  Set_R_sVar('$DMONITEM[4].$SQUARE', 0.000000e+00)
+  Set_R_sVar('$DMONITEM[4].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[4].$INTERCEPT', 0.000000e+00)
+  Set_I_sVar('$DMONITEM[4].$BFFV_INDEX', 4)
+
+  Set_S_sVar('$DMONITEM[5].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[5].$VAR_NAME','$awlaser[2].$fbk.$val')
+  Set_S_sVar('$DMONITEM[5].$DESC','LASER ON')
+  Set_S_sVar('$DMONITEM[5].$UNITS','')
+  Set_I_sVar('$DMONITEM[5].$TYPE',33)
+  Set_I_sVar('$DMONITEM[5].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[5].$PORT_NUM',526)
+  Set_I_sVar('$DMONITEM[5].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[5].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[5].$DATA_PTR',-2075344428)
+  Set_R_sVar('$DMONITEM[5].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[5].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[5].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[5].$BFFV_INDEX',5)
+
+  Set_S_sVar('$DMONITEM[6].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[6].$VAR_NAME','$awepor[1].$arc_det_on')
+  Set_S_sVar('$DMONITEM[6].$DESC','WF ON')
+  Set_S_sVar('$DMONITEM[6].$UNITS','')
+  Set_I_sVar('$DMONITEM[6].$TYPE',33)
+  Set_I_sVar('$DMONITEM[6].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[6].$PORT_NUM',547)
+  Set_I_sVar('$DMONITEM[6].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[6].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[6].$DATA_PTR',334862220)
+  Set_R_sVar('$DMONITEM[6].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[6].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[6].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[6].$BFFV_INDEX',6)
+
+  Set_S_sVar('$DMONITEM[7].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[7].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[7].$DESC','Laser Prog Active')
+  Set_S_sVar('$DMONITEM[7].$UNITS','Y/N')
+  Set_I_sVar('$DMONITEM[7].$TYPE',33)
+  Set_I_sVar('$DMONITEM[7].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[7].$PORT_NUM',527)
+  Set_I_sVar('$DMONITEM[7].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[7].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[7].$DATA_PTR',299607224)
+  Set_R_sVar('$DMONITEM[7].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[7].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[7].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[7].$BFFV_INDEX',7)
+
+  Set_S_sVar('$DMONITEM[8].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[8].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[8].$DESC','LW TRIGGER')
+  Set_S_sVar('$DMONITEM[8].$UNITS','')
+  Set_I_sVar('$DMONITEM[8].$TYPE',38)
+  Set_I_sVar('$DMONITEM[8].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[8].$PORT_NUM',471)
+  Set_I_sVar('$DMONITEM[8].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[8].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[8].$DATA_PTR',2996072240)
+  Set_R_sVar('$DMONITEM[8].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[8].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[8].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[8].$BFFV_INDEX',8)
+
+  Set_S_sVar('$DMONITEM[9].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[9].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[9].$DESC','WF2')
+  Set_S_sVar('$DMONITEM[9].$UNITS','')
+  Set_I_sVar('$DMONITEM[9].$TYPE',38)
+  Set_I_sVar('$DMONITEM[9].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[9].$PORT_NUM',35)
+  Set_I_sVar('$DMONITEM[9].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[9].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[9].$DATA_PTR',335384688)
+  Set_R_sVar('$DMONITEM[9].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[9].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[9].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[9].$BFFV_INDEX',9)
+
+  Set_S_sVar('$DMONITEM[10].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[10].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[10].$DESC','LP2')
+  Set_S_sVar('$DMONITEM[10].$UNITS','')
+  Set_I_sVar('$DMONITEM[10].$TYPE',38)
+  Set_I_sVar('$DMONITEM[10].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[10].$PORT_NUM',36)
+  Set_I_sVar('$DMONITEM[10].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[10].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[10].$DATA_PTR',335384716)
+  Set_R_sVar('$DMONITEM[10].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[10].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[10].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[10].$BFFV_INDEX',10)
+
+  Set_S_sVar('$DMONITEM[11].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[11].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[11].$DESC','ARC ON')
+  Set_S_sVar('$DMONITEM[11].$UNITS','')
+  Set_I_sVar('$DMONITEM[11].$TYPE',33)
+  Set_I_sVar('$DMONITEM[11].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[11].$PORT_NUM',527)
+  Set_I_sVar('$DMONITEM[11].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[11].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[11].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[11].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[11].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[11].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[11].$BFFV_INDEX',11)
+
+  Set_S_sVar('$DMONITEM[12].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[12].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[12].$DESC','Item 12')
+  Set_S_sVar('$DMONITEM[12].$UNITS','')
+  Set_I_sVar('$DMONITEM[12].$TYPE',16)
+  Set_I_sVar('$DMONITEM[12].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[12].$PORT_NUM',1)
+  Set_I_sVar('$DMONITEM[12].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[12].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[12].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[12].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[12].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[12].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[12].$BFFV_INDEX',12)
+
+  Set_S_sVar('$DMONITEM[13].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[13].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[13].$DESC','Item 13')
+  Set_S_sVar('$DMONITEM[13].$UNITS','')
+  Set_I_sVar('$DMONITEM[13].$TYPE',16)
+  Set_I_sVar('$DMONITEM[13].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[13].$PORT_NUM',1)
+  Set_I_sVar('$DMONITEM[13].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[13].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[13].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[13].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[13].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[13].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[13].$BFFV_INDEX',13)
+
+  Set_S_sVar('$DMONITEM[14].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[14].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[14].$DESC','Item 14')
+  Set_S_sVar('$DMONITEM[14].$UNITS','')
+  Set_I_sVar('$DMONITEM[14].$TYPE',16)
+  Set_I_sVar('$DMONITEM[14].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[14].$PORT_NUM',1)
+  Set_I_sVar('$DMONITEM[14].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[14].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[14].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[14].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[14].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[14].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[14].$BFFV_INDEX',14)
+
+  Set_S_sVar('$DMONITEM[15].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[15].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[15].$DESC','LASER ON')
+  Set_S_sVar('$DMONITEM[15].$UNITS','')
+  Set_I_sVar('$DMONITEM[15].$TYPE',33)
+  Set_I_sVar('$DMONITEM[15].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[15].$PORT_NUM',526)
+  Set_I_sVar('$DMONITEM[15].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[15].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[15].$DATA_PTR',335191576)
+  Set_R_sVar('$DMONITEM[15].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[15].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[15].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[15].$BFFV_INDEX',15)
+
+  Set_S_sVar('$DMONITEM[16].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[16].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[16].$DESC','FEED FORWARD')
+  Set_S_sVar('$DMONITEM[16].$UNITS','')
+  Set_I_sVar('$DMONITEM[16].$TYPE',33)
+  Set_I_sVar('$DMONITEM[16].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[16].$PORT_NUM',547)
+  Set_I_sVar('$DMONITEM[16].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[16].$AXIS_NUM',10)
+  --Set_S_sVar('$DMONITEM[16].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[16].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[16].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[16].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[16].$BFFV_INDEX',16)
+
+  Set_S_sVar('$DMONITEM[17].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[17].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[17].$DESC','FEED BACKWARDS')
+  Set_S_sVar('$DMONITEM[17].$UNITS','')
+  Set_I_sVar('$DMONITEM[17].$TYPE',33)
+  Set_I_sVar('$DMONITEM[17].$IO_TYPE',2)
+  Set_I_sVar('$DMONITEM[17].$PORT_NUM',548)
+  Set_I_sVar('$DMONITEM[17].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[17].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[17].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[17].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[17].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[17].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[17].$BFFV_INDEX',17)
+
+  Set_S_sVar('$DMONITEM[18].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[18].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[18].$DESC','Laser Power Act GI')
+  Set_S_sVar('$DMONITEM[18].$UNITS','')
+  Set_I_sVar('$DMONITEM[18].$TYPE',33)
+  Set_I_sVar('$DMONITEM[18].$IO_TYPE',18)
+  Set_I_sVar('$DMONITEM[18].$PORT_NUM',10)
+  Set_I_sVar('$DMONITEM[18].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[18].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[18].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[18].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[18].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[18].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[18].$BFFV_INDEX',18)
+
+  Set_S_sVar('$DMONITEM[19].$PRG_NAME','')
+  Set_S_sVar('$DMONITEM[19].$VAR_NAME','')
+  Set_S_sVar('$DMONITEM[19].$DESC','ACT_GI_WF')
+  Set_S_sVar('$DMONITEM[19].$UNITS','')
+  Set_I_sVar('$DMONITEM[19].$TYPE',33)
+  Set_I_sVar('$DMONITEM[19].$IO_TYPE',18)
+  Set_I_sVar('$DMONITEM[19].$PORT_NUM',18)
+  Set_I_sVar('$DMONITEM[19].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[19].$AXIS_NUM',1)
+  --Set_S_sVar('$DMONITEM[19].$DATA_PTR',Uninitialized)
+  Set_R_sVar('$DMONITEM[19].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[19].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[19].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[19].$BFFV_INDEX',19)
+
+  Set_S_sVar('$DMONITEM[20].$PRG_NAME','*SYSTEM*')
+  Set_S_sVar('$DMONITEM[20].$VAR_NAME','$AF_MOINF_DT[1].$CUR_ACT_SPD')
+  Set_S_sVar('$DMONITEM[20].$DESC','ROBOT SPEED')
+  Set_S_sVar('$DMONITEM[20].$UNITS','mm/sec')
+  Set_I_sVar('$DMONITEM[20].$TYPE',17)
+  Set_I_sVar('$DMONITEM[20].$IO_TYPE',1)
+  Set_I_sVar('$DMONITEM[20].$PORT_NUM',1)
+  Set_I_sVar('$DMONITEM[20].$GROUP_NUM',1)
+  Set_I_sVar('$DMONITEM[20].$AXIS_NUM',1)
+  Set_I_sVar('$DMONITEM[20].$DATA_PTR',297570940)
+  Set_R_sVar('$DMONITEM[20].$SQUARE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[20].$SLOPE',0.000000e+00)
+  Set_R_sVar('$DMONITEM[20].$INTERCEPT',0.000000e+00)
+  Set_I_sVar('$DMONITEM[20].$BFFV_INDEX',20)
+
+END datamon_var
+-----------------------------------------------------------------------------
+ROUTINE laser_var
+-- PURPOSE: set laser app variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  i, x:  INTEGER
+  a   :  STRING[4]
+
+BEGIN
+
+  --Set sysvar to allow laser function without having an internal process board
+  Set_I_sVar('$aweprr[1].$vendor_id',108)
+  Set_B_sVar('$awscfg.$tst_cyc_sim',FALSE)
+  Set_I_sVar('$cell_setup.$di_tryout_i',0)
+  Set_I_sVar('$cell_setup.$do_tryout_i',0)
+
+  --disable FFR
+  Set_B_sVar('$rsmfst_sv.$ffast_enbl',FALSE)
+
+  --disable error recovery
+  Set_B_sVar('$svprg_enb',false)
+  Set_I_sVar('$rsmprg_sv.$svprg_enble',2)
+
+  --Set  interupt monitoring for NOT REMOTE system
+  Set_B_PVar('INTERUPT', 'REMOTE', FALSE)
+
+  --Setup Programs to Run
+  Set_B_PVar('ATSHCUST' , 'Prgs2RunLS[1].NeedToRun',TRUE)
+  Set_B_PVar('ATSHCUST' , 'Prgs2RunLS[1].NeedForProd',TRUE)
+  Set_S_PVar('ATSHCUST' , 'Prgs2RunLS[1].Prog_Name','interupt')  
+
+  --User Alarms for Laser Apps 
+  FOR x = 5 to 200 DO
+    CNV_INT_STR(x, 1, 0, a)
+    a = SUB_STR(a, 2, 3)    
+    Set_I_sVar('$UALRM_SEV[' + a + ']',6)
+  ENDFOR
+
+  Set_S_sVar('$UALRM_MSG[9]','Analog Control Not Set')
+  Set_S_sVar('$UALRM_MSG[10]','Laser Not Assigned')
+  Set_S_sVar('$UALRM_MSG[11]','Laser Not On')
+  Set_S_sVar('$UALRM_MSG[12]','Optical Channel Not Assigned')
+  Set_S_sVar('$UALRM_MSG[13]','Laser Program Fault')
+  Set_S_sVar('$UALRM_MSG[14]','T2 Switch Fault')
+  Set_S_sVar('$UALRM_MSG[15]','Laser Switch Position Fault')
+  Set_S_sVar('$UALRM_MSG[18]','WF General Fault')
+  Set_S_sVar('$UALRM_MSG[19]','S-Motor Fault')
+  Set_S_sVar('$UALRM_MSG[20]','M-Motor Fault')
+  Set_S_sVar('$UALRM_MSG[21]','Gas Pressure Fault')
+  Set_S_sVar('$UALRM_MSG[22]','Hood Cover Fault')
+  Set_S_sVar('$UALRM_MSG[23]','10% Fault')
+  Set_S_sVar('$UALRM_MSG[24]','20% Fault')
+  Set_S_sVar('$UALRM_MSG[25]','Wire Present Fault')
+  Set_S_sVar('$UALRM_MSG[29]','Active Fault')
+  Set_S_sVar('$UALRM_MSG[30]','SA Postion Fault')
+  Set_S_sVar('$UALRM_MSG[31]','SA Range Fault')
+  Set_S_sVar('$UALRM_MSG[32]','TA Range Fault')
+  Set_S_sVar('$UALRM_MSG[33]','Temperature Fault')
+  Set_S_sVar('$UALRM_MSG[34]','SGSW Drawer Fault')
+  Set_S_sVar('$UALRM_MSG[39]','Heart Beat Fault')
+  Set_S_sVar('$UALRM_MSG[40]','Crash Sensor Fault')
+  Set_S_sVar('$UALRM_MSG[41]','DFE Fault')
+  Set_S_sVar('$UALRM_MSG[42]','Gas Pressure Fault')
+  Set_S_sVar('$UALRM_MSG[43]','CJ Pressure Fault')  
+  Set_S_sVar('$UALRM_MSG[44]','Gas Flow Fault')
+  Set_S_sVar('$UALRM_MSG[45]','DFE Speed Fault')
+  Set_S_sVar('$UALRM_MSG[46]','Crash Sensor Pressure Fault')
+  Set_S_sVar('$UALRM_MSG[51]','Part Count Fault')
+  Set_S_sVar('$UALRM_MSG[52]','Find Count Fault')
+  Set_S_sVar('$UALRM_MSG[53]','2D Fault')
+  Set_S_sVar('$UALRM_MSG[54]','3D Fault')
+  Set_S_sVar('$UALRM_MSG[55]','Part Present Fault')
+  Set_S_sVar('$UALRM_MSG[56]','X Out  Fault')
+  Set_S_sVar('$UALRM_MSG[57]','Y Out Fault')
+  Set_S_sVar('$UALRM_MSG[58]','Z Out Fault')
+  Set_S_sVar('$UALRM_MSG[59]','W Out Fault')
+  Set_S_sVar('$UALRM_MSG[60]','P Out Fault ')
+  Set_S_sVar('$UALRM_MSG[61]','R Out Fault')
+  Set_S_sVar('$UALRM_MSG[62]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[63]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[64]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[65]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[66]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[67]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[68]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[69]','I Rvis Reserved')
+  Set_S_sVar('$UALRM_MSG[70]','Plasmo Mismatch')
+  Set_S_sVar('$UALRM_MSG[75]','Trumpf Invalid Prg #')
+  Set_S_sVar('$UALRM_MSG[76]','Trumpf Ext Control NOT Active')
+  Set_S_sVar('$UALRM_MSG[77]','Trumpf Laser NOT ON')
+  Set_S_sVar('$UALRM_MSG[78]','Trumpf Laser NOT Ready')
+  Set_S_sVar('$UALRM_MSG[79]','Trumpf Program Active Timeout')
+  Set_S_sVar('$UALRM_MSG[80]','Lessmuller Heart Beat Fault')
+  Set_S_sVar('$UALRM_MSG[81]','Lessmuller Fault')
+  Set_S_sVar('$UALRM_MSG[82]','Lessmuller Ready Fault')
+  Set_S_sVar('$UALRM_MSG[90]','HighYag Fault')
+  Set_S_sVar('$UALRM_MSG[91]','HighYag Not Ready')
+  Set_S_sVar('$UALRM_MSG[92]','HighYag Scnr @Work Not ON')
+  Set_S_sVar('$UALRM_MSG[93]','HighYag Scnr @Work Not OFF') 
+
+  --Laser controller variables
+  SELECT laser_ctrl OF
+    CASE(lasctrl_lsln): --LaserLine controller
+      set_lsln_var
+    CASE(lasctrl_trmp): --Trumpf controller
+      set_trum_var
+    --CASE(lasctrl_ipg):  --IPG laser controller  --NOT SUPPORTED ON G4 YET
+      --set_ipg_var
+    ELSE:
+  ENDSELECT 
+
+  --Laser Head Variables
+  SELECT laser_head OF
+    CASE(lashd_scsn):
+      set_scsn_var
+    CASE(lashd_ipfo):
+      set_ipfo_var
+    --CASE(lashd_rlsk):  --NOT SUPPORTED ON G4 YET
+      --set_rlsk_var
+    --CASE(lashd_rsk):  --NOT SUPPORTED ON G4 YET
+      --set_rsk_var
+    ELSE:
+  ENDSELECT 
+
+  IF (laser_wire = wizans_yes) THEN --application has a wire
+    set_wire_var
+  ENDIF --application has a wire
+
+  --Process Monitor Variables
+  SELECT procmontype OF
+    CASE(procm_lesm):
+      set_lesm_var
+    --CASE(procm_plasm):  --NOT SUPPORTED ON G4 YET
+      --set_plasmvar
+    ELSE:
+  ENDSELECT
+
+  --Gasbox Variables
+  SELECT gasboxtype OF
+    CASE(gasbox_gmstd):
+      gasgmstd_var
+    ELSE:
+  ENDSELECT
+
+  --Data Monitor
+  IF (datamon_file = wizans_yes) THEN
+    IF (laser_head <> lashd_ipfo) THEN --ipfo never uses wire, which means it never uses data mon
+      datamon_var
+    ENDIF --not ipfo laser head
+  ENDIF
+
+END laser_var
+-----------------------------------------------------------------------------
+ROUTINE set_las_var
+-- PURPOSE: set laser variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsRgstrs) THEN
+    ErrsInShop.ErrorsRgstrs = 0
+  ENDIF
+  IF UNINIT(LasVR_Setup) OR (Reset_Cell) THEN
+    LasVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsRgstrs -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('  Starting the Laser VARs GMLASVR', FALSE)
+
+  IF (LasVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Laser VARs Already Setup', FALSE)
+    IF ExecSetupAgn('Laser VARs') THEN -- ask user if they want to setup again
+      LasVR_Setup = FALSE
+    ELSE
+      WriteLog('  Laser VARs already Complete', FALSE)
+      WriteLog('  GMLASVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  init_las_var
+  laser_var
+
+  ErrsInShop.ErrorsRgstrs =  ErrsInShop.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('  Laser VARs Setup GMLASVR had ' + int2str((ErrsInShop.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('  Laser VARs Setup completed', FALSE)
+    LasVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+
+END set_las_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmlasvr

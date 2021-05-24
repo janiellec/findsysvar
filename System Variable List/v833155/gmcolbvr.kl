@@ -1,0 +1,353 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMCOLBVR.KL
+--   TITLE:          GMCOLBVR PROGRAM
+--
+--
+--   WRITTEN BY:     FANUC
+--   REVISION DATE:  2019/08/23
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Collaborative Robot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--              v4.0  2019/08/23 marchaka         Initial release
+--              v4.1  2020/10/07 schoensm         added colb_var routine
+--------------------------------------------------------------------------
+PROGRAM GMCOLBVR
+
+%COMMENT = 'GM COLB VR V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+CONST
+Version = '2020-10-07'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver   IN SHADOW : STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs               : INTEGER    -- How many errors I/O error counter had when the program started
+  ColbVR_Setup  IN SHADOW : BOOLEAN    -- Keeps track if routine setup Mh I/O at least first time
+  gm_status               : INTEGER
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE initCOLBvars
+-- PURPOSE: to initialize variables associated with setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(ColbVR_Setup) THEN
+    ColbVR_Setup = FALSE
+  ENDIF
+
+END initCOLBvars
+-----------------------------------------------------------------------------
+ROUTINE colb_dmon
+-- PURPOSE: setup collaborative robot data monitor variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Set_B_sVar('$SCR_GRP[1].$M_POS_ENB', TRUE)
+  Set_B_sVar('$SCR_GRP[1].$M_DST_ENB', TRUE)
+  --Set_I_sVar('$DMONCFG.$NUM_DM_ITMS', 40)  --Segment has it set to 40, but 60 is the default
+                                             --I don't want to reduce it, so I will leave it at 60
+
+  --Joint 1 Position
+  Set_S_sVar('$DMONITEM[1].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[1].$VAR_NAME', '$SCR_GRP[1].$MCH_ANG[1]')
+  Set_S_sVar('$DMONITEM[1].$DESC', 'J1 Position')
+  Set_S_sVar('$DMONITEM[1].$UNITS', 'deg')
+  Set_I_sVar('$DMONITEM[1].$TYPE', 17)
+
+  --Machine Position X
+  Set_S_sVar('$DMONITEM[2].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[2].$VAR_NAME', '$SCR_GRP[1].$MCH_POS_X')
+  Set_S_sVar('$DMONITEM[2].$DESC', 'Mch_Pos_X')
+  Set_S_sVar('$DMONITEM[2].$UNITS', 'mm')
+  Set_I_sVar('$DMONITEM[2].$TYPE', 17)
+
+  --Machine Position Y
+  Set_S_sVar('$DMONITEM[3].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[3].$VAR_NAME', '$SCR_GRP[1].$MCH_POS_Y')
+  Set_S_sVar('$DMONITEM[3].$DESC', 'Mch_Pos_Y')
+  Set_S_sVar('$DMONITEM[3].$UNITS', 'mm')
+  Set_I_sVar('$DMONITEM[3].$TYPE', 17)
+
+  --Machine Position Z
+  Set_S_sVar('$DMONITEM[4].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[4].$VAR_NAME', '$SCR_GRP[1].$MCH_POS_Z')
+  Set_S_sVar('$DMONITEM[4].$DESC', 'Mch_Pos_Z')
+  Set_S_sVar('$DMONITEM[4].$UNITS', 'mm')
+  Set_I_sVar('$DMONITEM[4].$TYPE', 17)
+
+  --External Force Monitor: Resultant (%)
+  Set_S_sVar('$DMONITEM[5].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[5].$VAR_NAME', '$CR_VAR[1].$FS_MON[4]')
+  Set_S_sVar('$DMONITEM[5].$DESC', 'Ext_Force_R')
+  Set_S_sVar('$DMONITEM[5].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[5].$TYPE', 16)
+
+  --External Force Monitor: X-axis (%)
+  Set_S_sVar('$DMONITEM[6].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[6].$VAR_NAME', '$CR_VAR[1].$FS_MON[1]')
+  Set_S_sVar('$DMONITEM[6].$DESC', 'Ext_Force_X')
+  Set_S_sVar('$DMONITEM[6].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[6].$TYPE', 16)
+
+  --External Force Monitor: Y-axis (%)
+  Set_S_sVar('$DMONITEM[7].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[7].$VAR_NAME', '$CR_VAR[1].$FS_MON[2]')
+  Set_S_sVar('$DMONITEM[7].$DESC', 'Ext_Force_Y')
+  Set_S_sVar('$DMONITEM[7].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[7].$TYPE', 16)
+
+  --External Force Monitor: Z-axis (%)
+  Set_S_sVar('$DMONITEM[8].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[8].$VAR_NAME', '$CR_VAR[1].$FS_MON[3]')
+  Set_S_sVar('$DMONITEM[8].$DESC', 'Ext_Force_Z')
+  Set_S_sVar('$DMONITEM[8].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[8].$TYPE', 16)
+
+  --Payload (Force) Monitor: Resultant (%)
+  Set_S_sVar('$DMONITEM[9].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[9].$VAR_NAME', '$CR_VAR[1].$PLF_MON[4]')
+  Set_S_sVar('$DMONITEM[9].$DESC', 'PLD_Force_R')
+  Set_S_sVar('$DMONITEM[9].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[9].$TYPE', 16)
+
+  --Payload (Force) Monitor: X-axis (%)')
+  Set_S_sVar('$DMONITEM[10].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[10].$VAR_NAME', '$CR_VAR[1].$PLF_MON[1]')
+  Set_S_sVar('$DMONITEM[10].$DESC', 'PLD_Force_X')
+  Set_S_sVar('$DMONITEM[10].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[10].$TYPE', 16)
+
+  --Payload (Force) Monitor: Y-axis (%)
+  Set_S_sVar('$DMONITEM[11].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[11].$VAR_NAME', '$CR_VAR[1].$PLF_MON[2]')
+  Set_S_sVar('$DMONITEM[11].$DESC', 'PLD_Force_Y')
+  Set_S_sVar('$DMONITEM[11].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[11].$TYPE', 16)
+
+  --Payload (Force) Monitor: Z-axis (%)
+  Set_S_sVar('$DMONITEM[12].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[12].$VAR_NAME', '$CR_VAR[1].$PLF_MON[3]')
+  Set_S_sVar('$DMONITEM[12].$DESC', 'PLD_Force_Z')
+  Set_S_sVar('$DMONITEM[12].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[12].$TYPE', 16)
+
+  --Payload (Moment) Monitor: Resultant (%)
+  Set_S_sVar('$DMONITEM[13].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[13].$VAR_NAME', '$CR_VAR[1].$PLM_MON[4]')
+  Set_S_sVar('$DMONITEM[13].$DESC', 'PLD_Moment_R')
+  Set_S_sVar('$DMONITEM[13].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[13].$TYPE', 16)
+
+  --Payload (Moment) Monitor: X-axis (%)
+  Set_S_sVar('$DMONITEM[14].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[14].$VAR_NAME', '$CR_VAR[1].$PLM_MON[1]')
+  Set_S_sVar('$DMONITEM[14].$DESC', 'PLD_Moment_X')
+  Set_S_sVar('$DMONITEM[14].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[14].$TYPE', 16)
+
+  --Payload (Moment) Monitor: Y-axis (%)
+  Set_S_sVar('$DMONITEM[15].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[15].$VAR_NAME', '$CR_VAR[1].$PLM_MON[2]')
+  Set_S_sVar('$DMONITEM[15].$DESC', 'PLD_Moment_Y')
+  Set_S_sVar('$DMONITEM[15].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[15].$TYPE', 16)
+
+  --Payload (Moment) Monitor: Z-axis (%)
+  Set_S_sVar('$DMONITEM[16].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[16].$VAR_NAME', '$CR_VAR[1].$PLM_MON[3]')
+  Set_S_sVar('$DMONITEM[16].$DESC', 'PLD_Moment_Z')
+  Set_S_sVar('$DMONITEM[16].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[16].$TYPE', 16)
+
+  --Contact Stop State
+  Set_S_sVar('$DMONITEM[17].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[17].$VAR_NAME', '$CR_VAR[1].$STATE')
+  Set_S_sVar('$DMONITEM[17].$DESC', 'Contact Stop State')
+  Set_S_sVar('$DMONITEM[17].$UNITS', '')
+  Set_I_sVar('$DMONITEM[17].$TYPE', 16)
+
+  --Auto Status Check - Time Reset (sec)
+  Set_S_sVar('$DMONITEM[18].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[18].$VAR_NAME', '$CR_VAR[1].$TIME_CHK')
+  Set_S_sVar('$DMONITEM[18].$DESC', 'ASC Time Check')
+  Set_S_sVar('$DMONITEM[18].$UNITS', 's')
+  Set_I_sVar('$DMONITEM[18].$TYPE', 16)
+
+  --Auto Status Check - Flex Time Reset Limit (sec)
+  Set_S_sVar('$DMONITEM[19].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[19].$VAR_NAME', '$CR_VAR[1].$TIM_LIM')
+  Set_S_sVar('$DMONITEM[19].$DESC', 'ASC Time Limit')
+  Set_S_sVar('$DMONITEM[19].$UNITS', 's')
+  Set_I_sVar('$DMONITEM[19].$TYPE', 16)
+
+  --TCP Speed (mm/sec)
+  Set_S_sVar('$DMONITEM[20].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[20].$VAR_NAME', '$SCR_GRP[1].$MCH_SPD')
+  Set_S_sVar('$DMONITEM[20].$DESC', 'TCP_Speed_RAW')
+  Set_S_sVar('$DMONITEM[20].$UNITS', 'mm/sec')
+  Set_I_sVar('$DMONITEM[20].$TYPE', 17)
+
+  --TCP Speed (%)
+  Set_S_sVar('$DMONITEM[21].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[21].$VAR_NAME', '$CR_VAR[1].$TCP_SPD')
+  Set_S_sVar('$DMONITEM[21].$DESC', 'TCP_Speed_PCNT')
+  Set_S_sVar('$DMONITEM[21].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[21].$TYPE', 16)
+
+  --Speed Override (%)
+  Set_S_sVar('$DMONITEM[22].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[22].$VAR_NAME', '$MOR.$OVERRIDE')
+  Set_S_sVar('$DMONITEM[22].$DESC', 'Speed Override')
+  Set_S_sVar('$DMONITEM[22].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[22].$TYPE', 16)
+
+  --Elbow Speed (%)
+  Set_S_sVar('$DMONITEM[23].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[23].$VAR_NAME', '$CR_VAR[1].$ELB_SPD')
+  Set_S_sVar('$DMONITEM[23].$DESC', 'Elbow Speed')
+  Set_S_sVar('$DMONITEM[23].$UNITS', '%')
+  Set_I_sVar('$DMONITEM[23].$TYPE', 16)
+
+  --Conveyor Speed (mm/sec)
+  Set_S_sVar('$DMONITEM[24].$PRG_NAME', '*SYSTEM*')
+  Set_S_sVar('$DMONITEM[24].$VAR_NAME', '$LNSCHCNVSPD[1]')
+  Set_S_sVar('$DMONITEM[24].$DESC', 'Conveyor Speed')
+  Set_S_sVar('$DMONITEM[24].$UNITS', 'mm/sec')
+  Set_I_sVar('$DMONITEM[24].$TYPE', 17)
+
+
+END colb_dmon
+-----------------------------------------------------------------------------
+ROUTINE colb_var
+-- PURPOSE: setup collaborative robot system variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF Chk_Feature('J512') THEN --Line-Tracking
+  Set_I_sVar('$SCR.$ITP_TIME', 12)
+ENDIF  --Line-Tracking
+
+END colb_var
+-----------------------------------------------------------------------------
+ROUTINE set_colb_var
+-- PURPOSE: setup collaborative robot variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN
+    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(ColbVR_Setup) OR (Reset_Cell) THEN
+    ColbVR_Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Collaborative Variables GMCOLBVR', FALSE)
+
+  IF (ColbVR_Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Collaborative Variables Already Setup', FALSE)
+    IF ExecSetupAgn('Colb Vars') THEN -- ask user if they want to setup again
+      ColbVR_Setup = FALSE
+    ELSE
+      WriteLog('  Collaborative Variables already Complete', FALSE)
+      WriteLog('GMCOLBVR Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  --setup routines
+  initCOLBvars
+  colb_dmon
+  colb_var
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Collaborative Variable Setup GMCOLBVR had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Collaborative Variable Setup completed', FALSE)
+    ColbVR_Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+END set_colb_var
+-----------------------------------------------------------------------------
+BEGIN
+
+END GMCOLBVR

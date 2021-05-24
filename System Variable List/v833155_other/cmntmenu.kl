@@ -1,0 +1,167 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         SET_MENU.KL
+--   TITLE:          SET_MENU PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  4/01/00
+--
+--   LANGUAGE:       KAREL 5.20 RJ3
+--   CONTROL GROUP:  AUTOMATED SYSTEMS GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   000000
+--   PROJECT NAME:   GOOD CUSTOMER
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2000
+--         DESCRIPTION: ROBOT MAIN PROGRAM
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--
+-- PURPOSE:  This Routine Sets the program attribute for the Menus so that
+--           MENUxxx will have the TEXT name equal to the menu_name. This
+--           Routine needs to be CALLED from CELL in the CELL_INIT routine
+--           because the program detail does not seem to be in CMOS.
+--
+---------------------------------------------------------------------
+PROGRAM CMNTMENU
+
+%COMMENT = 'SET_MENU Comment'
+%NOLOCKGROUP
+
+%NOPAUSE = ERROR + COMMAND + TPENABLE  -- dont pause should run if faulted
+
+CONST
+
+   MSG_OK =  1 --tmenu_ok        -- 1 prompt box ok
+   MSG_YN = 2 --tmenu_yn        -- 2 prompt box yes/no
+   MSG_LIST = 3 --tmenu_lst     -- 3 select from a list
+   MSG_STAT = 4 --tmenu_status  -- 4 monitor values
+   MSG_OPER = 5 --tmenu_entry   -- 5 setup values
+   max_mnu_used = 50--WAS 24 12-11-15        -- maxinum number of menus used  (per type)
+
+VAR
+i,ix,entry,int_value,
+status : INTEGER
+menu_comment  : STRING[16] -- the text to be added to attribute
+vr_filename   : STRING[8] -- Variable name for the menu vr file names
+
+-- ROUTINE Trim
+-- Remove leading and trailing spaces
+-------------------------------------------------------------------------------
+ROUTINE Trim (strText : STRING) : STRING
+
+VAR
+  strChar      : STRING[1]
+  strTemp      : STRING[128]
+  intFront     : INTEGER
+  intBack      : INTEGER
+  intIndex     : INTEGER
+  intLength    : INTEGER
+
+BEGIN
+
+  strChar = ''
+  strTemp = ''
+
+  intLength = STR_LEN(strText)
+
+  IF intLength = 0 THEN RETURN(strText) ; ENDIF
+
+  intIndex = 1
+  intFront = intIndex
+
+  --find the front of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex + 1
+    IF intIndex <= intLength THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intFront = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+
+  ENDWHILE
+
+  intIndex = STR_LEN(strText)
+  intBack = intIndex
+
+  --find the back of the string
+  strChar = SUB_STR(strText, intIndex, 1)
+  WHILE strChar = ' ' DO
+    intIndex = IntIndex - 1
+    IF intIndex >= 1 THEN
+      strChar = SUB_STR(strText, intIndex, 1)
+      intBack = intIndex
+    ELSE
+      strChar = ''
+    ENDIF
+  ENDWHILE
+
+  -- using SUB_STR to extract the string between front and back doesn't work - so we do it the hard way
+  FOR intIndex=intFront TO intBack DO
+    strChar = SUB_STR(strText, intIndex, 1)
+    strTemp = strTemp + strChar
+  ENDFOR
+
+  RETURN(strTemp)
+
+END Trim
+
+-------------------------------------------------------------------------------
+-- ROUTINE Int2Str
+-- Converts integer number to string.
+-------------------------------------------------------------------------------
+ROUTINE Int2Str (intVal : INTEGER) : STRING
+
+VAR
+  strOut : STRING[15]
+
+BEGIN
+
+  CNV_INT_STR(intVal, 15, 0, strOut)
+  strOut = Trim(strOut)
+
+  RETURN (strOut)
+
+END Int2Str
+----------------------------------------------------------------------------------------------
+
+BEGIN
+
+FOR i = MSG_OK TO MSG_OPER DO -- Loop through all menu numbers
+   FOR ix = 1 TO max_mnu_used DO
+     vr_filename = 'MENU'+ Int2Str(i) -- make menu name
+     IF ix <10 THEN -- need to add zero to <10 to make name correct filename
+       vr_filename = vr_filename +'0'
+     ENDIF
+     vr_filename = vr_filename +Int2Str(ix) -- Add the menu element number
+       menu_comment = '' -- clear comment name
+       GET_VAR(entry, vr_filename , 'menu_name', menu_comment, status)
+         IF (status <> 0) AND (status <> 16011) THEN -- 16011 = VARS-011 No Data Defined for Program
+           POST_ERR(38000, 'Get Var '+ vr_filename +' menu_name FAILED', status, 0) --
+         ELSE
+           IF menu_comment <>'' THEN  -- is a menu name avialable for comment
+             SET_ATTR_PRG(vr_filename, AT_COMMENT , int_value, menu_comment, status)
+             IF status <>0 THEN
+               POST_ERR(38000, 'Failed to set ' + vr_filename+ ' Comment Attribute', status, 0) --
+               DELAY 1000
+             ENDIF
+           ENDIF
+         ENDIF
+    ENDFOR --
+ ENDFOR --
+
+END CMNTMENU

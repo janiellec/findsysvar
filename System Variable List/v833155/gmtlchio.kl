@@ -1,0 +1,1020 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             Fanuc America
+--    +
+--    Program: gmtlchio.kl
+--
+--    Description:
+--
+--    SWWIZIO: Configures Tool Changer I/O and comments.
+-------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: swtlchio.kl  14 JANUARY 16    03:33PM
+--
+--    Author: Randy Kosaski
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--
+--    01/14/16  KosaskiR Created because SWWIZIO3 was too big,and G4 has updates
+--                       so the tool changer stuff is removed and placed here
+--    07/07/26  KosaskiR made a change to no tool change stuff is laoded
+--    2017/02/13 marchaka Removed $dev_path setting.  Handled in gmmain1.
+--    2017/04/10 marchaka Add tcwebmon.kl for webscreen monitoring. Other webscreen settings for this is in gmcellvr.
+
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmtlchio
+-------------------------------------------------------------------------------------------------------------
+%COMMENT = 'ToolChg I/O V4.1'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE kliotyps
+%INCLUDE KLEVKEYS -- used for the Teach pendant key constants
+%INCLUDE gmevrlng -- used for teh constants of the GMLANG1 program
+%INCLUDE KLEVCCDF -- Used for the TPPERROR builtin
+
+CONST
+  DIN_SOFTKEY = 5
+
+Version = '2017-04-10'
+
+%INCLUDE gmcnstnt  -- Constant file for GM wizard
+
+VAR
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  TS_is_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Tool Stand I/O at least first time
+
+  gm_status    : INTEGER
+  psve         : INTEGER
+  I,ts         : INTEGER  -- Used for Tool Stand
+  ans          : INTEGER
+  entry        : INTEGER
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+
+  Set_ToolDiag IN SHADOW : BOOLEAN -- def = FALSE used to have tool change diagnotics on Inputs
+  StndisSetup  IN SHADOW : ARRAY[4] OF BOOLEAN -- indicates if the tool stand has been setup before
+  TC_Is_Setup  IN SHADOW : BOOLEAN             -- indicates the Tool Changer has already been setup
+
+%INCLUDE gmcfgcel -- GM wizard variables for all workcells and all Applications
+%INCLUDE gmcfgtlc -- GM wizard variables for Tool Change Applications
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+-- Routines
+%INCLUDE klrdutil -- needed for the CLR_STND_SCR routine for Writing to User Screen
+%INCLUDE gmrdutil -- needed for the miscellanous builtins for all common GM routines
+
+-- Enet Turck Input Block Configuration program
+ROUTINE TURK_IO_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM GMENETSU
+-- Enet DKL Tool Changer on Robot Configuration program
+ROUTINE SET_DKL_EIP(P_Con_Num:INTEGER;p_Con_Name:STRING) FROM GMENETSU
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+----------------------------------------------------------------------------
+ROUTINE Chk_TC_Init  -- Call routine to ensure all vars are initialized or need reset
+-- PURPOSE:
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(TS_is_Setup) THEN
+  TS_is_Setup = FALSE
+ENDIF
+
+IF UNINIT(UseToolChngr) THEN
+  UseToolChngr = FALSE
+ENDIF
+
+FOR i = 1 TO ARRAY_LEN(StndisSetup) DO --
+  IF UNINIT(StndisSetup[i]) THEN
+    StndisSetup[i] = FALSE
+  ENDIF
+ENDFOR --
+
+IF UNINIT(Reset_Cell) THEN
+  Reset_Cell = FALSE
+ENDIF
+
+IF UNINIT(DisplayDely) THEN
+  DisplayDely = 1000
+ENDIF
+
+IF UNINIT(TC_Comm_Type) THEN --set hook for multiple communications
+  TC_Comm_Type  = Ethernet -- set it to 89
+ENDIF
+
+IF UNINIT(TC_Is_Setup) THEN
+  TC_Is_Setup = FALSE
+ENDIF
+
+IF UNINIT(Max_DualStnd) THEN
+  Max_DualStnd = 2
+ENDIF
+
+END Chk_TC_Init
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd1Sngl
+-- PURPOSE: This routine sets a Single tool Stand Nest #1
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+ -- RK 1-16-16 Need to reset the I/O
+  IF Reset_Cell THEN -- only recomment these if reset cell is active, so dont change users comments after
+    FOR i = 929 TO 960 DO
+      SET_PORT_CMT(IO_DIN, i, '(Reserved)', gm_status)      --
+      SET_PORT_CMT(IO_DOUT, i, '(Reserved)', gm_status)      --
+    ENDFOR --
+  ENDIF
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[1] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#1 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#1') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+    -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  929, TC_Comm_Type, 56,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 56 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_ASG(IO_DOUT, 929, TC_Comm_Type, 56,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 56 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  -- Nest #1
+  SET_PORT_CMT(IO_DIN, 929, 'diNest1Open', gm_status)      
+  SET_PORT_CMT(IO_DIN, 930, 'diNest1Closed', gm_status)     
+  SET_PORT_CMT(IO_DIN, 931, 'diHead1InNest', gm_status)     
+  SET_PORT_CMT(IO_DIN, 932, 'diHead1InPos', gm_status)     
+  SET_PORT_CMT(IO_DIN, 933, 'diNest2Open', gm_status)      
+  SET_PORT_CMT(IO_DIN, 934, 'diHead2Closed', gm_status)    
+  SET_PORT_CMT(IO_DIN, 935, 'diNest2InNest', gm_status)    
+  SET_PORT_CMT(IO_DIN, 936, 'diNest2InPos', gm_status)    
+
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT,929, 'doOpenNest1', gm_status)     
+  SET_PORT_CMT(IO_DOUT,930, 'doCloseNest1', gm_status)    
+  SET_PORT_CMT(IO_DOUT,933, 'doOpenNest2', gm_status)     
+  SET_PORT_CMT(IO_DOUT,934, 'doCloseNest2', gm_status)    
+
+
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(56,'ToolNest #1')-- call routine to setup the Rthernet connection
+  ENDIF
+
+  StndisSetup[1] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd1Sngl
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd1Dual
+-- PURPOSE: This routine sets a Dual tool Stand Nest #1&2
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+  IF Max_DualStnd<1 THEN
+    POST_ERR(38000, 'Max_DualStnd is '+Int2str(Max_DualStnd)+' cannot Setup TC_Stnd1DUAL',0, 0) --
+    RETURN
+  ENDIF
+
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[1] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#1/2 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#1/2') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+  -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  929, TC_Comm_Type, 56,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 56 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_ASG(IO_DOUT, 929, TC_Comm_Type, 56,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 56 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  -- Nest #Dual
+  SET_PORT_CMT(IO_DIN, 929, 'diNest1Open', gm_status)     -- Nest 1 Open
+  SET_PORT_CMT(IO_DIN, 930, 'diNest1Closed', gm_status)   -- Nest 1 Closed
+  SET_PORT_CMT(IO_DIN, 931, 'diHead1InNest', gm_status)   -- Head 1 In Nest
+  SET_PORT_CMT(IO_DIN, 932, 'diNest1InPos', gm_status)
+  SET_PORT_CMT(IO_DIN, 933, 'diNest2Open', gm_status)    -- Nest 1 In Position
+  SET_PORT_CMT(IO_DIN, 934, 'diNest2Closed', gm_status)      --
+  SET_PORT_CMT(IO_DIN, 935, 'diHead2InNest', gm_status)   -- Head 2 In Nest
+  SET_PORT_CMT(IO_DIN, 940, '(Reserved)', gm_status)      --
+
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT, 929, 'doOpenNest1', gm_status)     -- Open Nest 1
+  SET_PORT_CMT(IO_DOUT, 930, 'doCloseNest1', gm_status)    -- Close Nest 1
+  SET_PORT_CMT(IO_DOUT, 931, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 932, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 933, 'doOpenNest2', gm_status)     -- Open Nest 2
+  SET_PORT_CMT(IO_DOUT, 934, 'doCloseNest2', gm_status)    -- Close Nest 2
+  SET_PORT_CMT(IO_DOUT, 935, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 936, '(Reserved)', gm_status)
+
+
+-- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(56,'ToolNest#1/2')-- call routine to setup the ethernet connection
+  ENDIF
+
+  StndisSetup[1] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd1Dual
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd2Sngl
+-- PURPOSE: This routine sets a Single tool Stand Nest #2
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[2] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#2 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#2') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+  SET_PORT_ASG(IO_DIN,  937, TC_Comm_Type, 57,IO_DIN, 17,-8,gm_status)
+ -- Digital Input/Output Configuration
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 57 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_ASG(IO_DOUT, 937, TC_Comm_Type, 57,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 57 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+-- Nest #2
+  SET_PORT_CMT(IO_DIN, 937, 'diNest2Open', gm_status)       -- Nest 2 Open
+  SET_PORT_CMT(IO_DIN, 938, 'diNest2Closed', gm_status)     -- Nest 2 Closed
+  SET_PORT_CMT(IO_DIN, 939, 'diHead2InNest', gm_status)     -- Head 2 In Nest
+  SET_PORT_CMT(IO_DIN, 941, 'diNest2InPos', gm_status)      -- Nest 2 In Position
+
+  SET_PORT_CMT(IO_DOUT,937, 'doOpenNest2', gm_status)       -- Open Nest 2
+  SET_PORT_CMT(IO_DOUT,938, 'doCloseNest2', gm_status)      -- Close Nest 2
+
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(57,'ToolNest #2')-- call routine to setup the Ethernet connection
+  ENDIF
+
+  StndisSetup[2] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd2Sngl
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd2Dual
+-- PURPOSE: This routine sets a Dual tool Stand Nest #3&4
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+  IF Max_DualStnd<2 THEN
+    POST_ERR(38000, 'Max_DualStnd is '+Int2str(Max_DualStnd)+' cannot Setup TC_Stnd2DUAL',0, 0) --
+    RETURN
+  ENDIF
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[2] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#3/4 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#3/4') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+    -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  945, TC_Comm_Type, 58,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+  SET_PORT_ASG(IO_DOUT, 945, TC_Comm_Type, 58,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+
+  -- Nest #Dual
+  SET_PORT_CMT(IO_DIN, 945, 'diNest3Open', gm_status)     -- Nest 3 Open
+  SET_PORT_CMT(IO_DIN, 946, 'diNest3Closed', gm_status)   -- Nest 3 Closed
+  SET_PORT_CMT(IO_DIN, 947, 'diHead3InNest', gm_status)   -- Head 3 In Nest
+  SET_PORT_CMT(IO_DIN, 948, 'diNest3InPos', gm_status)    -- Nest 3 In Position
+  SET_PORT_CMT(IO_DIN, 949, 'diNest4Open', gm_status)     -- Nest 4 Open
+  SET_PORT_CMT(IO_DIN, 950, 'diNest4Closed', gm_status)   -- Nest 4 Closed
+  SET_PORT_CMT(IO_DIN, 951, 'diHead4InNest', gm_status)   -- Head 4 In Nest
+  SET_PORT_CMT(IO_DIN, 952, '(Reserved)', gm_status)      --
+
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT, 945, 'doOpenNest3', gm_status)     -- Open Nest 3
+  SET_PORT_CMT(IO_DOUT, 946, 'doCloseNest3', gm_status)    -- Close Nest 3
+  SET_PORT_CMT(IO_DOUT, 947, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 948, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 949, 'doOpenNest4', gm_status)     -- Open Nest 4
+  SET_PORT_CMT(IO_DOUT, 950, 'doCloseNest4', gm_status)    -- Close Nest 4
+  SET_PORT_CMT(IO_DOUT, 951, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 952, '(Reserved)', gm_status)
+
+-- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(58,'ToolNest#3/4')-- call routine to setup the ethernet connection
+  ENDIF
+
+  StndisSetup[2] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd2Dual
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd3Sngl
+-- PURPOSE: This routine sets a Single tool Stand Nest #3
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[3] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#3 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#3') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+  -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  945, TC_Comm_Type, 58,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+  SET_PORT_ASG(IO_DOUT, 945, TC_Comm_Type, 58,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+      -- Nest #3
+  SET_PORT_CMT(IO_DIN, 945, 'diNest3Open', gm_status)       -- Nest 3 Open
+  SET_PORT_CMT(IO_DIN, 946, 'diNest3Closed', gm_status)     -- Nest 3 Closed
+  SET_PORT_CMT(IO_DIN, 947, 'diHead3InNest', gm_status)     -- Head 3 In Nest
+  SET_PORT_CMT(IO_DIN, 949, 'diNest3InPos', gm_status)      -- Nest 3 In Position
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT,945, 'doOpenNest3', gm_status)       -- Open Nest 3
+  SET_PORT_CMT(IO_DOUT,946, 'doCloseNest3', gm_status)      -- Close Nest 3
+
+-- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(58,'ToolNest #3')-- call routine to setup the Ethernet connection
+  ENDIF
+
+  StndisSetup[3] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd3Sngl
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd3Dual
+-- PURPOSE: This routine sets a Dual tool Stand Nest #3&4
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+   IF Max_DualStnd<3 THEN
+    POST_ERR(38000, 'Max_DualStnd is '+Int2str(Max_DualStnd)+' cannot Setup TC_Stnd3DUAL',0, 0) --
+    RETURN
+  ENDIF
+
+  -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[3] = TRUE THEN -- setup valve pack has been setup
+    WRITE TPERROR(CHR(cc_clear_win),'ToolNest#5/6 Already Setup')
+      IF NOT ExecSetupAgn('ToolNest#5/6') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+   -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  945, TC_Comm_Type, 58,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+  SET_PORT_ASG(IO_DOUT, 945, TC_Comm_Type, 58,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 58 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+
+  -- Nest #Dual
+  SET_PORT_CMT(IO_DIN, 945, 'diNest3Open', gm_status)     -- Nest 3 Open
+  SET_PORT_CMT(IO_DIN, 946, 'diNest3Closed', gm_status)   -- Nest 3 Closed
+  SET_PORT_CMT(IO_DIN, 947, 'diHead5InNest', gm_status)   -- Head 5 In Nest
+  SET_PORT_CMT(IO_DIN, 948, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DIN, 949, 'diNest3InPos', gm_status)    -- Nest 3 In Position
+  SET_PORT_CMT(IO_DIN, 950, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DIN, 951, 'diHead6InNest', gm_status)   -- Head 6 In Nest
+  SET_PORT_CMT(IO_DIN, 952, '(Reserved)', gm_status)      --
+
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT, 945, 'doOpenNest3', gm_status)     -- Open Nest 3
+  SET_PORT_CMT(IO_DOUT, 946, 'doCloseNest3', gm_status)    -- Close Nest 3
+  SET_PORT_CMT(IO_DOUT, 947, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 948, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 949, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 950, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 951, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 952, '(Reserved)', gm_status)
+
+ -- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(58,'ToolNest#5/6')-- call routine to setup the ethernet connection
+  ENDIF
+
+  StndisSetup[3] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd3Dual
+
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd4Sngl
+-- PURPOSE: This routine sets a Single tool Stand Nest #4
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+
+ -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[4] = TRUE THEN -- setup valve pack has been setup
+    WriteLog('ToolNest#4 Already Setup',FALSE)
+      IF NOT ExecSetupAgn('ToolNest#4') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+  SET_PORT_ASG(IO_DIN,  953, TC_Comm_Type, 59,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 59 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+  SET_PORT_ASG(IO_DOUT, 953, TC_Comm_Type, 59,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 59 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+
+-- Nest #4
+  SET_PORT_CMT(IO_DIN, 953, 'diNest4Open', gm_status)       -- Nest 2 Open
+  SET_PORT_CMT(IO_DIN, 954, 'diNest4Closed', gm_status)     -- Nest 2 Closed
+  SET_PORT_CMT(IO_DIN, 955, 'diHead4InNest', gm_status)     -- Head 2 In Nest
+  SET_PORT_CMT(IO_DIN, 957, 'diNest4InPos', gm_status)      -- Nest 2 In Position
+
+  SET_PORT_CMT(IO_DOUT,953, 'doOpenNest4', gm_status)       -- Open Nest 2
+  SET_PORT_CMT(IO_DOUT,954, 'doCloseNest4', gm_status)      -- Close Nest 2
+
+
+-- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(59,'ToolNest #4')-- call routine to setup the ethernet connection
+  ENDIF
+
+  StndisSetup[4] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd4Sngl
+-----------------------------------------------------------------------------
+ROUTINE TC_Stnd4Dual
+-- PURPOSE: This routine sets a Dual tool Stand Nest #3&4
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+  IF Max_DualStnd<4 THEN
+    POST_ERR(38000, 'Max_DualStnd is '+Int2str(Max_DualStnd)+' cannot Setup TC_Stnd4DUAL',0 , 0) --
+    RETURN
+  ENDIF
+
+ -- This has already been setup ask user to confirm what they want
+  IF StndisSetup[4] = TRUE THEN -- setup valve pack has been setup
+    WriteLog('ToolNest#7/8 Already Setup',FALSE)
+      IF NOT ExecSetupAgn('ToolNest#7/8') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+
+    -- Digital Input/Output Configuration
+  SET_PORT_ASG(IO_DIN,  953, TC_Comm_Type, 59,IO_DIN, 17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 59 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  SET_PORT_ASG(IO_DOUT, 953, TC_Comm_Type, 59,IO_DOUT,17,-8,gm_status)
+    IF (gm_status<>0) AND (gm_Status <> 13149) THEN --PRIO-149 Invalid Assignment Recorded
+      POST_ERR(38000, 'Rack '+int2Str(TC_Comm_Type)+' Slot 59 Setup FAILED', gm_status, 0) --
+      RETURN
+    ENDIF
+
+  -- Nest #Dual
+  SET_PORT_CMT(IO_DIN, 953, 'diNest4Open', gm_status)     -- Nest 4 Open
+  SET_PORT_CMT(IO_DIN, 946, 'diNest4Closed', gm_status)   -- Nest 4 Closed
+  SET_PORT_CMT(IO_DIN, 947, 'diHead7InNest', gm_status)   -- Head 7 In Nest
+  SET_PORT_CMT(IO_DIN, 948, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DIN, 949, 'diNest4InPos', gm_status)    -- Nest 4 In Position
+  SET_PORT_CMT(IO_DIN, 950, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DIN, 951, 'diHead8InNest', gm_status)   -- Head 8 In Nest
+  SET_PORT_CMT(IO_DIN, 952, '(Reserved)', gm_status)      --
+
+  -- Outputs
+  SET_PORT_CMT(IO_DOUT, 953, 'doOpenNest4', gm_status)     -- Open Nest 4
+  SET_PORT_CMT(IO_DOUT, 946, 'doCloseNest4', gm_status)    -- Close Nest 4
+  SET_PORT_CMT(IO_DOUT, 947, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 948, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 949, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 950, '(Reserved)', gm_status)
+  SET_PORT_CMT(IO_DOUT, 951, '(Reserved)', gm_status)      --
+  SET_PORT_CMT(IO_DOUT, 952, '(Reserved)', gm_status)
+
+
+-- If Ethernet, setup configuration
+  IF TC_Comm_Type = Ethernet THEN
+    TURK_IO_EIP(59,'ToolNest#7/8')-- call routine to setup the ethernet connection
+  ENDIF
+
+  StndisSetup[4] = TRUE -- set to TRUE ie Complete
+
+END TC_Stnd4Dual
+------------------------------------------------------------------------------
+ROUTINE load_tolchg
+--                                                                          --
+-- Description: load & configure I/O and and macros for Tool Changer        --
+--                                                                          --
+------------------------------------------------------------------------------
+
+VAR
+  l_file       : STRING[16]
+  l_stat       : INTEGER
+  l_reload     : INTEGER
+
+BEGIN
+
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+IF UNINIT(TC_Is_Setup) THEN
+  TC_Is_Setup = FALSE
+ENDIF
+
+IF UNINIT(mfg_area) THEN
+  mfg_area = 0
+  POST_ERR(38000, 'MFG_AREA not set load_tolchg, GMTLCHIO', 0, 0) --
+  RETURN
+ENDIF
+
+IF TC_Is_Setup THEN
+ -- This has already been setup ask user to confirm what they want
+  IF TC_Is_Setup THEN -- setup valve pack has been setup
+    WriteLog('Tool Changer Already Setup',FALSE)
+      IF NOT ExecSetupAgn('Tool Changer') THEN -- ask user if they want to setup again
+        RETURN
+      ENDIF
+  ENDIF
+ENDIF
+    WriteLog('  Starting Tool Changer I/O Setup',FALSE)
+
+IF (mfg_area <> mfg_area_ps) THEN -- LPT Lloyd Steed Press Nest are PLC not Robot
+
+  -- Load Tool changer macros
+  LOAD('FRS:EMGTCUNLT.TP',1,gm_status)
+  LOAD('FRS:TCCKTOOL.TP',1,gm_status)
+  LOAD('FRS:TCCLSLID.TP',1,gm_status)
+  LOAD('FRS:TCEMPTY.TP',1,gm_status)
+  LOAD('FRS:TCGETNUM.TP',1,gm_status)
+  LOAD('FRS:TCINNEST.TP',1,gm_status)
+  LOAD('FRS:TCLTCHTL.TP',1,gm_status)
+  LOAD('FRS:TCOPNLID.TP',1,gm_status)
+  LOAD('FRS:TCUNLTCH.TP',1,gm_status)
+  LOAD('FRS:TCTEACH.PC',1,gm_status)
+  LOAD('FRS:TCGUNRDY.TP',1,gm_status)
+  LOAD('FRS:TCRESET.TP',1,gm_status)
+  LOAD('FRS:TCPKRDY.TP',1,gm_status)
+  LOAD('FRS:TEMPLA22.TP',1,gm_status)
+  LOAD('FRS:TEMPLA23.TP',1,gm_status)
+  LOAD('FRS:TEMPLA24.TP',1,gm_status)
+  Load_File('FRS:', 'tcwebmon.pc',1) --Tool Change web screen, other settings are in gmcellvr
+
+
+    -- All Pick/Drop Macros Common with MH or Spot
+    SPRUNCMD ('COPY FRS:TCDPMHH1.TP FR:\TCDROPH1.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCDROPH1 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCDROPH1.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCDPMHH2.TP FR:\TCDROPH2.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCDROPH2 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCDROPH2.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCDPMHH3.TP FR:\TCDROPH3.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCDROPH3 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCDROPH3.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCDPMHH4.TP FR:\TCDROPH4.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCDROPH4 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCDROPH4.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCPKMHH1.TP FR:\TCPICKH1.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCPICKH1 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCPICKH1.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCPKMHH2.TP FR:\TCPICKH2.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCPICKH2 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCPICKH2.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCPKMHH3.TP FR:\TCPICKH3.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCPICKH3 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCPICKH3.TP',0,gm_status)
+    SPRUNCMD ('COPY FRS:TCPKMHH4.TP FR:\TCPICKH4.TP', gm_status)
+      IF (gm_status <> 0) THEN
+        POST_ERR(38000, 'Failed to copy TCPICKH4 to FR', 0,0)
+      ENDIF
+    LOAD('FR:TCPICKH4.TP',0,gm_status)
+    LOAD('FRS:STYLE26.TP',1,gm_status)
+
+   Set_S_sVar('$style_name[26]','STYLE26')-- set the style#26
+
+ENDIF
+
+---- Setup I/O for the Tool Changer Input/Outputs for the ROBOT Side of the Changer
+
+  -- Outputs
+  SET_PORT_ASG(IO_DOUT,905,TC_Comm_Type,54,IO_DOUT,1,-8, gm_status)   --
+  SET_PORT_CMT(IO_DOUT,905, 'doLatchTool', gm_status)       -- Latch Tool Plate
+  SET_PORT_CMT(IO_DOUT,906, 'doUnlatchTool', gm_status)     -- Unlatch Tool Plate 6
+  SET_PORT_CMT(IO_DOUT,907, 'doTCFaultReset', gm_status)    -- Tool Changer Reset
+
+  -- Inputs
+  SET_PORT_ASG(IO_DIN, 905,TC_Comm_Type,54,IO_DIN,1,-24, gm_status)    --
+  SET_PORT_CMT(IO_DIN, 905, 'diToolLatched', gm_status)     -- Tool Plate Latched
+  SET_PORT_CMT(IO_DIN, 906, 'diToolUnlatched', gm_status)   -- Tool Plate Unlatched
+  SET_PORT_CMT(IO_DIN, 907, 'diOktoLatch', gm_status)  -- Unlatch Solenoid Energized
+  SET_PORT_CMT(IO_DIN, 908, 'diOktoUnlatch', gm_status)  -- Aux Power
+  SET_PORT_CMT(IO_DIN, 909, 'diToolPresent', gm_status)  --
+  SET_PORT_CMT(IO_DIN, 910, 'diSafeSwMissing', gm_status)  --
+
+-- Interconnect the Safe Switch Missing to PLC so it is known any time it is gone
+  SET_PORT_CMT(IO_DOUT,36, 'TCSafeSwMissing', gm_status)    -- Tool Changer Reset
+  Set_I_sVar('$THRSDITABLE[1].$DI_NO',910)
+  Set_I_sVar('$THRSDITABLE[1].$DO_NO',36)
+  set_B_sVar('$THRSDITABLE[1].$THR_ENB',TRUE)
+
+-- Setup I/O for the Tool Changer Input/Outputs for the  Side of the Changer
+
+  -- Tool changer ID Inputs
+  SET_PORT_CMT(IO_DIN,913, 'giToolNumber1',   gm_status)   -- Tool Number (bit 1)  705
+  SET_PORT_CMT(IO_DIN,914, 'giToolNumber2',   gm_status)   -- Tool Number (bit 2)  706
+  SET_PORT_CMT(IO_DIN,915, 'giToolNumber4',   gm_status)   -- Tool Number (bit 4)  707
+  SET_PORT_CMT(IO_DIN,916, 'giToolNumber8',   gm_status)   -- Tool Number (bit 8)  708
+  SET_PORT_CMT(IO_DIN,917, 'giToolNumber16',  gm_status)   -- Tool Number (bit 16) 709
+  SET_PORT_CMT(IO_DIN,918, 'giToolNumber32',  gm_status)   -- Tool Number (bit 32) 710
+  SET_PORT_CMT(IO_DIN,919, 'giToolNumber64',  gm_status)   -- Tool Number (bit 64) 711
+  SET_PORT_CMT(IO_DIN,920, 'giToolNumber128', gm_status)   -- Tool Number (bit 128)712
+
+  SET_PORT_ASG(IO_GPIN, 15,TC_Comm_Type,54,IO_DIN, 9,-8, gm_status)  -- Tool Number GIN
+  SET_PORT_CMT(IO_GPIN, 15, 'giToolNumber',    gm_status)
+
+  SET_PORT_CMT(IO_DIN,921, 'giRobotNumber1',  gm_status)   -- Robot Number (bit 1) 713
+  SET_PORT_CMT(IO_DIN,922, 'giRobotNumber2',  gm_status)   -- Robot Number (bit 2) 714
+  SET_PORT_CMT(IO_DIN,923, 'giRobotNumber4',  gm_status)   -- Robot Number (bit 4) 715
+  SET_PORT_CMT(IO_DIN,924, 'giRobotNumber8',  gm_status)   -- Robot Number (bit 8) 716
+
+  SET_PORT_ASG(IO_GPIN, 16,TC_Comm_Type,54,IO_DIN, 17,-4, gm_status)  -- Robot Number GIN
+  SET_PORT_CMT(IO_GPIN, 16, 'giRobotNumber',   gm_status)
+
+  SET_PORT_CMT(IO_DIN,925, 'giLineNumber1',   gm_status)   -- Line Number (bit 1) 717
+  SET_PORT_CMT(IO_DIN,926, 'giLineNumber2',   gm_status)   -- Line Number (bit 2) 718
+  SET_PORT_CMT(IO_DIN,927, 'giLineNumber4',   gm_status)   -- Line Number (bit 4) 719
+  SET_PORT_CMT(IO_DIN,928, 'giLineNumber8',   gm_status)   -- Line Number (bit 8) 720
+
+
+  SET_PORT_ASG(IO_GPIN, 17,TC_Comm_Type,54,IO_DIN, 21,-4, gm_status) -- Line Number GIN
+  SET_PORT_CMT(IO_GPIN, 17, 'giLineNumber',    gm_status)
+
+  SET_PORT_CMT(IO_GPIN, 17, 'giTCAppType'    ,    gm_status)
+
+IF (mfg_area <> mfg_area_ps) THEN -- LPT Lloyd Steed Press Nest are PLC not Robot
+   FOR i = 23 TO 30 DO -- Setup tool change interconnect DO 913-920
+     Set_B_Svar('$thrsditable['+int2str(i)+'].$thr_enb',TRUE)
+     Set_I_Svar('$thrsditable['+int2str(i)+'].$di_no',(i+890))-- from Tool Change Input 913-920
+     Set_I_Svar('$thrsditable['+int2str(i)+'].$do_no',(i+490))-- echo output to PLC 513-520
+   ENDFOR --
+    -- I/O interconnect
+ENDIF
+
+-- If Ethernet, setup configuration
+ IF TC_Comm_Type = Ethernet THEN
+   SET_DKL_EIP(54,'DKL Changer')
+ ENDIF
+
+  TC_Is_Setup = TRUE -- Set so the tool Changer has been setup previously
+
+
+WriteLog('  Tool Changer I/O Setup Completed',FALSE)
+
+END load_tolchg
+-----------------------------------------------------------------------------
+ROUTINE Tool_Diag
+-- PURPOSE: will setup tool diagnostics not NORMALLY load
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(TC_Comm_Type) THEN
+  TC_Comm_Type = Ethernet
+ENDIF
+
+  POST_ERR(38000, '', 0, 0) --
+
+  WriteLog('  TC Diagnostics on Inputs 1281-1318',FALSE)
+
+-- Temporary for debug
+  SET_PORT_ASG(IO_DIN,  1281, TC_Comm_Type, 54,IO_DIN, 25,-48,gm_status)
+
+  SET_PORT_CMT(IO_DIN,1281, 'Tool Power is ON',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1282, 'Output Pwr Avail',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1283, 'Valve Error',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1284, 'Pres. too High',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1285, 'Pres. too Low',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1286, 'Presure Discnntd',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1287, 'Valve Prox Sensr',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1288, 'System Unsafe',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1289, 'Everything OK',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1290, 'SSO 1',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1291, 'SSO 2',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1292, 'V1 Relay',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1293, 'V2 Relay',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1294, 'Tool ID Error',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1295, 'Input Pwr Avail',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1296, 'UNSAFE Latch',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1297, 'Unsafe Unlatch',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1298, 'Error On Latch',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1299, 'Error UnLatch1',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1300, 'Error Unlatch2',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1301, 'Lck/Unlck Snsr Flt',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1302, 'Raw Lock Sensor',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1303, 'Raw Unlock Sensor',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1304, 'Cross Montr error',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1305, 'Ap2 Comm Error',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1306, 'Ap1 Valve Error',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1307, 'Ap1 OutP Mismatch',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1308, 'Memory Failure',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1309, 'Firmware Ver Mismtch',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1310, 'Pres ReadB0',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1311, 'Pres ReadB1',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1312, 'Pres ReadB2',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1313, 'Pres ReadB3',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1314, 'Pres ReadB4',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1315, 'Pres ReadB6',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1316, 'Pres ReadB7',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1317, 'Pres ReadB8',  gm_status)   -- Robot Number (bit 8) 716
+  SET_PORT_CMT(IO_DIN,1318, 'Pres ReadB9',  gm_status)   -- Robot Number (bit 8) 716
+--
+
+END Tool_Diag
+-------------------------------------------------------------------------------------------------------------
+BEGIN
+
+Chk_TC_Init  -- Call routine to ensure all vars are initialized or need reset
+
+IF NOT UseToolChngr THEN -- No tool changer configured
+  POST_ERR(38000, 'USETOOLChnger is FALSE in GMCFGTLC prog', 0, 0) --
+  RETURN
+ENDIF
+
+IF UNINIT(Set_ToolDiag) THEN -- if tooling diagnostics should be commented inputs
+  Set_ToolDiag = FALSE
+ENDIF
+
+IF Set_ToolDiag THEN  -- if user want tool diagnostics
+  tool_diag
+  POST_ERR(38000, 'Added Tool Diagnostics to I/O', 0, 0) --
+  DELAY 2000
+ENDIF
+
+IF UNINIT(ErrsInShop.ErrorsIOCom) THEN
+  ErrsInShop.ErrorsIOCom = 0
+ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsIOCom -- grab current error count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog(' Starting the Tool Changer I/O setup Program', FALSE)
+
+  IF (TS_is_Setup = TRUE) THEN -- setup has already been setup
+      WriteLog('  Tool Changer I/O Already Setup', FALSE)
+    IF ExecSetupAgn('Tool Changer I/O') THEN -- ask user if they want to setup again
+      TS_is_Setup = FALSE
+    ELSE
+      WriteLog('  Tool Changer I/O already Complete', FALSE)
+      WriteLog(' GMTLCIO Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  load_tolchg -- Need to setup tool Changer
+
+-- Set user interface
+  SET_REG_CMT(27,   'Num of TC Slides', gm_status)
+  SET_INT_REG(27,Num_ToolStnd,gm_status) --ToolStndType[1]
+
+-- Cycle through number of tool stands
+IF (mfg_area <> mfg_area_ps) THEN -- LPT Lloyd Steed Press Nest are PLC not Robot
+
+  FOR ts = 1 TO Num_ToolStnd DO
+
+    IF StndisSetup[ts] = FALSE THEN -- if this Stand has never been setup
+      WriteLog('  Starting Tool Nest '+ int2str(ts)+' I/O Setup',FALSE)
+      SELECT (ts) OF -- setup based on number of tool stands
+        CASE (1):  --
+            IF ToolStndType[1]= Single THEN
+              TC_Stnd1Sngl
+            ENDIF
+            IF ToolStndType[1] = Dual THEN
+              TC_Stnd1Dual
+            ENDIF
+        CASE (2):  --
+            IF ToolStndType[2]= Single THEN
+              TC_Stnd2Sngl
+            ENDIF
+            IF ToolStndType[2] = Dual THEN
+              TC_Stnd2Dual
+            ENDIF
+        CASE (3):  --
+            IF ToolStndType[3]= Single THEN
+              TC_Stnd3Sngl
+            ENDIF
+            IF ToolStndType[3] = Dual THEN
+              TC_Stnd3Dual
+            ENDIF
+        CASE (4):  --
+            IF ToolStndType[4]= Single THEN
+              TC_Stnd4Sngl
+            ENDIF
+            IF ToolStndType[4] = Dual THEN
+              TC_Stnd4Dual
+            ENDIF
+        ELSE: --
+          WriteLog('  NUM_TOOLSTND '+int2str(Num_toolStnd)+' in GMTLCHIO is INVALID',TRUE)
+      ENDSELECT --
+          WriteLog('  Nest'+int2str(ts)+' Setup Completed',FALSE)
+    ELSE-- Stand is already setup
+      WriteLog('  Tool Nest '+int2str(ts)+ ' Already has Setup I/O',FALSE)
+    ENDIF
+  ENDFOR --
+ENDIF
+
+ ErrsInShop.ErrorsIOCom =  ErrsInShop.ErrorsIOCom + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsIOCom -StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('  Tool Changer I/O setup Program GMTLCHIO had ' + int2str((ErrsInShop.ErrorsIOCom- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog('  Tool Changer I/O setup Program completed', FALSE)
+   TS_is_Setup = TRUE
+ ENDIF
+
+WriteLog(' GMTLCHIO Setup Complete',FALSE)
+
+END gmtlchio

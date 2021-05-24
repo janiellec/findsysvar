@@ -1,0 +1,268 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMVISPRG.KL
+--   TITLE:          GMVISPRG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Vision Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZMH,GMWIZVIS are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         4.1         2017/03/12 marchaka         Modifications to support ArcTool wizard
+--         4.2         2018/02/23 marchaka         Load body shop registers if ArcTool
+--                     2018/04/09 marchaka         Position register comments 50, 52 and 60-75 for bodyshop
+--
+--
+--
+--
+--------------------------------------------------------------------------
+PROGRAM GMVISREG
+
+%COMMENT = 'GM Vision V4.2'
+
+%NOLOCKGROUP
+--%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%INCLUDE kliotyps  -- Required for the base I/O types i.e. IO_DIN etc.
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+
+Version = '2018/04/09'
+%INCLUDE gmcnstnt -- used for all of the constants for GM wizard
+
+VAR
+  i: integer
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  gm_status, -- used for returned status from builtins
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+
+  VisnRegsDone IN SHADOW FROM GMVISREG: BOOLEAN -- if the registers has ran completly
+
+  arc_optn      IN SHADOW FROM GMVARS :BOOLEAN  --ArcTool or LR ArcTool loaded
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+
+%INCLUDE gmcfgvis  -- GM wizard variables for Vision Applications
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+ROUTINE arc_loaded FROM gmmain1 --ArcTool option
+%INCLUDE gmrdutil -- has all GM common wizard routine in it
+-----------------------------------------------------------------------------
+ROUTINE init_BSVReg
+-- PURPOSE: Load vision Registers that is unique to Body Shop Applications
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+ writeLog('Loading Vision Registers for Body Shop', FALSE)
+
+  SELECT VisSys_Type OF
+    CASE(vis_fss, vis_fms, vis_guid):
+      --Position registers
+      Comment_Reg(2,50, 'PRIMARY OFFSET') 
+      Comment_Reg(2,52, 'NOMINAL OFFSET')   
+      FOR i = 60 to 75 DO
+	Comment_Reg(2,i,  'SXX AVG OFFSET')
+      ENDFOR
+    ELSE:
+  ENDSELECT
+
+ writeLog('Body Shop Vision Registers loaded', FALSE)
+
+END init_BSVReg
+-----------------------------------------------------------------------------
+ROUTINE init_PrsVReg
+-- PURPOSE: Load vision Registers that is unique to Press Shop Applications
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+writeLog('Loading Vision Registers for Press Shop', FALSE)
+
+writeLog('Press Shop Vision Registers loaded', FALSE)
+
+END init_PrsVReg
+-----------------------------------------------------------------------------
+ROUTINE init_PwrVReg
+-- PURPOSE: Load vision Registers that is unique to Powertrain Applications
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+ writeLog('Loading Vision Registers for Powertrain', FALSE)
+
+ writeLog('Powertrain Vision Registers loaded', FALSE)
+
+END init_PwrVReg
+-----------------------------------------------------------------------------
+ROUTINE init_PntVReg
+-- PURPOSE: Load vision Registers that is unique to Paint Applications
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+ writeLog('Loading Vision Registers for Paint Shop', FALSE)
+
+ writeLog('Paint Shop Vision Registers loaded', FALSE)
+
+END init_PntVReg
+-----------------------------------------------------------------------------
+ROUTINE initVSN_REGS
+-- PURPOSE: to initialize Vision Programs associated with Material Handling setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+IF UNINIT(arc_optn) THEN --ArcTool
+  arc_loaded
+ENDIF
+
+writeLog('Loading Common Vision Registers for ALL Shops', FALSE)
+
+writeLog('ALL Shops Common Vision Registers Loaded', FALSE)
+
+
+IF (arc_optn = FALSE) THEN --SpotTool
+  SELECT mfg_area OF -- launch the Display Setup set by wizard or load feature
+    CASE(mfg_area_bs):  --Body Shop
+        init_BSVReg
+    CASE(mfg_area_ps):  --Press Shop
+        init_PrsVReg
+    CASE(mfg_area_pt):  --Powertrain
+        init_PwrVReg
+    CASE(mfg_area_pn):  --Paint Shop
+        init_PntVReg
+  ELSE:
+    POST_ERR(38000, 'MFG_AREA '+int2str(mfg_area)+' INVALID in initVSN_REGS routine in GMVISREG', 0, 0) --
+    shop_str = 'Unknown'
+  ENDSELECT
+
+ELSE --ArcTool
+
+  init_BSVReg --load body shop until GM gives direction
+
+ENDIF --SpotTool
+
+END initVSN_REGS
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+-- Check these here instead of a routine so can return to calling routine
+IF (arc_optn = FALSE) THEN --SpotTool
+  IF UNINIT(mfg_area) THEN
+    POST_ERR(38000, 'MFG_AREA not setup in GMVISREG program', 0, 0) --
+    RETURN
+  ENDIF
+ENDIF --SpotTool
+IF UNINIT(Use_Vision) THEN
+  POST_ERR(38000, 'Use_Vision not setup in GMVISREG program', 0, 0) --
+  RETURN
+ENDIF
+
+IF UNINIT(ErrsInVision.ErrorsRgstrs) THEN
+  ErrsInVision.ErrorsRgstrs = 0
+ENDIF
+
+IF UNINIT(VisnRegsDone) THEN
+  VisnRegsDone = FALSE
+ENDIF
+
+ StrtinErs = ErrsInVision.ErrorsRgstrs -- grab curent eror count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog('Starting the Vision Register setup Program', FALSE)
+
+  IF (VisnRegsDone = TRUE) THEN -- setup has already been setup
+      WriteLog('Vision Registers Already Setup', FALSE)
+    IF ExecSetupAgn('Vision REGISTERS') THEN -- ask user if they want to setup again
+      VisnRegsDone = FALSE
+    ELSE
+      WriteLog('Vision Registers already Complete', FALSE)
+      WriteLog('GMVISNRG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  IF (Use_Vision) THEN
+    initVSN_REGS
+  ELSE
+    POST_ERR(38000, 'USE_VISION is FALSE in GMVISREG', 0, 0) --
+    WriteLog('USE_VISION is FALSE in GMVISREG Program', FALSE)
+  ENDIF
+
+  ErrsInVision.ErrorsRgstrs =  ErrsInVision.ErrorsRgstrs + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInVision.ErrorsRgstrs -StrtinErs) > 0 THEN -- check for I/O setup errors
+   POST_ERR(38000, 'GMVISREG had '+int2str((ErrsInVision.ErrorsRgstrs - StrtinErs))+' while executing',0, 0) --
+   WriteLog('Vision Register setup Program GMVISREG had ' + int2str((ErrsInVision.ErrorsRgstrs- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog('Vision Register setup Program completed', FALSE)
+   VisnRegsDone = TRUE
+ ENDIF
+
+  WriteLog('',FALSE)
+
+END GMVISREG

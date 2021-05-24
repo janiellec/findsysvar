@@ -1,0 +1,383 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMPNTPG.KL
+--   TITLE:          GMPNTPG PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and said
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Paint Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE        BY               COMMENTS
+--         --------   ----------  ---------------  --------------------
+--         4.0        2016-10-27  D. Friedeman	   Initial Configuration
+--                    2016-12-12  marchaka         Added loading of template programs
+--         4.1        2017-03-13  marchaka         Load pntutils
+--         4.1        2017-03-26  marchaka         Load start_circ.tp, stop_circ.tp.
+--                                                 Use Load_File utility for loading files.
+--         4.1        2017-04-03  friededr         Added START_CIRC and STOP_CIRC to
+--						   the macro table.
+--         4.2        2018-05-04  marchaka         Load paintshop versions of mov_purge, mov_repr and mov_home
+--         4.3        2019-08-29  friededr         Added support for "Resume Program Select"
+--                                                 Added support for "iRVision Style ID"
+--                                                 Added support for "Hem Tip Inspection"
+--                                                 Added additional PC progams for /3DL vision.
+--
+--------------------------------------------------------------------------
+PROGRAM GMPNTPG
+
+%COMMENT = 'Paint Prgs V4.3'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT ATCLDEF -- needed for the $Style variables
+%ENVIRONMENT TPE --needed for set_attr_prg
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+CONST
+
+Version = '2019-08-29'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+VAR
+
+  Current_Ver  IN SHADOW :STRING[32] -- Set equal to Version constant in initialization routine
+  StrtinErs   : INTEGER   -- How many errors I/O error counter had when the program started
+  PntPG_Setup  IN SHADOW : BOOLEAN  -- Keeps track if routine setup Mh I/O at least first time
+
+  entry, gm_status:  INTEGER       -- used for the GET_VAR command
+  prog_nam:  STRING[12]
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgpnt  -- PaintShop Configuration
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+-----------------------------------------------------------------------------
+ROUTINE initPNTprgs
+-- PURPOSE: to initialize Vision Programs associated with Material Handling setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  l_style_num  : INTEGER
+  l_style_str  : STRING[16]
+  l_root_str   : STRING[16]
+  stylecnt     : INTEGER
+
+BEGIN
+
+WriteLog('  Routine initPNTprgs starting in GMPNTPG',FALSE)
+
+GET_VAR(entry, '*SYSTEM*' , '$STYLE_COUNT', stylecnt, gm_status)
+  IF gm_status <> 0 THEN
+    POST_ERR(38000, '[*SYSTEM*].$STYLE_COUNT FAILED', gm_status, 0) --
+    WriteLog('[*SYSTEM*].$STYLE_COUNT FAILED Status = '+int2str(gm_status),FALSE)
+  ELSE
+    -- Setup the STYLE MENU table.
+    FOR l_style_num = 1 TO stylecnt DO
+      l_style_str = ''
+      l_style_str = int2str(l_style_num)
+--      IF (l_style_num < 10) THEN
+--        l_root_str = 'STYLE00'
+--      ELSE
+--        IF (l_style_num < 100) THEN
+--          l_root_str = 'STYLE0'
+--        ELSE
+--          l_root_str = 'STYLE'
+--        ENDIF
+--      ENDIF
+      l_root_str = 'STYLE'
+      l_style_str = l_root_str + l_style_str
+      Set_S_sVar('$STYLE_NAME['+int2str(l_style_num)+']', l_style_str)
+      Set_S_sVar('$STYLE_COMNT['+int2STR(l_style_num)+']', ' ')
+    ENDFOR
+  ENDIF
+
+  -- Stupid Brake Check doesn't have a leading zero by default.
+  Set_S_sVar('$STYLE_NAME[25]', 'STYLE25'); Set_S_sVar('$STYLE_COMNT[25]', 'Brake Check')
+
+  Set_S_sVar('$STYLE_COMNT[32]', 'Home To REPAIR')
+  Set_S_sVar('$STYLE_COMNT[33]', 'Home To PURGE')
+  Set_S_sVar('$STYLE_COMNT[34]', 'Home To GUNMAINT')
+  Set_S_sVar('$STYLE_COMNT[35]', 'Home To USER 1')
+  Set_S_sVar('$STYLE_COMNT[36]', 'Home To USER 2')
+  Set_S_sVar('$STYLE_COMNT[37]', 'Smart Move HOME')
+  
+  
+  -- Now, make special Style Table entries for RS4...
+--                                $STYLE_ENAB[25] = TRUE;  $STYLE_COMNT[25] = 'Brake Check'  
+--  $STYLE_NAME[26] = '********'; $STYLE_ENAB[26] = FALSE; $STYLE_COMNT[26] = ''
+--  $STYLE_NAME[27] = '********'; $STYLE_ENAB[27] = FALSE; $STYLE_COMNT[27] = ''
+--  $STYLE_NAME[28] = '********'; $STYLE_ENAB[28] = FALSE; $STYLE_COMNT[28] = ''
+--  $STYLE_NAME[29] = '********'; $STYLE_ENAB[29] = FALSE; $STYLE_COMNT[29] = ''
+--  $STYLE_NAME[30] = '********'; $STYLE_ENAB[30] = FALSE; $STYLE_COMNT[30] = ''
+--  $STYLE_NAME[31] = '********'; $STYLE_ENAB[31] = FALSE; $STYLE_COMNT[31] = ''  
+--                                $STYLE_ENAB[32] = TRUE;  $STYLE_COMNT[32] = 'Home To REPAIR'  
+--                                $STYLE_ENAB[33] = TRUE;  $STYLE_COMNT[33] = 'Home To PURGE'  
+--                                $STYLE_ENAB[34] = TRUE;  $STYLE_COMNT[34] = 'Home To GUNMAINT'  
+--                                $STYLE_ENAB[35] = TRUE;  $STYLE_COMNT[35] = 'Home To USER 1'  
+--                                $STYLE_ENAB[36] = TRUE;  $STYLE_COMNT[36] = 'Home To USER 2'  
+--                                $STYLE_ENAB[37] = TRUE;  $STYLE_COMNT[37] = 'Smart Move Home' 
+--                                $STYLE_ENAB[38] = TRUE;  $STYLE_COMNT[38] = 'Hem Vis Tip Chk' 
+--                                $STYLE_ENAB[39] = TRUE;  $STYLE_COMNT[39] = '3DL Accuracy' 
+--                                $STYLE_ENAB[40] = TRUE;  $STYLE_COMNT[40] = 'Cam Positn Diag'  
+--                                $STYLE_ENAB[41] = TRUE;  $STYLE_COMNT[41] = 'ISD 1 Diagnostic' 
+--                                $STYLE_ENAB[42] = TRUE;  $STYLE_COMNT[42] = 'ISD 2 Diagnostic' 
+--                                $STYLE_ENAB[43] = TRUE;  $STYLE_COMNT[43] = 'IPS 1 Diagnostic'   
+--                                $STYLE_ENAB[44] = TRUE;  $STYLE_COMNT[44] = 'IPS 2 Diagnostic'   
+--                                $STYLE_ENAB[45] = TRUE;  $STYLE_COMNT[45] = 'TCU 1 Diagnostic'   
+--                                $STYLE_ENAB[46] = TRUE;  $STYLE_COMNT[46] = 'TCU 2 Diagnostic'   
+--                                $STYLE_ENAB[47] = TRUE;  $STYLE_COMNT[47] = 'Hem Compliance Ck'   
+--                                $STYLE_ENAB[48] = TRUE;  $STYLE_COMNT[48] = 'AC Shield Clean'   
+
+WriteLog('  Routine initPNTprgs in GMPNTPG Completed',FALSE)
+
+END initPNTprgs
+
+
+-----------------------------------------------------------------------------
+ROUTINE load_pnt_prg
+-- PURPOSE: Load PaintShop programs
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  -- Load generic PaintShop programs.
+  Load_File('FRS:','gunblowoff.tp',1)
+  Load_File('FRS:','gunclean.tp',1)
+  Load_File('FRS:','gunpurge.tp',1)
+  Load_File('FRS:','gunscrub.tp',1)
+  Load_File('FRS:','gunsponge.tp',1)
+  Load_File('FRS:','guntest.tp',1)
+  Load_File('FRS:','homefrmgmaint.tp',1)
+  Load_File('FRS:','homefrmpurge.tp',1)
+  Load_File('FRS:','homefrmrepair.tp',1)
+  Load_File('FRS:','homefrmuser1.tp',1)
+  Load_File('FRS:','homefrmuser2.tp',1)
+  Load_File('FRS:','hometogmaint.tp',1)
+  Load_File('FRS:','hometopurge.tp',1)
+  Load_File('FRS:','hometorepair.tp',1)
+  Load_File('FRS:','hometouser1.tp',1)
+  Load_File('FRS:','hometouser2.tp',1)
+  Load_File('FRS:','mov_gmnt.tp',1)
+  SPRUNCFile('FRS:\pnt_mov_purg.tp','FR:\mov_purg.tp')
+  Load_File('FR:','mov_purg.tp',1)
+
+  CLEAR('MOV_REPR', gm_status)
+  SPRUNCFile('FRS:\pnt_mov_repr.tp','FR:\mov_repr.tp')
+  Load_File('FR:','mov_repr.tp',0)
+  prog_nam = 'mov_repr'
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+  
+  prog_nam = 'MOV_HOME'
+  Set_I_sVar('$MACROTABLE[9].$SYS_LEV_MSK',0)
+  SET_ATTR_PRG(prog_nam, AT_PROTECT, 1, prog_nam, gm_status)
+  CLEAR('MOV_HOME',gm_status)
+  SPRUNCFile('FRS:\pnt_mov_home.tp','FR:\mov_home.tp')
+  Load_File('FR:','mov_home.tp',1) 
+
+  Load_File('FRS:','mov_usr1.tp',1)
+  Load_File('FRS:','mov_usr2.tp',1)
+  Load_File('FRS:','style32.tp',1)
+  Load_File('FRS:','style33.tp',1)
+  Load_File('FRS:','style34.tp',1)
+  Load_File('FRS:','style35.tp',1)
+  Load_File('FRS:','style36.tp',1)
+  Load_File('FRS:','style37.tp',1)
+  Load_File('FRS:','superpurge.tp',1)
+  Load_File('FRS:','tmppntproc.tp',1)
+  Load_File('FRS:','tmppntstyl.tp',1)
+  Load_File('FRS:','tmppntsxxxrx.tp',1)
+  Load_File('FRS:','pntutils.pc',1)
+  Load_File('FRS:','start_circ.tp',1)
+  Load_File('FRS:','stop_circ.tp',1)
+  Load_File('FRS:','rpselect.pc',1)
+  Load_File('FRS:','rspg_sel.tp',1)
+  
+
+  -- Load PaintShop programs
+  -- (qsquirt for one gun is loaded by default)
+  IF (e1_num_guns >= 2) THEN  
+    Load_File('FRS:','qsquirt2.tp',1)
+  ENDIF
+  IF (e1_num_guns >= 3) THEN  
+    Load_File('FRS:','qsquirt3.tp',1)
+  ENDIF
+
+  IF (v_3dmv_used = TRUE) THEN
+    Load_File('FRS:','clroffst.tp',1)
+    Load_File('FRS:','p_3dmv.tp',1)  
+    Load_File('FRS:','setfinit.tp',1)
+    Load_File('FRS:','setfrmtp.tp',1)	
+  ENDIF
+  
+  IF (openers_used = TRUE) THEN
+    Load_File('FRS:','clr_opio.tp',1)  
+    Load_File('FRS:','close_rq.tp',1)
+    Load_File('FRS:','held_cls.tp',1)
+    Load_File('FRS:','held_opn.tp',1)
+    Load_File('FRS:','open_rq.tp',1)
+    Load_File('FRS:','wait_clr.tp',1)
+    Load_File('FRS:','wait_cls.tp',1)
+    Load_File('FRS:','wait_opn.tp',1)
+    Load_File('FRS:','wait_opr.tp',1)	
+    Load_File('FRS:','opnr_cmd.pc',1)	
+  ENDIF	
+  
+  IF (v_3dl_used) THEN
+    Load_File('FRS:','recv_ofl.tp',1)  
+    Load_File('FRS:','recv_ofr.tp',1)  
+    Load_File('FRS:','xmit_ofl.tp',1)  
+    Load_File('FRS:','xmit_ofr.tp',1) 
+    Load_File('FRS:','xmitdata.pc',1)
+	Load_File('FRS:','findbody.pc',1)
+	Load_File('FRS:','getoffst.pc',1)
+	Load_File('FRS:','getoffs3.pc',1)
+	Load_File('FRS:','getroof.pc',1)  
+	Load_File('FRS:','isetfram.pc',1)
+  ENDIF  
+
+  IF (v_styid_used) THEN
+    Load_File('FRS:','irvjobid.tp',1)	
+  ENDIF
+  
+  IF (appl_type = HEMFLANGE) THEN
+    Load_File('FRS:','tip_check.tp',1)	
+  ENDIF
+  
+END load_pnt_prg
+
+-----------------------------------------------------------------------------
+ROUTINE set_pnt_mac
+-- PURPOSE: Set PaintShop Macros
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+  IF (e1_num_guns >= 2) THEN  
+    Setup_Macro(18, 'Quik Squirt Gun2', 'qsquirt2', 3,2,FALSE)
+  ENDIF
+  IF (e1_num_guns >= 3) THEN
+    Setup_Macro(19, 'Quik Squirt Gun3', 'qsquirt3', 3,3,FALSE)  
+  ENDIF
+
+  IF (pnt_dsp_used = TRUE) THEN
+    Setup_Macro(50, 'START CIRCULATN ', 'START_CIRC', 4,22,FALSE)
+    Setup_Macro(51, 'STOP CIRCULATN  ', 'STOP_CIRC',  4,23,FALSE)
+  ENDIF
+  
+  IF (openers_used = TRUE) THEN
+    Setup_Macro(54, 'Clear Opnr Reqst', 'clr_opio', 0,0,FALSE)
+    Setup_Macro(55, 'Wait Held Open',   'wait_opn', 0,0,FALSE)
+    Setup_Macro(56, 'Wait Held Closed', 'wait_cls', 0,0,FALSE)
+    Setup_Macro(57, 'Hold Open Requst', 'open_rq', 0,0,FALSE)
+    Setup_Macro(58, 'Hold Clos Requst', 'close_rq', 0,0,FALSE)
+    Setup_Macro(59, 'Wait Hold Opn Rq', 'wait_opr', 0,0,FALSE)
+    Setup_Macro(60, 'Wait Hold Cls Rq', 'wait_clr', 0,0,FALSE)
+    Setup_Macro(61, 'Held Open',        'held_opn', 0,0,FALSE)
+    Setup_Macro(62, 'Held Closed',      'held_cls', 0,0,FALSE) 
+  ENDIF	
+  
+  Setup_Macro(20, 'Select RSM Prog', 'rspg_sel', 3,5,FALSE)
+  
+END set_pnt_mac
+
+--************************************************************************
+--
+--                 Main Body of Program
+--
+--************************************************************************
+
+BEGIN
+
+Current_Ver = Version -- Set the version for reference
+
+IF UNINIT(ErrsInShop.ErrorsPrgrms) THEN
+  ErrsInShop.ErrorsPrgrms = 0
+ENDIF
+IF UNINIT(PntPG_Setup) THEN
+  PntPG_Setup = FALSE
+ENDIF
+
+ StrtinErs = ErrsInShop.ErrorsPrgrms -- grab current error count
+ ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+ WriteLog('  Starting the Paint Program GMPNTPG', FALSE)
+
+  IF (PntPG_Setup = TRUE) THEN -- setup has already been setup
+      WriteLog('  Paint Programs Already Setup', FALSE)
+    IF ExecSetupAgn('Paint Progs') THEN -- ask user if they want to setup again
+      PntPG_Setup = FALSE
+    ELSE
+      WriteLog('  Paint Programs already Complete', FALSE)
+      WriteLog('  GMPNTPG Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+-- Insert routines created call here
+initPNTprgs
+load_pnt_prg
+set_pnt_mac
+
+ ErrsInShop.ErrorsPrgrms =  ErrsInShop.ErrorsPrgrms + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+ IF (ErrsInShop.ErrorsPrgrms -StrtinErs) > 0 THEN -- check for I/O setup errors
+   WriteLog('  Paint Program Setup GMPNTPG had ' + int2str((ErrsInShop.ErrorsPrgrms- StrtinErs))+' while executing', TRUE)
+ ELSE
+   WriteLog('  Paint Program Setup completed', FALSE)
+   PntPG_Setup = TRUE
+ ENDIF
+
+ WriteLog('', FALSE)
+
+END GMPNTPG

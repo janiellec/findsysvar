@@ -1,0 +1,7 @@
+﻿<meta http-equiv="refresh" content="0; url=http://<!--#echo var="[*SYSTEM*]$EIP_CONN[3].$HOST" -->:8080"> 
+
+<title>WTC#2 Redirect</title>
+
+IP: <!--#echo var="[*SYSTEM*]$EIP_CONN[3].$HOST" -->:8080 <br>
+
+<a href="http://<!--#echo var="[*SYSTEM*]$EIP_CONN[3].$HOST" -->:8080">WTC#2 Link</a>

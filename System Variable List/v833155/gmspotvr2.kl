@@ -1,0 +1,1292 @@
+-- -----------------------------------------------------------------------
+--
+--   MODULE:         GMSPOTVR2.KL
+--   TITLE:          GMSPOTVR2 PROGRAM
+--
+--
+--   WRITTEN BY:     RANDY KOSASKI
+--   REVISION DATE:  1/23/16
+--
+--   LANGUAGE:       KAREL 8.33 R30iB
+--   CONTROL GROUP:  BODY SHOP EXECUTION GROUP
+--   STATUS:
+--
+--
+--   ORDER NUMBER:   GMGBL4
+--   PROJECT NAME:   GM Global Center
+--
+--
+--         FANUC Robotics retains rights in any and all Software
+--         contained in the material attached hereto and sai
+--         Software may not be copied or reproduced without the
+--         written permission of FANUC Robotics.
+--
+--         All Software, (C) Copyright FANUC Robotics Corporation, 2016
+--         DESCRIPTION: Spot Program  program files. These routines will be
+--                      called from the main wizard, no prompts are in the Variable file
+--                      only the setttings GMWIZARD are the questions
+--
+--         HISTORY OF CHANGES:
+--
+--         REVISION   DATE       BY               COMMENTS
+--         --------   ---------  ---------------  --------------------
+--         2016-11-14 marchaka Removed number of tip dress schedules and put into gminstal.  
+--                             Number of schedules is based on software options installed on the robot.
+--             V4.1   2017/02/05 marchaka        Modify prompt logic for wizard rerun
+--             V4.2   2018/04/06 marchaka        Add gun open on fault setings
+--             V4.3   2019/08/27 marchaka        Add servo nut weld application setup
+--             V4.3   2019/10/30 marchaka        Set GM's servo gun pressure table per GM's specification
+--             V4.4   2020/09/21 schoensm        Added servo gun pressure checking for ZDT, V8.33P10
+--						 Changed push depth for X-Gun to 16mm. 
+--             V4.4   2020/11/09 marchaka        Add servo gun thickness check settings
+--
+--------------------------------------------------------------------------
+PROGRAM GMSPOTVR2
+
+%COMMENT = 'GM Spot V4.4'
+
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%ENVIRONMENT SGDEF1  --SWG variables
+
+
+%INCLUDE KLEVCCDF  -- Required for the TPERROR write command for the contants
+
+
+-- variables declared for All shops
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgspt  -- GM spot application variables
+%INCLUDE gmcfgtlc  -- GM tool changer variables
+%INCLUDE gm_var --GM Variables
+
+CONST
+Version = '2020-11-09'
+
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+TYPE
+  prs_sched_t FROM GMCUSTO = STRUCTURE
+    press_val    : INTEGER
+    Thick_min    : REAL
+    Thick_max    : REAL
+    push_depth   : REAL
+    comment1     : STRING[20]
+    comment2     : STRING[20]
+  ENDSTRUCTURE
+
+  std_pres_t FROM GMCUSTO = STRUCTURE
+    min_press    : INTEGER
+    td_press     : INTEGER
+    tot_num_pres : INTEGER
+    std_prs_val  : ARRAY[32] OF prs_sched_t
+  ENDSTRUCTURE
+
+VAR
+
+  Current_Ver   IN SHADOW : STRING[32] 	-- Set equal to Version constant in initialization routine
+  StrtinErs   		  : INTEGER   	-- How many errors I/O error counter had when the program started
+  SpotVR2Setup 	IN SHADOW : BOOLEAN  		-- Keeps track if routine setup Mh I/O at least first time
+  defpath     	IN SHADOW : STRING[16] 	--used for copying swg dt files for swg setup
+  gun_num     		  : STRING[2]
+  pshdep_float  	  : REAL 	--used to indirectly move push_depth values into pressure shedules
+  pshdep_mem              : REAL        --used for debug, will remove after
+  pcal_value    IN SHADOW FROM GMCUSTO  : ARRAY[10] OF INTEGER
+  init_dft_prs  IN SHADOW FROM GMCUSTO  : BOOLEAN
+  default_prs  	IN SHADOW FROM GMCUSTO  : ARRAY[5,2] OF std_pres_t 
+  tw_prgvis    	IN SHADOW FROM GMCUSTO	: INTEGER
+  srvo_td_opt  	IN SHADOW FROM GMCUSTO	: BOOLEAN --servo tip dress option loaded
+  srvo_dress   	IN SHADOW FROM GMCUSTO	: INTEGER
+  num_tipdrs   	IN SHADOW FROM GMCUSTO	: INTEGER
+  sgunchng     	IN SHADOW FROM GMCUSTO	: BOOLEAN -- Servo gun tool changer option loaded 
+ 
+
+ROUTINE writeLog(p_message: STRING; isError: BOOLEAN) FROM GMWIZLOG
+
+%INCLUDE klrdutil
+%INCLUDE GMRDUTIL -- Utility Routine for Setting Variables
+
+ROUTINE srvo_optn FROM gmwizspt --check if servo gun option loaded
+ROUTINE rtu_optn  FROM gmwizspt --check if extended axis option is loaded
+ROUTINE srvotd_optn FROM gmwizspt
+ROUTINE sgunchg_optn FROM gmwizspt
+-----------------------------------------------------------------------------
+ROUTINE initspot2var
+-- PURPOSE: to initialize registers associated with setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  IF UNINIT(g_servog_opt) THEN
+    srvo_optn
+  ENDIF
+
+  IF UNINIT(srvo_td_opt) THEN
+    srvotd_optn --servo tip dresser option loaded
+  ENDIF
+
+  IF UNINIT(sgunchng) THEN
+    sgunchg_optn --servo gun change option
+  ENDIF
+
+  IF UNINIT(pshdep_float) THEN
+    pshdep_float = 6.0  --default to 6mm
+  ENDIF
+
+END initspot2var
+-----------------------------------------------------------------------------
+ROUTINE do_calpress
+-- PURPOSE: Routine to define Calibration Pressures.
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+BEGIN
+
+  -- Set Pressure Calibration Defaults
+  pcal_value[1] = 1600	
+  pcal_value[2] = 2000
+  pcal_value[3] = 2400	
+  pcal_value[4] = 2800
+  pcal_value[5] = 3200	
+  pcal_value[6] = 3600
+  pcal_value[7] = 4000
+  pcal_value[8] = 4400
+  pcal_value[9] = 4800
+  pcal_value[10]= 5000
+
+END do_calpress
+
+----------------------------------------------------------------------------
+ROUTINE init_sgax
+-- PURPOSE:  init axis setup
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  ap_gun       : INTEGER
+  l_equip      : INTEGER
+  l_gun        : INTEGER
+  l_i          : INTEGER
+
+BEGIN
+
+initspot2var
+
+IF (g_servog_opt = TRUE) THEN --initalize SWG variables
+    
+  -- Init Default Pressure Calibration table
+  IF UNINIT(pcal_value[1]) THEN
+    do_calpress
+  ENDIF
+
+  IF UNINIT(init_dft_prs) THEN
+    init_dft_prs = TRUE
+  ENDIF
+
+  IF ((UNINIT(default_prs[1,1].min_press)) OR (init_dft_prs = TRUE)) THEN
+    init_dft_prs = FALSE
+    FOR l_equip = 1 TO 3 DO
+      FOR l_gun = 1 TO 2 DO
+        default_prs[l_equip, l_gun].min_press = 1600
+        default_prs[l_equip, l_gun].td_press = 1600
+        default_prs[l_equip, l_gun].tot_num_pres = 16
+        FOR l_i = 1 TO 16 DO
+          default_prs[l_equip, l_gun].std_prs_val[l_i].press_val = 0
+          default_prs[l_equip, l_gun].std_prs_val[l_i].thick_min = 0.0
+          default_prs[l_equip, l_gun].std_prs_val[l_i].thick_max = 0.0
+          default_prs[l_equip, l_gun].std_prs_val[l_i].push_depth = 0.0
+          default_prs[l_equip, l_gun].std_prs_val[l_i].comment1 = ''
+          default_prs[l_equip, l_gun].std_prs_val[l_i].comment2 = ''
+        ENDFOR
+
+        FOR l_i = 1 TO 16 DO  --jja
+          default_prs[l_equip, l_gun].std_prs_val[l_i].comment1 = 'GMStandard'
+     	  IF (l_equip < 3) THEN  --only populate the valid arrays
+	    IF (spotapp_eq[l_equip].spotgun[l_gun].sg_guntyp = 2) THEN
+	      pshdep_float = 16.0  -- X-Gun
+              pshdep_mem = pshdep_float
+ 	      default_prs[l_equip, l_gun].std_prs_val[l_i].push_depth = pshdep_float
+	    ELSE
+	      pshdep_float = 6.0	 -- C-Gun and everything else
+              default_prs[l_equip, l_gun].std_prs_val[l_i].push_depth = pshdep_float
+	    ENDIF
+	  ELSE
+	    pshdep_float = 6.0	 -- C-Gun and everything else
+            default_prs[l_equip, l_gun].std_prs_val[l_i].push_depth = pshdep_float
+	  ENDIF
+        ENDFOR
+
+        default_prs[l_equip, l_gun].std_prs_val[1].press_val = 2000
+        default_prs[l_equip, l_gun].std_prs_val[1].thick_min = 3.3
+        default_prs[l_equip, l_gun].std_prs_val[1].thick_max = 3.3
+ 				          
+        default_prs[l_equip, l_gun].std_prs_val[2].press_val = 2200
+        default_prs[l_equip, l_gun].std_prs_val[2].thick_min = 4.0
+        default_prs[l_equip, l_gun].std_prs_val[2].thick_max = 4.0
+
+        default_prs[l_equip, l_gun].std_prs_val[3].press_val = 2400
+        default_prs[l_equip, l_gun].std_prs_val[3].thick_min = 4.0
+        default_prs[l_equip, l_gun].std_prs_val[3].thick_max = 4.0
+
+        default_prs[l_equip, l_gun].std_prs_val[4].press_val = 2600
+        default_prs[l_equip, l_gun].std_prs_val[4].thick_min = 4.5
+        default_prs[l_equip, l_gun].std_prs_val[4].thick_max = 5.5
+
+        default_prs[l_equip, l_gun].std_prs_val[5].press_val = 2800
+        default_prs[l_equip, l_gun].std_prs_val[5].thick_min = 5.0
+        default_prs[l_equip, l_gun].std_prs_val[5].thick_max = 5.0
+
+        default_prs[l_equip, l_gun].std_prs_val[6].press_val = 3000
+        default_prs[l_equip, l_gun].std_prs_val[6].thick_min = 5.0
+        default_prs[l_equip, l_gun].std_prs_val[6].thick_max = 5.0
+
+        default_prs[l_equip, l_gun].std_prs_val[7].press_val = 3200
+        default_prs[l_equip, l_gun].std_prs_val[7].thick_min = 6.1
+        default_prs[l_equip, l_gun].std_prs_val[7].thick_max = 6.1
+
+        default_prs[l_equip, l_gun].std_prs_val[8].press_val = 3400
+        default_prs[l_equip, l_gun].std_prs_val[8].thick_min = 6.1
+        default_prs[l_equip, l_gun].std_prs_val[8].thick_max = 6.1
+
+	default_prs[l_equip, l_gun].std_prs_val[9].press_val = 3600
+        default_prs[l_equip, l_gun].std_prs_val[9].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[9].thick_max = 6.0
+
+    	default_prs[l_equip, l_gun].std_prs_val[10].press_val = 3800
+        default_prs[l_equip, l_gun].std_prs_val[10].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[10].thick_max = 6.0
+
+	default_prs[l_equip, l_gun].std_prs_val[11].press_val = 4000
+        default_prs[l_equip, l_gun].std_prs_val[11].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[11].thick_max = 6.0
+
+	default_prs[l_equip, l_gun].std_prs_val[12].press_val = 4200
+        default_prs[l_equip, l_gun].std_prs_val[12].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[12].thick_max = 6.0
+
+	default_prs[l_equip, l_gun].std_prs_val[13].press_val = 4400
+        default_prs[l_equip, l_gun].std_prs_val[13].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[13].thick_max = 6.0
+
+        default_prs[l_equip, l_gun].std_prs_val[14].press_val = 4600
+        default_prs[l_equip, l_gun].std_prs_val[14].thick_min = 7.5
+        default_prs[l_equip, l_gun].std_prs_val[14].thick_max = 7.5
+
+	default_prs[l_equip, l_gun].std_prs_val[15].press_val = 4800
+        default_prs[l_equip, l_gun].std_prs_val[15].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[15].thick_max = 6.0
+
+     	default_prs[l_equip, l_gun].std_prs_val[16].press_val = 5000
+        default_prs[l_equip, l_gun].std_prs_val[16].thick_min = 6.0
+        default_prs[l_equip, l_gun].std_prs_val[16].thick_max = 6.0
+      ENDFOR  --gun 1 to 2
+    ENDFOR  --equipment 1 to 3
+  ENDIF --((UNINIT(default_prs[1,1].min_press)) OR (init_dft_prs = TRUE)) 
+ENDIF --initialize SWG variables
+END init_sgax
+----------------------------------------------------------------------------
+ROUTINE swg_var
+-- PURPOSE: Set swg vars
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+  exit         : BOOLEAN
+  l_gun        : INTEGER
+  l_i          : INTEGER
+  prss_kgf     : REAL
+  ls_gun       : STRING[1]
+  ls_cal_idx   : STRING[1]
+  l_prs_val    : REAL
+  gun_num      : STRING[2]
+  thick_sch    : STRING[2]
+  cal_max      : INTEGER
+
+BEGIN
+  
+  initspot2var
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option
+
+    FOR l_gun = 1 TO 2 DO
+      gun_num = int_to_strg(l_gun) 
+      FOR l_i = 2 TO 10 DO  
+        thick_sch = int_to_strg(l_i) 
+        Set_S_sVar('$SGTHKTBL' + gun_num + '[' + thick_sch + ']' + '.$COMMENT', 'PartThick')
+      ENDFOR
+      Set_S_sVar('$SGTHKTBL' + gun_num + '[1]' + '.$COMMENT', 'ForceGauge')
+      Set_R_sVar('$SGTHKTBL' + gun_num + '[1]' + '.$THICKNESS', 13.000)      
+      Set_R_sVar('$SGTHKTBL' + gun_num + '[2]' + '.$THICKNESS', 5.0)
+    
+      --gun open on fault
+      Set_I_sVar('$sgcfg[' + gun_num + '].$tryout_msk', 6)
+    ENDFOR
+
+    --Pressure Setup
+    sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+    sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+    sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker			
+
+    FOR sp_eqnum = 1 TO sp_ttl_eq DO
+      FOR sp_gnnum = 1 TO sp_eqgn_num DO 
+                           
+        prss_kgf =  spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr  * n_to_kgf 
+
+        SELECT sp_eqnum OF
+          CASE(1): --equipment 1
+            gun_num = int_to_strg(sp_gnnum)
+          CASE(2):  --equipment 2
+            gun_num = '2'
+          ELSE:
+        ENDSELECT
+
+        IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_ax_setup = wizans_yes) THEN --setup calibration and gun type settings
+          -- Tip wear down and gun sag variables
+          Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$PRESS_LIM',prss_kgf) 
+
+	  --V8.33P10 9-30-2020 schoensm added check for aluminum welding, modify pressure cal table
+	  IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ispare3 <> 1) THEN
+	    IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr <= 3600) THEN
+	      pcal_value[1] = 1600	
+	      pcal_value[2] = 2000
+	      pcal_value[3] = 2200	
+	      pcal_value[4] = 2400
+	      pcal_value[5] = 2600	
+	      pcal_value[6] = 2800
+	      pcal_value[7] = 3000
+	      pcal_value[8] = 3200
+	      pcal_value[9] = 3400
+	      pcal_value[10]= 3600
+	    ELSE --maximum pressure is greater than 3600N
+	      pcal_value[1] = 1600	
+	      pcal_value[2] = 2000
+	      pcal_value[3] = 2400	
+	      pcal_value[4] = 2800
+	      pcal_value[5] = 3200	
+	      pcal_value[6] = 3600
+	      pcal_value[7] = 4000
+	      pcal_value[8] = 4400
+	      pcal_value[9] = 4800
+	      pcal_value[10]= 5000
+	    ENDIF 
+	  ELSE   --aluminum weld pressure cal table, V8.33P10 9-30-2020 schoensm
+	    pcal_value[1] = 1600	
+	    pcal_value[2] = 3600
+	    pcal_value[3] = 4000	
+	    pcal_value[4] = 4400
+	    pcal_value[5] = 5000	
+	    pcal_value[6] = 6000
+	    pcal_value[7] = 0
+	    pcal_value[8] = 0
+	    pcal_value[9] = 0
+	    pcal_value[10]= 0   	
+	  ENDIF  --aluminum weld check
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].ispare3 <> 1) THEN
+            cal_max = 0 --record array item where max pressure should go
+            FOR l_i = 1 TO 10 DO
+	      IF (pcal_value[l_i] < spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr) THEN
+	        ls_cal_idx = int_to_strg(l_i)
+	        l_prs_val = (pcal_value[l_i] * n_to_kgf)
+	        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS' + ls_cal_idx, l_prs_val)
+	        cal_max = l_i + 1
+	      ELSE
+	        IF (cal_max <> 0) THEN
+		  IF (cal_max = l_i) THEN
+		    ls_cal_idx = int_to_strg(cal_max)
+		    l_prs_val = prss_kgf --set earlier in the larger FOR loop
+	            Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS' + ls_cal_idx, l_prs_val)	
+		  ENDIF
+	        ENDIF			  
+	      ENDIF
+	    ENDFOR         
+
+            --for some reason item 1 sometimes gets incorrectly, I don't see how
+            Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS1' , (pcal_value[1] * N_TO_KGF))
+
+	    IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr > 3600) THEN
+	      IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr = (5000)) THEN 
+	        l_prs_val = (pcal_value[10] * N_TO_KGF)
+	        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS10', l_prs_val)
+	      ELSE
+	        IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr > pcal_value[9]) THEN
+	          l_prs_val = prss_kgf --set earlier in the larger FOR loop
+		  Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS10', l_prs_val)	
+	        ENDIF
+	      ENDIF
+	    ELSE
+	      IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr = 3600) THEN
+	        l_prs_val = (pcal_value[10] * N_TO_KGF)
+	        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS10', l_prs_val)
+	      ELSE
+	        IF (spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr > pcal_value[9]) THEN
+	          l_prs_val = prss_kgf --set earlier in the larger FOR loop
+		  Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS10', l_prs_val)	
+	        ENDIF
+	      ENDIF
+	    ENDIF
+          ELSE  --Aluminum
+            cal_max = 0 --record array item where max pressure should go
+            FOR l_i = 1 TO 10 DO
+	      IF (pcal_value[l_i] <= spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr) THEN
+	        ls_cal_idx = int_to_strg(l_i)
+	        l_prs_val = (pcal_value[l_i] * n_to_kgf)
+	        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS' + ls_cal_idx, l_prs_val)
+	        cal_max = l_i + 1
+	      ELSE
+	        IF (cal_max <> 0) THEN
+		  IF (cal_max = l_i) THEN
+		    ls_cal_idx = int_to_strg(cal_max)
+		    l_prs_val = 0
+	            Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS' + ls_cal_idx, l_prs_val)	
+		  ENDIF
+	        ENDIF			  
+	      ENDIF
+	    ENDFOR
+            --Had to leave this in just like KM....does not make sense - but it works.
+            Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESS1' , (pcal_value[1] * N_TO_KGF))         
+          ENDIF --aluminum
+        ENDIF --setup calibration and gun axis settings
+    
+      ENDFOR
+      IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+        sp_eqgn_num = sp_ttl_gn
+      ENDIF
+    ENDFOR  --pressure setup
+
+      --tip wear and gun sag
+      sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+      sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+      sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+      FOR sp_eqnum = 1 TO sp_ttl_eq DO
+        FOR sp_gnnum = 1 TO sp_eqgn_num DO
+          gun_num = int_to_strg(sp_gnnum)
+
+          IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_ax_setup = wizans_yes) THEN --setup calibration and gun type settings
+            SELECT sp_eqnum OF
+              CASE(1):  --equipment 1
+                SELECT spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_guntyp OF
+                  CASE(srvo_cgun):
+                    Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$SAGFIXRATIO', 100)
+                  CASE(srvo_xgun):
+                    Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$SAGFIXRATIO', 50)
+                  ELSE:
+                ENDSELECT  
+              CASE(2):  --equipment 2
+                SELECT spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_guntyp OF
+                  CASE(srvo_cgun):
+                    Set_I_sVar('$SGGUN2.$SETUP.$SAGFIXRATIO', 100)
+                  CASE(srvo_xgun):
+                    Set_I_sVar('$SGGUN2.$SETUP.$SAGFIXRATIO', 50)
+                  ELSE:
+                ENDSELECT  
+              ELSE:
+            ENDSELECT
+
+        ENDIF --setup calibration data and gun type settings
+ 
+        ENDFOR  --FOR sp_gnnum = 1 TO sp_eqgn_num DO
+        IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+          sp_eqgn_num = sp_ttl_gn
+        ENDIF
+      ENDFOR  -- tip wear and gun sag   --FOR sp_eqnum = 1 TO sp_ttl_eq DO
+
+    --servogun menu at controlled start
+    tw_prgvis = 2  -- Hide all 12000 Neathamer TP Programs
+    Set_I_sVar('$SGSYSCD.$CAL_TRQ_SEV', 1)   -- 0 Indicates warning, 1 Indicates a FAULT for overtorque. Limits torque
+    Set_I_sVar('$SGSYSTWD.$WR_ALM_SEV', 0)   -- 0 Indicates warning, 1 Indicates a PAUSE , -1 NO FAULT for max wear exceeded
+    Set_I_sVar('$SGSYSCFG.$OPN_RSM_CND', 0)  -- Resume Setting Open on resume
+    Set_I_sVar('$SGSYSCFG.$OPN_RSM_ATR', 7)  -- Resume Setting Open on resume
+    Set_I_sVar('$SGSYSCFG.$AUTO_SCH', 8)    -- Auto populate gun sag value
+    Set_B_sVar('$SGSYSCFG.$PSH_OPTM', FALSE) -- let GM set pushing depth
+    Set_I_sVar('$SGSYSCFG.$PRE_EXE_ENB', 0)  -- default set to 1
+    Set_I_sVar('$SGSYSCFG.$FORM_DETAIL', 36) -- MENU 6 SETUP Screen
+    Set_I_sVar('$SGSYSCFG.$PRS_UNITS', 2)    -- 0 kgf, 1 lbs, 2 Newton's, 3 KiloNewton's
+    Set_B_sVar('$SGSYSCFG.$SHO_PRS_SPD', TRUE)  -- Contact Speed
+    Set_B_sVar('$SGSYSCFG.$SHO_PSHDPTH', TRUE)  -- Pushing Depth
+    Set_B_sVar('$SGSYSCFG.$SHO_ATN_CFG', TRUE)  -- Enter on Autotune item you can modify tunning
+    Set_B_sVar('$SGSYSCFG.$SHO_STP_ITM', FALSE)  -- Single Step Mode
+    Set_I_sVar('$SGSYSTWD.$CAP_WR_TYP', 2)
+    Set_I_sVar('$SGSYSATUN.$STEP2_MODE', 0)  -- Gives 0 values after tip change, set to 4 to hide question, set it 0 to show question
+    Set_S_sVar('$SGSYSATUN.$AT_DN_PRGNM', 'TUNEDIAG')  -- Tune Diag and time stamp
+
+    Set_I_sVar('$sgsyscfg.$log_size',400) --increase servo gun log size to 400
+
+    --gun open on fault settings
+    Set_I_sVar('$sgsyscfg.$comp_switch', 820)
+
+    IF (wld1_app = wld1app_snut) THEN --carried servo nut weld application --only a single application with one gun
+      --Thickness Check
+      Set_B_sVar('$sggun1.$setup.$tc_enb', true) --thickness check
+      Set_B_sVar('$sggun1.$setup.$tc_alm', true) --thickness check mode all
+      Set_I_sVar('$sggun1.$setup.$tc_wstpdly', 100) --thickness check settling time delay(ms
+      Set_B_sVar('$sggun1.$setup.$tc_sev', true) --thickness check alarm severity fault
+      Set_R_sVar('$sggun1.$setup.$tc_max_undr', 1.000) --thickness check under thickness limit (mm)
+      Set_R_sVar('$sggun1.$setup.$tc_max_over', 1.000) --thickness check over thickness limit (mm)
+    ENDIF --servo nut weld application 
+
+    IF ((wld1_app = wld1app_cg) OR (wld1_app = wld1app_cgmh)) THEN --application is has a single carried servo gun
+      --THICKNESS CHECK
+      Set_B_sVar('$sggun1.$setup.$tc_enb', true) --thickness check enable
+      Set_B_sVar('$sggun1.$setup.$tc_alm', false) --thickness check mode ON RQST --default
+      Set_B_sVar('$sggun1.$setup.$tc_f2cmpr', false) --check at minimum pressure --default
+      Set_I_sVar('$sggun1.$setup.$tc_wstpdly', 0) --thickness check settling time delay --default
+      Set_B_sVar('$sggun1.$setup.$tc_sev', false) --thickness check alarm severity fault  WARN --default
+      Set_R_sVar('$sggun1.$setup.$tc_max_undr', 0.500) --thickness check under thickness limit (mm)  --default
+      Set_R_sVar('$sggun1.$setup.$tc_max_over', 0.500) --thickness check over thickness limit (mm)  --default
+    ENDIF --application has a carried servo gun
+  ENDIF --servo gun option
+
+END swg_var
+----------------------------------------------------------------------------
+ROUTINE swggun_var
+-- PURPOSE: Set swg gun vars
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+eq_num: STRING[2]
+gun_num: STRING[2]
+
+BEGIN
+
+  initspot2var
+
+  IF (g_servog_opt = TRUE) THEN 
+
+    sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+    sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+    sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+    FOR sp_eqnum = 1 TO sp_ttl_eq DO
+      FOR sp_gnnum = 1 TO sp_eqgn_num DO
+        eq_num = int_to_strg(sp_eqnum)
+
+        Set_I_sVar('$SGCFG[' + eq_num + '].$RBT_GRP_NUM', 1)   
+        Set_I_sVar('$SGDGCFG[' + eq_num + '].$BU_HKY_GUNS', 2)          
+
+        SELECT (sp_eqnum) OF --total number of equipments
+          CASE(1):  --one equipment
+            Set_I_sVar('$SGCFG[' + eq_num + '].$SG_GRP_NUM', 2) --Motion Group(Gun) 
+
+            SELECT(spttl_eq1gn) OF  --total number of guns on equipment 1
+              CASE(1):
+                -- Axis setup for servo gun
+                -- Group Number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[1]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[2]', 0)
+                -- Actual Gun number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[1]', sp_gnnum)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[1]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[2]', 0)
+                -- Single Servo Gun ONLY
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[1]', sp_gnnum)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[2]', 255) 
+
+              CASE(2):
+
+                -- Axis setup for servo gun
+                -- Group Number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[1]', 2)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[2]', 0)
+                -- Actual Gun number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[1]', 2)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[2]', 0)
+                -- Dual Servo Gun ONLY
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[2]', 2)
+
+              ELSE:
+            ENDSELECT
+          CASE(2):  --two equipment
+            Set_I_sVar('$SGCFG[' + eq_num + '].$SG_GRP_NUM', 3) --Motion Group(Gun)  
+
+            SELECT (spttl_eq2gn) OF --total number of guns on equipment 2
+              CASE(1): --one gun
+                -- Axis setup for servo gun
+                -- Group Number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[1]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[2]', 0)
+                -- Actual Gun number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[1]', 2)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[1]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[2]', 0)
+                -- Single Servo Gun ONLY
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[1]', 2)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[2]', 255)
+
+              CASE(2): --two guns  --this isn't supported on G4, so it may have to be relooked at if it does
+                -- Axis setup for servo gun
+                -- Group Number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[1]', 1)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[1].$AXIS_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[1]', 2)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$A_CFG[2].$AXIS_NUM[2]', 0)
+                -- Actual Gun number
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[1]', 3)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[1].$GUN_NUM[2]', 0)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[1]', 4)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_CFG[2].$GUN_NUM[2]', 0)
+                -- Dual Servo Gun ONLY
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[1]', 3)
+                Set_I_sVar('$SGCFG[' + eq_num + '].$G_MAP[1].$GUN_NUM[2]', 4)
+
+              ELSE:
+            ENDSELECT --total number of guns on equipment 2
+           
+        ELSE:
+        ENDSELECT -- total number of equipments
+
+        SELECT sp_eqnum OF
+          CASE(1): --equipment 1
+            gun_num = int_to_strg(sp_gnnum)
+          CASE(2):  --equipment 2
+            gun_num = '2'
+          ELSE:
+        ENDSELECT
+                   
+        -- Tip wear down and gun sag variables
+        Set_B_sVar('$SGGUN' + gun_num + '.$SETUP.$WRDWN_COMP', TRUE)
+        Set_B_sVar('$SGGUN' + gun_num + '.$SETUP.$GUNSAG_COMP', TRUE)
+        Set_B_sVar('$SGGUN' + gun_num + '.$SETUP.$TIPCLOSDIR', TRUE)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_OPENPOS', 20.000)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$MAXWDNTIP', 6.0)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$MAXWDNTIPER', 2.0)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$MAXWDNRBT', 6.0)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$MAXWDNRBTER', 2.0)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED1', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED2', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED3', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED4', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED5', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED6', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED7', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED8', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED9', 50)
+        Set_I_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_SPEED10', 50)           
+
+        Set_I_sVar('$SGGUN' + gun_num + '.$ATUN.$K6_FOUTDLY', 200)  --Autotuning a small Tolomatic
+        Set_I_sVar('$SGGUN' + gun_num + '.$ATUN.$K6_OVSLIMIT', 50)  
+        Set_I_sVar('$SGGUN' + gun_num + '.$ATUN.$STD_CLSTH', 38)  
+        Set_I_sVar('$SGGUN' + gun_num + '.$ATUN.$MIN_CLSTH', 38)  
+        Set_R_sVar('$SGGUN' + gun_num + '.$ATUN.$MGN_CLSTH', 2.6)   
+        Set_R_sVar('$SGTHKSET' + gun_num + '.$OPN_DIST', 10.0) 
+        Set_I_sVar('$SGGUN' + gun_num + '.$ATUN.$INIT_FILTER', 30)  --Filtering
+        Set_I_sVar('$SGGUN' + gun_num + '.$FC_PARAM.$SEV_MISCLS', 2)
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CREEP_DST', 1.3) -- 1mm
+        Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$PUSH_MARGIN', 1.3)
+        Set_R_sVar('$SGGUN' + gun_num + '.$FC_PARAM.$LOW_TRQ', 1.0)
+        Set_R_sVar('$SGGUN' + gun_num + '.$MANUAL.$PRESS_TIME', 2.000)
+				
+      ENDFOR
+      IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+        sp_eqgn_num = sp_ttl_gn
+       ENDIF
+    ENDFOR  
+
+     IF (UseToolChngr = TRUE) THEN --tool changer
+       Set_I_sVar('$SGGUN2' + '.$SETUP.$TOOL_NUM', 2)
+     ENDIF --tool changer
+
+     --Tuning Details
+     IF (spotapp_eq[1].spotgun[1].sg_motr = gswa_ima33) THEN --gswa_ima33 motor
+       Set_I_sVar('$SGGUN1.$ATUN.$ACC_MODE', 2)
+       Set_I_sVar('$SGGUN1.$ATUN.$INIT_FILTER', 0)
+       Set_I_sVar('$SGGUN1.$ATUN.$ACCEL_TIME1',64)
+       Set_I_sVar('$SGGUN1.$ATUN.$ACC_GRP_MIN', 64)
+       Set_I_sVar('$SGGUN1.$ATUN.$TUN_METHOD', 58)  
+     ELSE  --not gswa_ima33 motor
+       Set_I_sVar('$SGGUN1.$ATUN.$ACC_MODE', 4)
+       Set_I_sVar('$SGGUN1.$ATUN.$INIT_FILTER', 30)
+       Set_I_sVar('$SGGUN1.$ATUN.$ACCEL_TIME1', 100)
+       Set_I_sVar('$SGGUN1.$ATUN.$ACC_GRP_MIN', 100)
+       Set_I_sVar('$SGGUN1.$ATUN.$TUN_METHOD', 59)  
+     ENDIF --gswa_ima33 motor
+     IF ((spotapp_eq[1].spotgun[2].sg_motr = gswa_ima33) OR (spotapp_eq[2].spotgun[1].sg_motr = gswa_ima33)) THEN --gswa_ima33 motor
+       Set_I_sVar('$SGGUN2.$ATUN.$ACC_MODE', 2)
+       Set_I_sVar('$SGGUN2.$ATUN.$INIT_FILTER', 0)
+       Set_I_sVar('$SGGUN2.$ATUN.$ACCEL_TIME1',64)
+       Set_I_sVar('$SGGUN2.$ATUN.$ACC_GRP_MIN', 64)
+       Set_I_sVar('$SGGUN2.$ATUN.$TUN_METHOD', 58)  
+     ELSE  --not gswa_ima33 motor
+       Set_I_sVar('$SGGUN2.$ATUN.$ACC_MODE', 4)
+       Set_I_sVar('$SGGUN2.$ATUN.$INIT_FILTER', 30)
+       Set_I_sVar('$SGGUN2.$ATUN.$ACCEL_TIME1', 100)
+       Set_I_sVar('$SGGUN2.$ATUN.$ACC_GRP_MIN', 100)
+       Set_I_sVar('$SGGUN2.$ATUN.$TUN_METHOD', 59)  
+     ENDIF --gswa_ima33 motor
+
+    IF (sgunchng = TRUE) THEN --servo gun tool change option
+      IF ((wld1_app = wld1app_cg) AND (UseToolChngr = TRUE)) THEN --robot has a servo gun changer
+        Set_B_sVar('$shc_grp[2].$shc_enb', TRUE)
+        Set_I_sVar('$SGCFG[1].$A_CFG[1].$AXIS_NUM[1]', 0)
+        Set_I_sVar('$SGCFG[1].$A_CFG[1].$AXIS_NUM[2]', 0)
+        Set_I_sVar('$SGCFG[1].$A_CFG[2].$AXIS_NUM[1]', 0)
+        Set_I_sVar('$SGCFG[1].$A_CFG[2].$AXIS_NUM[2]', 0)
+        Set_I_sVar('$SGCFG[1].$G_CFG[1].$GUN_NUM[1]', 0)
+        Set_I_sVar('$SGCFG[1].$G_CFG[1].$GUN_NUM[2]', 0)
+        Set_I_sVar('$SGCFG[1].$G_CFG[2].$GUN_NUM[1]', 0)
+        Set_I_sVar('$SGCFG[1].$G_CFG[2].$GUN_NUM[2]', 0)
+      ENDIF --robot has a servo gun changer
+    ENDIF  --servo gun tool change option
+
+    FOR sp_gnnum = 1 to sp_ttl_gn DO -- Total Number of Guns
+
+      gun_num = int_to_strg(sp_gnnum)
+      --V8.33P10 ZDT Pressure Check Enable 10-19-2020 schoensm
+      Set_I_sVar('$sgprsmsgcfg[' + gun_num + ',1]', 1)  --enable pressure checking Gun X
+
+    ENDFOR --guns 1 --> total number of guns setup
+
+  ENDIF --servo gun option
+
+END swggun_var
+-----------------------------------------------------------------------------
+ROUTINE swggun_prs
+-- PURPOSE: set pressure schedule variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+VAR
+l_i: INTEGER
+l_sched_idx  : INTEGER
+l_std_prs    : INTEGER
+l_sched      : INTEGER
+l_prs_idx    : INTEGER
+l_sec_sched  : BOOLEAN
+setprs_bc_ds : BOOLEAN
+l_weld_press : REAL
+eq_num: STRING[2]
+gun_num: STRING[2]
+sched_num    : STRING[2]
+l_td_press   : REAL
+
+
+BEGIN
+
+  setprs_bc_ds = FALSE  --reset for wizard execution
+
+  IF (g_servog_opt = TRUE) THEN --servo gun option
+
+    sp_eqnum = 1       --initialize equipment setup for wizard to equipment 1
+    sp_gnnum = 1       --initialize gun setup for wizard questions to gun 1	
+    sp_eqgn_num = spttl_eq1gn  --initialize guns per equipment tracker
+
+    FOR sp_eqnum = 1 TO sp_ttl_eq DO
+      FOR sp_gnnum = 1 TO sp_eqgn_num DO
+        eq_num = int_to_strg(sp_eqnum)
+        gun_num = int_to_strg(sp_gnnum)
+        
+        IF (spotapp_eq[sp_eqnum].spotgun[sp_gnnum].sg_prs_set = wizans_yes) THEN --setup pressure schedule, backup and distance
+
+          setprs_bc_ds = TRUE --set pressure schedules, backup and distance schedules
+
+          --PRESSURE SCHEDULES
+
+          -- Pressure calibration setup vars
+          SELECT sp_eqnum OF
+            CASE(1): --equipment 1
+              gun_num = int_to_strg(sp_gnnum) 
+            CASE(2):  --equipment 2
+              gun_num = '2'
+            ELSE:
+          ENDSELECT             
+
+          Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_THICK', 13.0)
+          Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PUSH', 8.0)
+          Set_R_sVar('$SGGUN' + gun_num + '.$SETUP.$CAL_PRESTIM', 2.0)
+
+          -- All Schedules will have the same setup for GM.
+          For l_i = 1 to 90 Do
+            sched_num = int_to_strg(l_i)
+            -- Reset these to Zero
+            Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', '')
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', 0.0)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$Thickness', 0.0)
+            Set_B_sVar('$sgsch' + gun_num + '[' + sched_num +'].$use_manual', FALSE)
+          ENDFOR
+
+          l_sched_idx = 1
+          FOR l_i = 1 to 99 DO  
+            sched_num = int_to_strg(l_i)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 6.0)
+          ENDFOR 
+
+          FOR l_std_prs = 1 TO default_prs[sp_eqnum, sp_gnnum].tot_num_pres  DO
+
+            IF (default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_std_prs].press_val <= spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr) AND
+                 (l_sched_idx <= default_prs[sp_eqnum, sp_gnnum].tot_num_pres) THEN
+                 l_sec_sched = FALSE
+
+              FOR l_sched = l_sched_idx TO (l_sched_idx + 1) DO
+                sched_num = int_to_strg(l_sched)
+                IF l_sec_sched THEN
+          
+                ELSE
+                  Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_std_prs].comment1)
+                ENDIF
+
+                l_weld_press = (default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_std_prs].press_val * N_TO_KGF)
+                Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_weld_press)
+
+                IF l_sec_sched THEN
+
+                ELSE
+                  Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$Thickness', default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_std_prs].thick_min)
+                ENDIF
+
+                Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_std_prs].push_depth)  
+                Set_B_sVar('$sgsch' + gun_num + '[' + sched_num +'].$use_manual', TRUE)
+              ENDFOR  
+
+            l_sched_idx = l_sched_idx + 1
+
+            ELSE -- get out
+              l_std_prs = default_prs[sp_eqnum, sp_gnnum].tot_num_pres + 1 
+            ENDIF
+ 	
+            -- Reset Extra ONE to Zero
+            Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', '')
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', 0.0)
+            Set_B_sVar('$sgsch' + gun_num + '[' + sched_num +'].$use_manual', FALSE) 
+          ENDFOR --schedules 1 to total number of pressures
+
+          -- Force check approach 
+          l_prs_idx = 1
+          FOR l_i = 75 to 90 DO
+            sched_num = int_to_strg(l_i)
+            -- Weld pressure Kgf
+            IF (default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_prs_idx].press_val <= spotctrl[sp_eqnum].spot_gun[sp_gnnum].sg_maxpr) AND
+               (l_prs_idx <= default_prs[sp_eqnum, sp_gnnum].tot_num_pres) THEN
+              l_weld_press = (default_prs[sp_eqnum, sp_gnnum].std_prs_val[l_prs_idx].press_val * N_TO_KGF)
+              Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', 'Force Chk')
+              Set_B_sVar('$sgsch' + gun_num + '[' + sched_num +'].$use_manual', TRUE)
+              Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_weld_press)
+              l_prs_idx = l_prs_idx + 1
+            ENDIF
+      
+            -- Part Thickness
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$thickness', 13.0)
+            -- Pushing Depth (DEFAULT)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 8.0)
+            -- Gun Sag Comp value
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$gunsagval', 0.0)
+            -- Schedule def.
+            -- Open gun term type
+            Set_I_sVar('$sgsch' + gun_num + '[' + sched_num +'].$away_term', 100)
+            -- Open gun ADD
+            Set_I_sVar('$sgsch' + gun_num + '[' + sched_num +'].$away_acc', 100)
+          ENDFOR  --schedules 75 - 90
+ 
+          FOR l_i = 91 to 91 DO
+            sched_num = int_to_strg(l_i)
+            -- Aluminum Cap Deburr
+            l_td_press = 1000.0 * N_TO_KGF
+
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_td_press)        
+            -- Part Thickness
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$thickness', 10.5)
+            -- Pushing Depth (DEFAULT)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 6.0)
+            Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', 'Deburr')
+          ENDFOR --schedule 91
+
+          FOR l_i = 93 to 93 DO  
+            sched_num = int_to_strg(l_i)
+            -- Resistance Check
+            l_td_press = 2800.0 * N_TO_KGF
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_td_press)        
+            Set_S_sVar('$sgsch' + gun_num + '[' + sched_num +'].$comment', 'Resist Chk')  
+          ENDFOR  --schedule 93
+
+          FOR l_i = 94 to 95 DO
+            sched_num = int_to_strg(l_i)
+            -- Cap Changer Pressures 94/95
+            l_td_press = 1600.0 * N_TO_KGF
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_td_press)        
+            -- Part Thickness and gun sag
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$thickness', 5.0)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$gunsagval', 0.6)
+            -- Pushing Depth (DEFAULT)
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 10.0)
+          ENDFOR --schedules 94 and 95
+
+          FOR l_i = 96 to 97 DO
+            sched_num = int_to_strg(l_i)
+            -- Tip Dress Pressures 96/97
+            l_td_press = 1600.0 * N_TO_KGF
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$weld_press', l_td_press)        
+            -- Part Thickness
+            Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$thickness', 10.5)
+
+            IF ((wld1_app = wld1app_cg) OR (wld1_app = wld1app_snut)) THEN --carried app, no pedestal apps on both processes
+              -- Pushing Depth (DEFAULT)
+              Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 6.0)
+            ELSE --pedestal applicaiton is present on one of the processes
+              -- Pushing Depth (DEFAULT)
+              Set_R_sVar('$sgsch' + gun_num + '[' + sched_num +'].$push_depth', 17.5)
+            ENDIF --carried app, no pedestal app on both processes   
+          ENDFOR  --schedules 96 and 97
+
+          --BACKUP SCHEDULE
+          --30 Max Schedules
+          Set_S_sVar('$sgback' + gun_num + '[1].$comment', '10mm open')
+          Set_R_sVar('$sgback' + gun_num + '[1].$stroke', 10.0)
+          Set_B_sVar('$sgback' + gun_num + '[1].$use_manual', TRUE)
+          Set_S_sVar('$sgback' + gun_num + '[2].$comment', '20mm open')
+          Set_R_sVar('$sgback' + gun_num + '[2].$stroke', 20.0)
+          Set_B_sVar('$sgback' + gun_num + '[2].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[3].$comment', '30mm open')
+          Set_R_sVar('$sgback' + gun_num + '[3].$stroke', 30.0)
+          Set_B_sVar('$sgback' + gun_num + '[3].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[4].$comment', '40mm open')
+          Set_R_sVar('$sgback' + gun_num + '[4].$stroke', 40.0)
+          Set_B_sVar('$sgback' + gun_num + '[4].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[5].$comment', '50mm open')
+          Set_R_sVar('$sgback' + gun_num + '[5].$stroke', 50.0)
+          Set_B_sVar('$sgback' + gun_num + '[5].$use_manual', TRUE)
+          Set_S_sVar('$sgback' + gun_num + '[6].$comment', '60mm open')
+          Set_R_sVar('$sgback' + gun_num + '[6].$stroke', 60.0)
+          Set_B_sVar('$sgback' + gun_num + '[6].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[7].$comment', '70mm open')
+          Set_R_sVar('$sgback' + gun_num + '[7].$stroke', 70.0)
+          Set_B_sVar('$sgback' + gun_num + '[7].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[8].$comment', '80mm open')
+          Set_R_sVar('$sgback' + gun_num + '[8].$stroke', 80.0)
+          Set_B_sVar('$sgback' + gun_num + '[8].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[9].$comment', '90mm open')
+          Set_R_sVar('$sgback' + gun_num + '[9].$stroke', 90.0)
+          Set_B_sVar('$sgback' + gun_num + '[9].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[10].$comment', '100mm open')
+          Set_R_sVar('$sgback' + gun_num + '[10].$stroke', 100.0)
+          Set_B_sVar('$sgback' + gun_num + '[10].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[11].$comment', '110mm open')
+          Set_R_sVar('$sgback' + gun_num + '[11].$stroke', 110.0)
+          Set_B_sVar('$sgback' + gun_num + '[11].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[12].$comment', '120mm open')
+          Set_R_sVar('$sgback' + gun_num + '[12].$stroke', 120.0)
+          Set_B_sVar('$sgback' + gun_num + '[12].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[13].$comment', '130mm open')
+          Set_R_sVar('$sgback' + gun_num + '[13].$stroke', 130.0)
+          Set_B_sVar('$sgback' + gun_num + '[13].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[14].$comment', '140mm open')
+          Set_R_sVar('$sgback' + gun_num + '[14].$stroke', 140.0)
+          Set_B_sVar('$sgback' + gun_num + '[14].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[15].$comment', '150mm open')
+          Set_R_sVar('$sgback' + gun_num + '[15].$stroke', 150.0)
+          Set_B_sVar('$sgback' + gun_num + '[15].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[16].$comment', '160mm open')
+          Set_R_sVar('$sgback' + gun_num + '[16].$stroke', 160.0)
+          Set_B_sVar('$sgback' + gun_num + '[16].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[17].$comment', '170mm open')
+          Set_R_sVar('$sgback' + gun_num + '[17].$stroke', 170.0)
+          Set_B_sVar('$sgback' + gun_num + '[17].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[18].$comment', '180mm open')
+          Set_R_sVar('$sgback' + gun_num + '[18].$stroke', 180.0)
+          Set_B_sVar('$sgback' + gun_num + '[18].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[19].$comment', '190mm open')
+          Set_R_sVar('$sgback' + gun_num + '[19].$stroke', 190.0)
+          Set_B_sVar('$sgback' + gun_num + '[19].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[20].$comment', '200mm open')
+          Set_R_sVar('$sgback' + gun_num + '[20].$stroke', 200.0)
+          Set_B_sVar('$sgback' + gun_num + '[20].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[21].$comment', '210mm open')
+          Set_R_sVar('$sgback' + gun_num + '[21].$stroke', 210.0)
+          Set_B_sVar('$sgback' + gun_num + '[21].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[22].$comment', '220mm open')
+          Set_R_sVar('$sgback' + gun_num + '[22].$stroke', 220.0)
+          Set_B_sVar('$sgback' + gun_num + '[22].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[23].$comment', '230mm open')
+          Set_R_sVar('$sgback' + gun_num + '[23].$stroke', 230.0)
+          Set_B_sVar('$sgback' + gun_num + '[23].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[24].$comment', '240mm open')
+          Set_R_sVar('$sgback' + gun_num + '[24].$stroke', 240.0)
+          Set_B_sVar('$sgback' + gun_num + '[24].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[25].$comment', '250mm open')
+          Set_R_sVar('$sgback' + gun_num + '[25].$stroke', 250.0)
+          Set_B_sVar('$sgback' + gun_num + '[25].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[26].$comment', '260mm open')
+          Set_R_sVar('$sgback' + gun_num + '[26].$stroke', 260.0)
+          Set_B_sVar('$sgback' + gun_num + '[26].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[27].$comment', '270mm open')
+          Set_R_sVar('$sgback' + gun_num + '[27].$stroke', 270.0)
+          Set_B_sVar('$sgback' + gun_num + '[27].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[28].$comment', '280mm open')
+          Set_R_sVar('$sgback' + gun_num + '[28].$stroke', 280.0)
+          Set_B_sVar('$sgback' + gun_num + '[28].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[29].$comment', '290mm open')
+          Set_R_sVar('$sgback' + gun_num + '[29].$stroke', 290.0)
+          Set_B_sVar('$sgback' + gun_num + '[29].$use_manual', FALSE)
+          Set_S_sVar('$sgback' + gun_num + '[30].$comment', 'Gun Closed')
+          Set_R_sVar('$sgback' + gun_num + '[30].$stroke', 0.0)
+          Set_B_sVar('$sgback' + gun_num + '[30].$use_manual', TRUE)
+
+          --DISTANCE SCHEDULES
+          Set_S_sVar('$sgdst' + gun_num + '[1].$comment','1mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[1].$dst_gun', 1.0)
+          Set_R_sVar('$sgdst' + gun_num + '[1].$dst_rbt', 1.0)
+          Set_S_sVar('$sgdst' + gun_num + '[2].$comment','2mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[2].$dst_gun', 2.0)
+          Set_R_sVar('$sgdst' + gun_num + '[2].$dst_rbt', 2.0)
+          Set_S_sVar('$sgdst' + gun_num + '[3].$comment','3mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[3].$dst_gun', 3.0)
+          Set_R_sVar('$sgdst' + gun_num + '[3].$dst_rbt', 3.0)
+          Set_S_sVar('$sgdst' + gun_num + '[4].$comment','4mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[4].$dst_gun', 4.0)
+          Set_R_sVar('$sgdst' + gun_num + '[4].$dst_rbt', 4.0)
+          Set_S_sVar('$sgdst' + gun_num + '[5].$comment','5mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[5].$dst_gun', 5.0)
+          Set_R_sVar('$sgdst' + gun_num + '[5].$dst_rbt', 5.0)
+          Set_S_sVar('$sgdst' + gun_num + '[6].$comment','6mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[6].$dst_gun', 6.0)
+          Set_R_sVar('$sgdst' + gun_num + '[6].$dst_rbt', 6.0)
+          Set_S_sVar('$sgdst' + gun_num + '[7].$comment','7mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[7].$dst_gun', 7.0)
+          Set_R_sVar('$sgdst' + gun_num + '[7].$dst_rbt', 7.0)
+          Set_S_sVar('$sgdst' + gun_num + '[8].$comment','8mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[8].$dst_gun', 8.0)
+          Set_R_sVar('$sgdst' + gun_num + '[8].$dst_rbt', 8.0)
+          Set_S_sVar('$sgdst' + gun_num + '[9].$comment','9mm RbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[9].$dst_gun', 9.0)
+          Set_R_sVar('$sgdst' + gun_num + '[9].$dst_rbt', 9.0)
+          Set_S_sVar('$sgdst' + gun_num + '[10].$comment','10mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[10].$dst_gun', 10.0)
+          Set_R_sVar('$sgdst' + gun_num + '[10].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[11].$comment','11mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[11].$dst_gun', 11.0)
+          Set_R_sVar('$sgdst' + gun_num + '[11].$dst_rbt', 11.0)
+          Set_S_sVar('$sgdst' + gun_num + '[12].$comment','12mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[12].$dst_gun', 12.0)
+          Set_R_sVar('$sgdst' + gun_num + '[12].$dst_rbt', 12.0)
+          Set_S_sVar('$sgdst' + gun_num + '[13].$comment','13mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[13].$dst_gun', 13.0)
+          Set_R_sVar('$sgdst' + gun_num + '[13].$dst_rbt', 13.0)
+          Set_S_sVar('$sgdst' + gun_num + '[14].$comment','14mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[14].$dst_gun', 14.0)
+          Set_R_sVar('$sgdst' + gun_num + '[14].$dst_rbt', 14.0)
+          Set_S_sVar('$sgdst' + gun_num + '[15].$comment','15mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[15].$dst_gun', 15.0)
+          Set_R_sVar('$sgdst' + gun_num + '[15].$dst_rbt', 15.0)
+          Set_S_sVar('$sgdst' + gun_num + '[16].$comment','16mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[16].$dst_gun', 16.0)
+          Set_R_sVar('$sgdst' + gun_num + '[16].$dst_rbt', 16.0)
+          Set_S_sVar('$sgdst' + gun_num + '[17].$comment','17mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[17].$dst_gun', 17.0)
+          Set_R_sVar('$sgdst' + gun_num + '[17].$dst_rbt', 17.0)
+          Set_S_sVar('$sgdst' + gun_num + '[18].$comment','18mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[18].$dst_gun', 18.0)
+          Set_R_sVar('$sgdst' + gun_num + '[18].$dst_rbt', 18.0)
+          Set_S_sVar('$sgdst' + gun_num + '[19].$comment','19mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[19].$dst_gun', 19.0)
+          Set_R_sVar('$sgdst' + gun_num + '[19].$dst_rbt', 19.0)
+          Set_S_sVar('$sgdst' + gun_num + '[20].$comment','20mmRbtGun')
+          Set_R_sVar('$sgdst' + gun_num + '[20].$dst_gun', 20.0)
+          Set_R_sVar('$sgdst' + gun_num + '[20].$dst_rbt', 20.0)
+
+          -- Open Distance Gun Customizaiton
+          Set_S_sVar('$sgdst' + gun_num + '[21].$comment','40mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[21].$dst_gun', 40.0)
+          Set_R_sVar('$sgdst' + gun_num + '[21].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[22].$comment','60mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[22].$dst_gun', 60.0)
+          Set_R_sVar('$sgdst' + gun_num + '[22].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[23].$comment','80mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[23].$dst_gun', 80.0)
+          Set_R_sVar('$sgdst' + gun_num + '[23].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[24].$comment','100mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[24].$dst_gun', 100.0)
+          Set_R_sVar('$sgdst' + gun_num + '[24].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[25].$comment','120mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[25].$dst_gun', 120.0)
+          Set_R_sVar('$sgdst' + gun_num + '[25].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[26].$comment','140mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[26].$dst_gun', 140.0)
+          Set_R_sVar('$sgdst' + gun_num + '[26].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[27].$comment','160mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[27].$dst_gun', 160.0)
+          Set_R_sVar('$sgdst' + gun_num + '[27].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[28].$comment','180mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[28].$dst_gun', 180.0)
+          Set_R_sVar('$sgdst' + gun_num + '[28].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[29].$comment','200mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[29].$dst_gun', 200.0)
+          Set_R_sVar('$sgdst' + gun_num + '[29].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[30].$comment','220mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[30].$dst_gun', 220.0)
+          Set_R_sVar('$sgdst' + gun_num + '[30].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[31].$comment','240mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[31].$dst_gun', 240.0)
+          Set_R_sVar('$sgdst' + gun_num + '[31].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[32].$comment','260mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[32].$dst_gun', 260.0)
+          Set_R_sVar('$sgdst' + gun_num + '[32].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[33].$comment','280mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[33].$dst_gun', 280.0)
+          Set_R_sVar('$sgdst' + gun_num + '[33].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[34].$comment','300mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[34].$dst_gun', 300.0)
+          Set_R_sVar('$sgdst' + gun_num + '[34].$dst_rbt', 10.0)
+          Set_S_sVar('$sgdst' + gun_num + '[34].$comment','320mmGun')
+          Set_R_sVar('$sgdst' + gun_num + '[34].$dst_gun', 320.0)
+          Set_R_sVar('$sgdst' + gun_num + '[34].$dst_rbt', 10.0)
+
+          -- Cap Changer
+          Set_S_sVar('$sgdst' + gun_num + '[45].$comment','CChng 0mm_FullOp')
+          Set_R_sVar('$sgdst' + gun_num + '[45].$dst_gun', 0.0)
+          Set_R_sVar('$sgdst' + gun_num + '[45].$dst_rbt', 50.0) -- User to adjust to FULL OPEN       
+
+        ENDIF --setup pressure schedule, backup and distance
+
+       
+      ENDFOR
+      IF (spttl_eq2gn = 2) THEN --reinitialize variables for equipment 2 gun setup
+        sp_eqgn_num = sp_ttl_gn
+       ENDIF
+    ENDFOR
+
+    IF (setprs_bc_ds = TRUE) THEN --setup pressure, backup and distance 
+      --BACKUP SCHEDULE
+
+       -- Set Tryout HIDE / NO HIDE Pressure Menu
+       Set_B_sVar('$SGTRYOUT.$PRS_LIM_ENB', TRUE)
+
+       -- Pressure Limit in TEST CYCLE, SPOT WELD Menu was 100.00 = 980.7, 132.56 = 1300
+       Set_R_sVar('$SGTRYOUT.$PRESS_LIM', 132.560)
+
+       -- Servo Gun Open After Fault
+       Set_B_sVar('$SGGUN1.$FLTOPN.$ENABLE', FALSE)
+       Set_B_sVar('$SGGUN2.$FLTOPN.$ENABLE', FALSE)
+
+       -- Open Distance Gun and Robot
+       Set_R_sVar('$SGGUN1.$FLTOPN.$OPEN_GUN', 5.0)
+       Set_R_sVar('$SGGUN1.$FLTOPN.$OPEN_RBT', 5.0)
+       Set_R_sVar('$SGGUN2.$FLTOPN.$OPEN_GUN', 5.0)
+       Set_R_sVar('$SGGUN2.$FLTOPN.$OPEN_RBT', 5.0)
+    ENDIF --setup presure, backup and distance
+
+  ENDIF --servo gun option
+
+END swggun_prs
+-----------------------------------------------------------------------------
+ROUTINE set_spotvar2
+-- PURPOSE: set spot welding application variables
+--
+--
+-- INPUT:
+--            -
+-- OUTPUT:
+--            -
+-- CALLED BY:
+--
+--
+-----------------------------------------------------------------------------
+
+BEGIN
+
+IF (numwldctrl <> 0) THEN --spot welding applciation
+
+  Current_Ver = Version -- Set the version for reference
+
+  IF UNINIT(ErrsInShop.ErrorsVarbls) THEN    ErrsInShop.ErrorsVarbls = 0
+  ENDIF
+  IF UNINIT(SpotVR2Setup) OR (Reset_Cell) THEN
+    SpotVR2Setup = FALSE
+  ENDIF
+
+  StrtinErs = ErrsInShop.ErrorsVarbls -- grab current error count
+  ClrUtltyErrs -- Clear all error in utility program to be used when done
+
+  WriteLog('Starting the Spot Variables GMSPOTVR2', FALSE)
+
+  IF (SpotVR2Setup = TRUE) THEN -- setup has already been setup
+    WriteLog('  Spot Variables 2 Already Setup', FALSE)
+    IF ExecSetupAgn('Spot Vars 2') THEN -- ask user if they want to setup again
+      SpotVR2Setup = FALSE
+    ELSE
+      WriteLog('  Spot Variables 2 already Complete', FALSE)
+      WriteLog('GMSPOTVR2 Setup NOT executing again', FALSE)
+      RETURN
+    ENDIF
+  ENDIF
+
+  -- Insert routines created call here
+  initspot2var
+  init_sgax
+  swg_var
+  swggun_var
+  swggun_prs
+
+  ErrsInShop.ErrorsVarbls =  ErrsInShop.ErrorsVarbls + (AddUtltyErrs) -- Get all errors in utility program to be added to any program errors
+  IF (ErrsInShop.ErrorsVarbls -StrtinErs) > 0 THEN -- check for I/O setup errors
+    WriteLog('Spot Variable Setup GMSPOTV2R had ' + int2str((ErrsInShop.ErrorsVarbls- StrtinErs))+' while executing', TRUE)
+  ELSE
+    WriteLog('Spot Variable 2 Setup completed', FALSE)
+    SpotVR2Setup = TRUE
+  ENDIF
+
+  WriteLog('', FALSE)
+
+ENDIF --numweldctrl
+
+END set_spotvar2
+-----------------------------------------------------------------------------
+BEGIN
+
+END gmspotvr2

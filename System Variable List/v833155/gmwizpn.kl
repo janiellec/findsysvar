@@ -1,0 +1,85 @@
+--
+--    This material is the joint property of GMFanuc Robotics Corporation  and
+--    FANUC  LTD  Japan,  and  must  be  returned  to  either GMFanuc Robotics
+--    Corporation or FANUC LTD Japan immediately upon request.  This  material
+--    and   the  information  illustrated  or  contained  herein  may  not  be
+--    reproduced, copied, used, or transmitted in whole or in part in any  way
+--    without the prior written consent of both GMFanuc Robotics and FANUC.
+--
+--             All Rights Reserved
+--             Copyright (C)   1992
+--             GMFanuc Robotics Corporation
+--             FANUC LTD Japan
+--
+--             Karel is a registered trademark of
+--             GMFanuc Robotics Corporation
+--    +
+--    Program: gmwizpn.kl
+--
+--    Description:
+--
+--    gmwizpn contains questions for configuring GM G4 paint shop
+--    
+-------------------------------------------------------------------------------------------------------------
+--    SETUP ROUTINES INCLUDED
+-------------------------------------------------------------------------------------------------------------
+--
+--    Language: KAREL
+--
+--    Source File: 
+--
+--    Author:
+--            Fanuc Robotics North America
+--            3900 West Hamlin Road
+--            Rochester Hills, Michigan    48309-3253
+--
+--    Modification history:
+--           2016/04/04   marchaka Program created
+-------------------------------------------------------------------------------------------------------------
+PROGRAM gmwizpn
+-------------------------------------------------------------------------------------------------------------
+%ALPHABETIZE
+%NOLOCKGROUP
+%INVISIBLE
+%RWACCESS
+%NOPAUSE = ERROR + COMMAND + TPENABLE
+
+%COMMENT='GM PaintWizG4.0'
+
+%INCLUDE gmevrlng -- Required for the language constants
+%INCLUDE gmcfgcel  -- GM wizard variables for workcell variables that are common across all shops
+%INCLUDE gmcfgerr  -- Required for the configuration for GM Error counting and logging
+%INCLUDE gmcfgbdy  -- Required for the configuration for GM Body Shop variables  
+%INCLUDE gmcfgspt  -- Required for the configuration for GM Spot Gun variables
+
+CONST
+
+Version = '2016-04-15'
+%INCLUDE gmcnstnt -- all GM constants for the wizard
+
+
+VAR
+  ans          : INTEGER
+  gm_status    : INTEGER
+  psve         : INTEGER
+  l_response   : INTEGER
+
+%INCLUDE klrdutil -- Required for the CLR_STND_SCR routine for Pendant screen
+%INCLUDE gmrdutil
+
+ROUTINE set_english FROM GMlang1 -- setup variable for the user prompts
+ROUTINE USERPAGE FROM USERPAGE  -- forces user screen to pendant
+-------------------------------------------------------------------
+ROUTINE spot_app_wiz
+
+BEGIN
+
+END spot_app_wiz
+-------------------------------------------------------------------
+BEGIN
+
+set_english
+spot_app_wiz
+
+END gmwizpn
+

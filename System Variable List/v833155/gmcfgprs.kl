@@ -1,0 +1,17 @@
+-- Used for Press specific variables need in GM configurations
+-- is a seperate file so that specific files can be mixed and matched saved and loaded based on a user configuration
+  -- Press Application Variables
+  -- Press application will also share the MH, Tool Changer, and Vision Variables
+  Use_Press    IN SHADOW FROM GMCFGPRS : BOOLEAN -- When True using the Press, MFG_AREA should also be set to 2
+  Use_Pres_Log IN SHADOW FROM GMCFGPRS : BOOLEAN -- When True using the Press, MFG_AREA should also be set to 2
+  PrsMcrsLoded IN SHADOW FROM GMCFGPRS : BOOLEAN -- Press macros have already been Load before need to prompt operator
+  PresLineType IN SHADOW FROM GMCFGPRS : INTEGER -- What type of line the user selects -- defined in GMCNSTNT
+                                                 --1 = Tandem, 2= Destack, 3= Transfer 4=Robo Racking Pres Metal Forming
+  PresTLCHType IN SHADOW FROM GMCFGPRS : INTEGER -- Used for tool changer type 1=Auto 2=Manual
+  PresNestType IN SHADOW FROM GMCFGPRS : INTEGER -- Used for tool changer nest type 1=2 2=4 nests
+  LPT          IN SHADOW FROM GMCFGPRS : BOOLEAN
+  PrsMantc_num IN SHADOW FROM GMCFGPRS : INTEGER -- Used for number of Manual Tool Changers -- defined in GMCNSTNT
+  LPT_IIC      IN SHADOW FROM GMCFGPRS : BOOLEAN
+
+
+
