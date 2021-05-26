@@ -130,3 +130,13 @@ dmypy.json
 
 # All KAREL, CM, STM, XML Files
 **/System\ Variable\ List/*
+
+# Random things
+**/.vs/**
+*.pyproj
+*.cm
+*.kl
+*.kls
+*.stm
+*.xml
+*.sln

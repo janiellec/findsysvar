@@ -13,14 +13,14 @@ import csv
 #test.csv
 
 def setup_files(set_name, directory):
-    suf = ".kl"
+    #suf = ".kl"
     setcsv = open(set_name + '.csv', "w")
     setup_file = csv.writer(setcsv)
     string = ('C:\\Users\\calaunjr\\Desktop\\Finding System Variable\\System Variable List\\', directory)
     dire = "".join(string)
     for root, dir, files in os.walk(dire):
         for all in files:
-            all = all.replace(suf, "")
+    #        all = all.replace(suf, "")
             setup_file.writerow([all])
 
 ## Try this one!!!!
@@ -28,6 +28,7 @@ def file_exist(list, setup):
     with open(list, 'r') as t1, open(setup, 'r') as t2:
         fileone = t1.readlines()
         filetwo = t2.readlines()
+        print(filetwo)
     filestatus = False                                  #nothing in not_exist file
     with open('not_exist.csv', 'w') as outfile:
         for line in fileone:
