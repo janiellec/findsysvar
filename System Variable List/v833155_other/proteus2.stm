@@ -1,7 +1,0 @@
-﻿<meta http-equiv="refresh" content="0; url=http://<!--#echo var="[*SYSTEM*]$EIP_CONN[8].$HOST" -->"> 
-
-<title>Proteus#2 Redirect</title>
-
-IP: <!--#echo var="[*SYSTEM*]$EIP_CONN[8].$HOST" --> <br>
-
-<a href="http://<!--#echo var="[*SYSTEM*]$EIP_CONN[8].$HOST" -->">Proteus#2 Link</a>

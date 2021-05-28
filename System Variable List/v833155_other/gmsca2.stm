@@ -1,7 +1,0 @@
-﻿<meta http-equiv="refresh" content="0; url=http://<!--#echo var="[*STRREG*]$STRREG[2]" -->"> 
-
-<title>SCA#2 Redirect</title>
-
-IP: <!--#echo var="[*STRREG*]$STRREG[2]" --> <br>
-
-<a href="http://<!--#echo var="[[*STRREG*]$STRREG[2]" -->">SCA#2 Link</a>
