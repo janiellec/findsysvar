@@ -3,6 +3,13 @@ import re
 import os
 import csv
 
+def remove_white(string):
+    #removes whitespace and after
+    if var.find(' ') != -1:
+        return var[0:var.find(' ')]
+    else:  
+        return var
+
 def find_basic(readfile, writefile, ext):
     readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/System Variable List/v833155/' + readfile
     pattern = re.compile('[$].+?(?=' + ext + ')')
@@ -14,10 +21,10 @@ def find_basic(readfile, writefile, ext):
                 p = pattern.findall(line)
             if p:
                 for var in p:
+                    var = remove_white(var)
                     writefile.write(var + "\n")
 
 def fileext(name):
-
     ext = name[name.find('.'):]
     if ext == ".cm":
         return " "
