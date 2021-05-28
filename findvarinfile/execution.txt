@@ -1,2 +1,2 @@
-pot_files.csv
-list_of_sysvar.txt
+v833155_other
+othersysvar.txt
