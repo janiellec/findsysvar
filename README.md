@@ -1,8 +1,11 @@
 # FINDING SYSTEM VARIABLES OF MULTIPLE FILES
 
+This project is supposed to find system variables (formatted as "$<variable name>")
+in multiple files. 
+
 ## BY JANIELLE CALAUNAN as FANUC Intern
 
-This project is supposed to find system variables (formatted as "$[variable name]")
+This project is supposed to find system variables (formatted as "$<variable name>")
 in multiple files. 
 
 ### check_exist.py
