@@ -28,7 +28,10 @@ def search(list, character):
 # Finds files that might have system variables
 def sysfiles(directory):
     #path = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/System Variable List/' + directory
-    path = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/' + directory
+    path = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/findvarinfile/' + directory
+    #path = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/BodyShop/' + directory
+    #path = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/' + directory
+    print(path)
     list = []
     countfiles, total = 0, 0
     for root, dir, files in os.walk(path):
@@ -83,8 +86,10 @@ def remove_irrelevant(string):
 # Searches for system variables according to pattern and stores it in an output file
 def find_basic(readfile, writefile, ext):
     #readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/System Variable List/' + readfile
-    readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/' + readfile
-    
+    readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/findvarinfile/' + readfile
+    #readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/BodyShop/' + readfile
+    #readfile = '/mnt/c/Users/calaunjr/Desktop/FindSysVar/' + readfile
+
     pattern = re.compile('[$].+?(?=' + ext + ')')
     with open(readfile, 'r', encoding='latin-1') as t1:
         for line in t1:
@@ -99,15 +104,30 @@ def find_basic(readfile, writefile, ext):
                         var = remove_irrelevant(var)
                         writefile.write(var + "\n")
 
+
 if __name__ == '__main__':
 
-    filedir = input("Enter directory under System Variable List: ")
+    type = input("File or Directory? (f/d): ")
+    if type == "f":
+        filedir = input("Enter file name: ")
+    elif type == "d":
+        filedir = input("Enter directory: ")
+    else:
+        print("Invalid input. Rerun the program")
+        sys.exit()
+
     output = input("Enter output file name: ")
-    pot_files = sysfiles(filedir)
-    with open(output, 'w+', encoding='latin-1') as out:
-        for file in pot_files:
-            ext = fileext(file)
-            filepath = filedir + '/' + file
-            find_basic(filepath, out, ext)
+    print()
+    if type == "d":
+        pot_files = sysfiles(filedir)
+    with open(output, 'a+', encoding='latin-1') as out:
+        if type == "f":
+            ext = fileext(filedir)
+            find_basic(filedir, out, ext)
+        if type == "d":
+            for file in pot_files:
+                ext = fileext(filedir)
+                filepath = filedir + '/' + file
+                find_basic(filepath, out, ext)
     print("""All found potential variables are in """ + output + 
             """\nVariables are now ready for post-processing""")
