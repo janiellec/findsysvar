@@ -5,7 +5,7 @@ in multiple files.
 
 ## by JANIELLE CALAUNAN as FANUC BSG SWE Intern
 
-The project currently consists of two functions: findvarinfile.py and check_exist.py. The latter was much more useful in the early stages of the project where individual programs were needed to check the find system variables. This is now optimized so that findvarinfile.py is the only function needed to find system variables.
+The project currently consists of two scripts: findvarinfile.py and check_exist.py. The latter was much more useful in the early stages of the project where individual programs were needed to check the find system variables. This is now optimized so that findvarinfile.py is the only script needed to find system variables.
 
 This is my first Python project, which was learned as these programs grew and were written. While it was incredibly fun to make (despite being a fairly simple task), it isn't perfect. There are plenty of nested loops that might make it run faster (big O is pretty big considering how many lines are in each file and how many files are in the folder). There also seems to be some bugs here and there which can easily be found during the post-processing stage of the project.
 
